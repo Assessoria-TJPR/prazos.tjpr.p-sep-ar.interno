@@ -46,13 +46,13 @@
     <script type="text/babel">
         // For Firebase JS SDK v7.20.0 and later, measurementId is optional
         const firebaseConfig = {
-          apiKey: "AIzaSyAzgd2Zt-giAcns0sh1xzTP506vhW7AiDo",
-          authDomain: "djen-4a2fb.firebaseapp.com",
-          projectId: "djen-4a2fb",
-          storageBucket: "djen-4a2fb.appspot.com",
-          messagingSenderId: "928977146281",
-          appId: "1:928977146281:web:42f206788ec1d68c2b34b8",
-          measurementId: "G-LM8T5WZXNX"
+          apiKey: "AIzaSyD1ApCkzPbBRNJUCkAGet9DBKb1uE9O1Bo",
+          authDomain: "djen-com-minuta.firebaseapp.com",
+          projectId: "djen-com-minuta",
+          storageBucket: "djen-com-minuta.firebasestorage.app",
+          messagingSenderId: "498664224312",
+          appId: "1:498664224312:web:6de6a453d9e36138a398cd",
+          measurementId: "G-MCV0ZCD3Y1"
         };
 
         // Inicializa o Firebase
@@ -90,12 +90,14 @@
         const AuthProvider = ({ children }) => {
             const [user, setUser] = useState(null);
             const [isAdmin, setIsAdmin] = useState(false);
+            const [userData, setUserData] = useState(null);
             const [loading, setLoading] = useState(true);
 
             const updateUserAndAdminStatus = async (firebaseUser) => {
                 if (firebaseUser) {
                     setUser(firebaseUser);
                     const userDoc = await db.collection('users').doc(firebaseUser.uid).get();
+                    if (userDoc.exists) setUserData(userDoc.data());
                     if (userDoc.exists) {
                         setIsAdmin(userDoc.data().isAdmin === true);
                     } else {
@@ -104,6 +106,7 @@
                 } else {
                     setUser(null);
                     setIsAdmin(false);
+                    setUserData(null);
                 }
             };
 
@@ -112,6 +115,7 @@
                     if (user) {
                         setUser(user);
                         const userDoc = await db.collection('users').doc(user.uid).get();
+                        if (userDoc.exists) setUserData(userDoc.data());
                         if (userDoc.exists) {
                             setIsAdmin(userDoc.data().isAdmin === true);
                         } else {
@@ -120,6 +124,7 @@
                     } else {
                         setUser(null);
                         setIsAdmin(false);
+                        setUserData(null);
                     }
                     setLoading(false);
                 };
@@ -133,7 +138,7 @@
             }, []);
 
             // A função de atualização é exposta para que componentes filhos possam forçar a atualização do usuário.
-            const value = { user, isAdmin, loading, refreshUser: () => auth.currentUser && updateUserAndAdminStatus(auth.currentUser) };
+            const value = { user, isAdmin, userData, loading, refreshUser: () => auth.currentUser && updateUserAndAdminStatus(auth.currentUser) };
 
             return <AuthContext.Provider value={value}>{!loading && children}</AuthContext.Provider>;
         };
@@ -791,6 +796,7 @@
             const [isLogin, setIsLogin] = useState(true);
             const [email, setEmail] = useState('');
             const [password, setPassword] = useState('');
+            const [displayName, setDisplayName] = useState('');
             const [rememberMe, setRememberMe] = useState(true);
             const [isResettingPassword, setIsResettingPassword] = useState(false);
             const [error, setError] = useState('');
@@ -854,7 +860,7 @@
                     } else {
                         const userCredential = await auth.createUserWithEmailAndPassword(finalEmail, password);
                         await Promise.all([
-                            db.collection('users').doc(userCredential.user.uid).set({ email: finalEmail, isAdmin: false, displayName: null }),
+                            db.collection('users').doc(userCredential.user.uid).set({ email: finalEmail, isAdmin: false, displayName: displayName.trim() }),
                             userCredential.user.sendEmailVerification()
                         ]);
                         setMessage("Conta criada! Enviámos um link de verificação para o seu e-mail.");
@@ -934,6 +940,7 @@
                             <>
                                 <h2 className="text-3xl font-bold text-center text-slate-800 dark:text-slate-100">{isLogin ? 'Login' : 'Criar Conta'}</h2>
                                 <form onSubmit={handleSubmit} className="space-y-4">
+                                    {!isLogin && <input type="text" placeholder="Nome Completo" value={displayName} onChange={e => setDisplayName(e.target.value)} required className="w-full px-4 py-3 bg-white/50 dark:bg-slate-900/50 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition" />}
                                     <div className="flex items-center bg-white/50 dark:bg-slate-900/50 border border-slate-300 dark:border-slate-600 rounded-lg focus-within:ring-2 focus-within:ring-indigo-500 focus-within:border-indigo-500 transition">
                                         <input type="text" placeholder="seu.usuario" value={email} onChange={e => setEmail(e.target.value)} required className="flex-grow px-4 py-3 bg-transparent outline-none" />
                                         <span className="px-4 py-3 text-slate-500 dark:text-slate-400 bg-slate-100/50 dark:bg-slate-800/50 rounded-r-lg">@tjpr.jus.br</span>
@@ -1064,7 +1071,6 @@
             );
         };
 
-
         const AdminPage = () => {
              const { user } = useAuth();
              const [stats, setStats] = useState({ total: 0, perMateria: {}, perPrazo: {}, byDay: {} });
@@ -1091,9 +1097,9 @@
                             db.collection('usageStats').orderBy('timestamp', 'desc').get(),
                             db.collection('users').get()
                         ]);
-                        const usersMap = usersSnapshot.docs.reduce((acc, doc) => ({ ...acc, [doc.data().email]: doc.data().displayName }), {});
+                        const usersMap = usersSnapshot.docs.reduce((acc, doc) => ({ ...acc, [doc.id]: doc.data().displayName }), {});
                         const usageData = usageSnapshot.docs.map(doc => ({id: doc.id, ...doc.data()}));
-                        const enrichedData = usageData.map(d => ({...d, userName: usersMap[d.userEmail] || d.userEmail }));
+                        const enrichedData = usageData.map(d => ({...d, userName: usersMap[d.userId] || d.userEmail }));
                         if (isMounted) {
                             setAllData(enrichedData);
                             setAllUsers([...new Set(enrichedData.map(item => item.userName))].filter(Boolean).sort());
@@ -1351,8 +1357,78 @@
              );
         };
 
+        const SettingsModal = ({ onClose }) => {
+            return (
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[60] p-4" onClick={onClose}>
+                    <div className="bg-white dark:bg-slate-800 w-full max-w-md rounded-2xl shadow-2xl flex flex-col" onClick={e => e.stopPropagation()}>
+                        <div className="flex justify-between items-center p-6 border-b border-slate-200 dark:border-slate-700">
+                            <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Configurações</h2>
+                            <button onClick={onClose} className="text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 transition">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                            </button>
+                        </div>
+                        <div className="p-6"><p className="text-slate-500 dark:text-slate-400">Opções de configuração serão adicionadas aqui.</p></div>
+                    </div>
+                </div>
+            );
+        };
+
+        const ProfileModal = ({ user, userData, onClose }) => {
+            if (!user) return null;
+
+            return (
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
+                    <div className="bg-white dark:bg-slate-800 w-full max-w-md rounded-2xl shadow-2xl flex flex-col" onClick={e => e.stopPropagation()}>
+                        <div className="flex justify-between items-center p-6 border-b border-slate-200 dark:border-slate-700">
+                            <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Perfil do Usuário</h2>
+                            <button onClick={onClose} className="text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 transition">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                            </button>
+                        </div>
+
+                        <div className="p-6 space-y-4">
+                            <div>
+                                <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Nome</label>
+                                <p className="w-full px-4 py-3 bg-slate-100/70 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-lg">
+                                    {userData?.displayName || 'Nome não informado'}
+                                </p>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Email</label>
+                                <p className="w-full px-4 py-3 bg-slate-100/70 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-lg">
+                                    {user.email}
+                                </p>
+                            </div>
+
+                            {/* Espaço para futuras funcionalidades */}
+                            <div className="border-t border-slate-200 dark:border-slate-700 pt-4">
+                                <h3 className="text-lg font-semibold text-slate-700 dark:text-slate-200 mb-2">Outras Opções</h3>
+                                <button onClick={() => document.dispatchEvent(new CustomEvent('openSettings'))} className="w-full flex justify-center items-center bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold py-2 px-4 rounded-lg hover:bg-slate-300 dark:hover:bg-slate-600 transition-all duration-300">
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.532 1.532 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.532 1.532 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" /></svg>
+                                    Configurações
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
         const Header = () => {
-            const { user, openCalendario } = useAuth(); // Usando o contexto
+            const { user, userData, openCalendario } = useAuth();
+            const [isMenuOpen, setIsMenuOpen] = useState(false);
+            const menuRef = React.useRef(null);
+
+            useEffect(() => {
+                const handleClickOutside = (event) => {
+                    if (menuRef.current && !menuRef.current.contains(event.target)) {
+                        setIsMenuOpen(false);
+                    }
+                };
+                document.addEventListener("mousedown", handleClickOutside);
+                return () => document.removeEventListener("mousedown", handleClickOutside);
+            }, [menuRef]);
+
             return (
             <header className="bg-white/30 dark:bg-slate-900/30 backdrop-blur-xl shadow-sm sticky top-0 z-10 border-b border-slate-200/50 dark:border-slate-700/50">
                 <div className="container mx-auto px-4 py-4 flex justify-between items-center">
@@ -1361,13 +1437,30 @@
                         <h1 className="text-xl sm:text-2xl font-bold text-slate-800 dark:text-slate-100 tracking-tight">Modulo Prazos - P-SEP-AR - TJPR</h1>
                     </div>
                      {user && (
-                        <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-2 sm:gap-4 relative" ref={menuRef}>
                             <button onClick={openCalendario} className="hidden sm:flex items-center gap-2 text-sm font-medium text-slate-600 dark:text-slate-300 hover:text-indigo-500 dark:hover:text-indigo-400 transition">
                                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z" clipRule="evenodd" /></svg>
                                 Ver Calendário
                             </button>
-                            <span className="text-sm text-slate-500 dark:text-slate-400 hidden sm:block">{user.email}</span>
-                            <button onClick={() => auth.signOut()} className="text-sm font-medium text-indigo-600 hover:text-indigo-500">Sair</button>
+                            <button onClick={() => setIsMenuOpen(prev => !prev)} className="p-2 rounded-full hover:bg-slate-200/50 dark:hover:bg-slate-700/50 transition-colors">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-slate-600 dark:text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" /></svg>
+                            </button>
+                            {isMenuOpen && (
+                                <div className="absolute top-full right-0 mt-2 w-56 bg-white dark:bg-slate-800 rounded-lg shadow-2xl border border-slate-200 dark:border-slate-700 py-2 z-20">
+                                    <div className="px-4 py-2 border-b border-slate-200 dark:border-slate-700 mb-2">
+                                        <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">{userData?.displayName || 'Usuário'}</p>
+                                        <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{user.email}</p>
+                                    </div>
+                                    <button onClick={() => { document.dispatchEvent(new CustomEvent('openProfile')); setIsMenuOpen(false); }} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-3">
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" /></svg>
+                                        Perfil
+                                    </button>
+                                    <button onClick={() => auth.signOut()} className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-3">
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3 3a1 1 0 00-1 1v12a1 1 0 102 0V4a1 1 0 00-1-1zm10.293 9.293a1 1 0 001.414 1.414l3-3a1 1 0 000-1.414l-3-3a1 1 0 10-1.414 1.414L14.586 9H7a1 1 0 100 2h7.586l-1.293 1.293z" clipRule="evenodd" /></svg>
+                                        Sair
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>
@@ -1377,13 +1470,9 @@
 
         const CalculatorApp = () => {
             const [currentArea, setCurrentArea] = useState('Calculadora');
-            const [showCalendario, setShowCalendario] = useState(false);
             const [numeroProcesso, setNumeroProcesso] = useState('');
-            const { isAdmin, user } = useAuth();
+            const { isAdmin, user, openCalendario } = useAuth();
             
-            // Passando a função para o contexto para que o Header possa usá-la
-            const authContextValue = { user, isAdmin, openCalendario: () => setShowCalendario(true) };
-
             return(
             <>
                 <nav className="bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm border-b border-slate-200/50 dark:border-slate-700/50">
@@ -1391,7 +1480,7 @@
                       <div className="flex justify-center items-center space-x-2 p-2">
                          <button onClick={() => setCurrentArea('Calculadora')} className={`px-4 py-2 text-sm font-semibold rounded-lg transition-all duration-200 ${currentArea === 'Calculadora' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'}`}>Calculadora</button>
                          <button onClick={() => setShowCalendario(true)} className="sm:hidden px-4 py-2 text-sm font-semibold rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700">
-                            Calendário
+                            Calendário {/* Este botão precisa ser corrigido para usar o contexto também */}
                          </button>
                          {isAdmin && <button onClick={() => setCurrentArea('Admin')} className={`px-4 py-2 text-sm font-semibold rounded-lg transition-all duration-200 ${currentArea === 'Admin' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'}`}>Admin</button>}
                       </div>
@@ -1410,7 +1499,6 @@
                         )}
                     </div>
                 </main>
-                {showCalendario && <CalendarioModal onClose={() => setShowCalendario(false)} />}
             </>
             )
         };
@@ -1429,7 +1517,7 @@
         );
 
         const UserIDWatermark = ({ overlay = false }) => {
-             const { user } = useAuth();
+             const { user, userData } = useAuth();
              if (!user) return null;
              if (overlay) {
                 return <div className="watermark-overlay">{user.uid}</div>
@@ -1437,6 +1525,7 @@
              return (
                 <div className="fixed bottom-2 left-2 text-xs text-slate-400 dark:text-slate-600 z-50 pointer-events-none">
                     <p>Logado como:</p>
+                    <p>{userData?.displayName || user.email}</p>
                     ID do Utilizador: {user.uid}
                 </div>
             );
@@ -1445,7 +1534,26 @@
 
         // --- Componente Principal ---
         const App = () => {
-          const { user, loading } = useAuth();
+          const { user, loading, refreshUser } = useAuth();
+          const [showCalendario, setShowCalendario] = useState(false);
+          const [showProfile, setShowProfile] = useState(false);
+          const [showSettings, setShowSettings] = useState(false);
+
+          useEffect(() => {
+            const openCalendarioHandler = () => setShowCalendario(true);
+            const openProfileHandler = () => setShowProfile(true);
+            const openSettingsHandler = () => setShowSettings(true);
+            document.addEventListener('openCalendario', openCalendarioHandler);
+            document.addEventListener('openProfile', openProfileHandler);
+            document.addEventListener('openSettings', openSettingsHandler);
+            return () => {
+                document.removeEventListener('openCalendario', openCalendarioHandler);
+                document.removeEventListener('openProfile', openProfileHandler);
+                document.removeEventListener('openSettings', openSettingsHandler);
+            };
+          }, []);
+
+
 
           if (loading) {
             return <div className="min-h-screen flex items-center justify-center"><p>A carregar...</p></div>;
@@ -1463,16 +1571,21 @@
           
           return (
             <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-200 dark:from-slate-800 dark:to-slate-900 text-slate-800 dark:text-slate-200 flex flex-col relative">
-                {user && user.emailVerified && <Header />}
+                <AuthContext.Provider value={{ ...useAuth(), openCalendario: () => document.dispatchEvent(new CustomEvent('openCalendario')), openProfile: () => document.dispatchEvent(new CustomEvent('openProfile')) }}>
+                    {user && user.emailVerified && <Header />}
+                </AuthContext.Provider>
                 <div className="flex-grow">
                   {renderContent()}
                 </div>
                 <UserIDWatermark />
                 <CreditsWatermark />
+                {showCalendario && <CalendarioModal onClose={() => setShowCalendario(false)} />}
+                {showProfile && <ProfileModal user={user} userData={useAuth().userData} onClose={() => setShowProfile(false)} />}
+                {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
             </div>
           );
         };
-        
+
         const root = ReactDOM.createRoot(document.getElementById('root'));
         root.render(
             <AuthProvider>
