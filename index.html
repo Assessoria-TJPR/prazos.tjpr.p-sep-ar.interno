@@ -654,19 +654,17 @@
                                         </div>
                                     </div>
                                 )}
-                                {(tempestividade === 'puramente_intempestivo' || tempestividade === 'intempestivo_falta_decreto') && (
+                                {tempestividade === 'puramente_intempestivo' && (
                                     <div className="mt-4"><button onClick={gerarMinutaIntempestividade} className="w-full md:w-auto flex justify-center items-center bg-gradient-to-br from-red-500 to-red-600 text-white font-semibold py-2 px-5 rounded-lg hover:from-red-600 hover:to-red-700 transition-all duration-300 shadow-md">Baixar minuta Puramente Intempestivo</button></div>
-                                )}
-                                {(tempestividade === 'tempestivo' || tempestividade === 'intempestivo_falta_decreto') && resultado.suspensoesComprovaveis.length > 0 && (
+                                )} 
+                                {tempestividade === 'intempestivo_falta_decreto' && resultado.suspensoesComprovaveis.length > 0 && (
                                     <div className="mt-4 space-y-2 md:space-y-0 md:flex md:items-center md:gap-3">
-                                        {tempestividade === 'intempestivo_falta_decreto' && (
-                                            <div className="p-3 text-sm text-amber-800 rounded-lg bg-amber-50 dark:bg-gray-800 dark:text-amber-400" role="alert">
-                                                <span className="font-medium">Atenção:</span> O recurso está intempestivo, a menos que as suspensões de prazo sejam comprovadas.
-                                            </div>
-                                        )}
+                                        <div className="p-3 text-sm text-amber-800 rounded-lg bg-amber-50 dark:bg-gray-800 dark:text-amber-400" role="alert">
+                                            <span className="font-medium">Atenção:</span> O recurso está intempestivo, a menos que as suspensões de prazo sejam comprovadas.
+                                        </div>
                                         <p className="text-sm text-slate-600 dark:text-slate-300 font-medium">Gerar outras minutas:</p>
                                         <div className="flex gap-3">
-                                            <button onClick={gerarMinutaIntimacaoDecreto} className="flex-1 md:flex-auto justify-center flex items-center bg-gradient-to-br from-sky-500 to-sky-600 text-white font-semibold py-2 px-4 rounded-lg hover:from-sky-600 hover:to-sky-700 transition-all duration-300 shadow-md text-sm">Intimação Decreto</button><button onClick={gerarMinutaFaltaDecreto} className="flex-1 md:flex-auto justify-center flex items-center bg-gradient-to-br from-amber-500 to-amber-600 text-white font-semibold py-2 px-4 rounded-lg hover:from-amber-600 hover:to-amber-700 transition-all duration-300 shadow-md text-sm">Intempestivo Falta Decreto</button>
+                                            <button onClick={gerarMinutaIntimacaoDecreto} className="flex-1 md:flex-auto justify-center flex items-center bg-gradient-to-br from-sky-500 to-sky-600 text-white font-semibold py-2 px-4 rounded-lg hover:from-sky-600 hover:to-sky-700 transition-all duration-300 shadow-md text-sm">Intimação Decreto</button><button onClick={gerarMinutaFaltaDecreto} disabled className="flex-1 md:flex-auto justify-center flex items-center bg-slate-400 text-white font-semibold py-2 px-4 rounded-lg cursor-not-allowed shadow-md text-sm">Intempestivo Falta Decreto</button>
                                         </div>
                                     </div>
                                 )}
