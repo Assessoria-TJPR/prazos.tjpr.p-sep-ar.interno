@@ -215,7 +215,7 @@
                 const numeroLimpo = numeroProcesso.replace(/\D/g, '');
                 const dataFim = new Date();
                 const dataInicio = new Date();
-                dataInicio.setFullYear(dataInicio.getFullYear() - 2);
+                dataInicio.setFullYear(dataInicio.getFullYear() - 1);
                 const formataData = (d) => d.toISOString().split('T')[0];
                 const url = `https://comunica.pje.jus.br/consulta?siglaTribunal=TJPR&dataDisponibilizacaoInicio=${formataData(dataInicio)}&dataDisponibilizacaoFim=${formataData(dataFim)}&numeroProcesso=${numeroLimpo}`;
                 window.open(url, '_blank', 'noopener,noreferrer');
