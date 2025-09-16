@@ -25,8 +25,11 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     
     <!-- Biblioteca para gerar DOCX -->
-    <script src="https://unpkg.com/html-to-docx@1.8.0/dist/browser/html-to-docx.js"></script>
+    <script src="https://unpkg.com/docx@8.5.0/build/index.js"></script>
 
+    <!-- Biblioteca para salvar arquivos (alternativa robusta para download) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    
     <style>
         body {
             font-family: Inter, sans-serif;
@@ -143,10 +146,24 @@
         // --- Componentes ---
 
         const ConsultaAssistidaPJE = ({ numeroProcesso, setNumeroProcesso }) => {
+            const { user } = useAuth();
             const [alerta, setAlerta] = useState('');
+
+            const logDjenUsage = () => {
+                if (db && user) {
+                    db.collection('usageStats').add({
+                        userId: user.uid,
+                        userEmail: user.email,
+                        type: 'djen_consulta',
+                        numeroProcesso: numeroProcesso || 'Não informado',
+                        timestamp: firebase.firestore.FieldValue.serverTimestamp()
+                    }).catch(err => console.error("Erro ao registar uso da consulta DJEN:", err));
+                }
+            };
 
             const handleConsulta = () => {
                 setAlerta('');
+                logDjenUsage(); // Registra o uso da consulta
                 const hoje = new Date();
                 const dataLimite = new Date('2025-05-16T00:00:00');
 
@@ -263,6 +280,7 @@
                       userId: user.uid,
                       userEmail: user.email,
                       materia: tipoPrazo,
+                      type: 'calculadora',
                       prazo: prazoSelecionado,
                       numeroProcesso: numeroProcesso || 'Não informado',
                       timestamp: firebase.firestore.FieldValue.serverTimestamp()
@@ -324,10 +342,10 @@
                     const dataIntimacaoSemDecreto = getProximoDiaUtilSemDecreto(dataPublicacaoSemDecreto);
 
                     const calcularPrazoCrime = (dataIntimacao, considerarDecretos) => {
-                        // Para prazos penais (dias corridos), adicionamos o número de dias ao início do prazo.
-                        // O prazo começa a contar no dia seguinte ao da intimação.
+                        // Para prazos penais (dias corridos), o prazo começa a contar no dia da intimação.
+                        // Adicionamos o número de dias - 1, pois o dia da intimação já conta.
                         const prazoFinal = new Date(dataIntimacao.getTime());
-                        prazoFinal.setDate(prazoFinal.getDate() + prazoNumerico);
+                        prazoFinal.setDate(prazoFinal.getDate() + prazoNumerico - 1);
 
                         // Agora, verificamos se o dia final do prazo é um dia útil.
                         // Se não for, o prazo é prorrogado para o próximo dia útil.
@@ -369,19 +387,35 @@
           useEffect(() => {
             if (resultado && dataInterposicao) {
                 try {
-                    const dataInterposicaoObj = new Date(dataInterposicao + 'T00:00:00');
-                    // Para cível, usamos o cenário com decreto (o mais benéfico)
-                    const prazoFinal = resultado.tipo === 'civel' ? resultado.comDecreto.prazoFinal : resultado.comDecreto.prazoFinal;
-                    
-                    // Zera as horas para comparar apenas as datas
-                    prazoFinal.setHours(0, 0, 0, 0);
-                    dataInterposicaoObj.setHours(0, 0, 0, 0);
+                    // Converte a data de interposição para um objeto Date em UTC para evitar problemas de fuso horário.
+                    const [year, month, day] = dataInterposicao.split('-').map(Number);
+                    const dataInterposicaoObj = new Date(Date.UTC(year, month - 1, day));
 
-                    if (dataInterposicaoObj > prazoFinal) {
-                        setTempestividade('intempestivo');
+                    // Prazo final mais benéfico possível (considerando TODAS as suspensões comprováveis).
+                    const todasSuspensoesComprovaveis = new Set(resultado.suspensoesComprovaveis.map(d => d.data.toISOString().split('T')[0]));
+                    const prazoFinalMaximo = calcularPrazoFinalDiasUteis(resultado.inicioPrazo, resultado.prazo, todasSuspensoesComprovaveis).prazoFinal;
+                    prazoFinalMaximo.setUTCHours(23, 59, 59, 999);
+                    
+                    // Prazo final considerando apenas as suspensões que o usuário marcou como comprovadas.
+                    const prazoFinalComprovado = resultado.comDecreto.prazoFinal;
+                    prazoFinalComprovado.setUTCHours(23, 59, 59, 999);
+
+                    // 1. Puramente intempestivo: A data de interposição é posterior ao prazo máximo possível.
+                    if (dataInterposicaoObj > prazoFinalMaximo) {
+                        setTempestividade('puramente_intempestivo');
+                    // 2. Intempestivo por falta de decreto: A data de interposição é posterior ao prazo com os decretos comprovados,
+                    // mas ainda seria tempestivo se todos os decretos possíveis fossem comprovados.
+                    } else if (dataInterposicaoObj > prazoFinalComprovado) {
+                        setTempestividade('intempestivo_falta_decreto');
+                    // 3. Tempestivo: A data de interposição está dentro do prazo com os decretos comprovados.
                     } else {
                         setTempestividade('tempestivo');
                     }
+
+                    // Reverte as alterações de hora para não afetar a exibição da data na UI.
+                    prazoFinalMaximo.setUTCHours(0, 0, 0, 0);
+                    prazoFinalComprovado.setUTCHours(0, 0, 0, 0);
+
                 } catch (e) {
                     setTempestividade(null);
                 }
@@ -390,42 +424,125 @@
             }
           }, [dataInterposicao, resultado, diasComprovados]);
 
+          const createStyledParagraph = (text) => {
+              return new window.docx.Paragraph({
+                  alignment: window.docx.AlignmentType.JUSTIFIED,
+                  children: [new window.docx.TextRun({ text: text, font: "Arial", size: 32 })], // 16pt * 2 = 32 half-points
+              });
+          };
+
           const gerarMinutaIntempestividade = async () => {
-            const { dataPublicacao, inicioPrazo, comDecreto } = resultado;
-            const dataDispStr = new Date(dataDisponibilizacao + 'T00:00:00').toLocaleDateString('pt-BR', { timeZone: 'UTC' });
-            const dataPubStr = dataPublicacao.toLocaleDateString('pt-BR', { timeZone: 'UTC' });
-            const inicioPrazoStr = inicioPrazo.toLocaleDateString('pt-BR', { timeZone: 'UTC' });
-            const dataInterposicaoStr = new Date(dataInterposicao + 'T00:00:00').toLocaleDateString('pt-BR', { timeZone: 'UTC' });
-            const prazoFinalStr = comDecreto.prazoFinal.toLocaleDateString('pt-BR', { timeZone: 'UTC' });
+            try {
+                const { dataPublicacao, inicioPrazo, prazo, suspensoesComprovaveis } = resultado;
+                const todasSuspensoes = new Set(suspensoesComprovaveis.map(d => d.data.toISOString().split('T')[0]));
+                const prazoFinalMaximo = calcularPrazoFinalDiasUteis(inicioPrazo, prazo, todasSuspensoes).prazoFinal;
 
-            const conteudoHtml = `
-                <p>O recurso especial não pode ser admitido, pois foi interposto sem observância do prazo previsto no artigo 1.003, § 5º, c/c artigo 219, ambos do Código de Processo Civil.</p>
-                <p>Isto porque se verifica que a intimação do acórdão recorrido (mov. x.x, dos autos sob nº ${numeroProcesso || 'xxxxxx'}) se deu pela disponibilização no DJEN na data de ${dataDispStr} e, considerada como data da publicação o primeiro dia útil seguinte ao da disponibilização da informação (artigos 4º, §3º, da Lei 11.419/2006, e 224, do Código de Processo Civil), ${dataPubStr}, iniciou-se a contagem do prazo no primeiro dia útil seguinte ao da publicação, isto é em ${inicioPrazoStr}.</p>
-                <p>Portanto, a petição recursal apresentada em ${dataInterposicaoStr} está intempestiva, já que o prazo recursal findou em ${prazoFinalStr}.</p>
-                <p>Neste sentido:</p>
-                <p>"PROCESSUAL CIVIL. AGRAVO INTERNO NO AGRAVO EM RECURSO ESPECIAL. RECURSO MANEJADO SOB A ÉGIDE DO NCPC. RECURSO INTEMPESTIVO. RECURSO ESPECIAL INTERPOSTO NA VIGÊNCIA DO NCPC. RECURSO ESPECIAL APRESENTADO FORA DO PRAZO LEGAL. INTEMPESTIVIDADE. APLICAÇÃO DOS ARTS. 219 E 1.003, § 5º, AMBOS DO NCPC. ADMISSIBILIDADE DO APELO NOBRE. JUÍZO BIFÁSICO. AUSÊNCIA DE VINCULAÇÃO DO STJ. AGRAVO INTERNO NÃO PROVIDO.</p>
-                <p>1. Aplica-se o NCPC a este julgamento ante os termos do Enunciado Administrativo nº 3, aprovado pelo Plenário do STJ na sessão de 9/3/2016: Aos recursos interpostos com fundamento no CPC/2015 (relativos a decisões publicadas a partir de 18 de março de 2016) serão exigidos os requisitos de admissibilidade recursal na forma do novo CPC.</p>
-                <p>2. A interposição de recurso especial após o prazo legal implica o seu não conhecimento, por intempestividade, nos termos dos arts. 219 e 1.003, § 5º, ambos do NCPC.</p>
-                <p>3. O juízo de admissibilidade do apelo nobre é bifásico, não ficando o STJ vinculado à decisão proferida pela Corte estadual.</p>
-                <p>4. Agravo interno não provido."</p>
-                <p>(AgInt no AREsp n. 2.039.729/RS, relator Ministro Moura Ribeiro, Terceira Turma, julgado em 9/5/2022, DJe de 11/5/2022.)</p>
-                <p>Diante do exposto, inadmito o recurso especial interposto.</p>
-                <p>Intime-se. Diligências necessárias.</p>
-                <br/><br/>
-                <p>Curitiba, data da assinatura digital.</p>
-                <br/><br/>
-                <p>Desembargador HAYTON LEE SWAIN FILHO</p>
-                <p>1º Vice-Presidente do Tribunal de Justiça do Estado do Paraná</p>
-            `.replace(/<p>/g, '<p style="font-family: Arial; font-size: 16pt; text-align: justify;">');
+                const dataDispStr = new Date(dataDisponibilizacao + 'T00:00:00').toLocaleDateString('pt-BR', { timeZone: 'UTC' });
+                const dataPubStr = dataPublicacao.toLocaleDateString('pt-BR', { timeZone: 'UTC' });
+                const inicioPrazoStr = inicioPrazo.toLocaleDateString('pt-BR', { timeZone: 'UTC' });
+                const dataInterposicaoStr = new Date(dataInterposicao + 'T00:00:00').toLocaleDateString('pt-BR', { timeZone: 'UTC' });
+                const prazoFinalStr = prazoFinalMaximo.toLocaleDateString('pt-BR', { timeZone: 'UTC' });
 
-            const fileBuffer = await htmlToDocx.asBlob(conteudoHtml);
+                const doc = new window.docx.Document({
+                    sections: [{
+                        children: [
+                            createStyledParagraph("O recurso especial não pode ser admitido, pois foi interposto sem observância do prazo previsto no artigo 1.003, § 5º, c/c artigo 219, ambos do Código de Processo Civil."),
+                            createStyledParagraph(`Isto porque se verifica que a intimação do acórdão recorrido (mov. x.x, dos autos sob nº ${numeroProcesso || 'xxxxxx'}) se deu pela disponibilização no DJEN na data de ${dataDispStr} e, considerada como data da publicação o primeiro dia útil seguinte ao da disponibilização da informação (artigos 4º, §3º, da Lei 11.419/2006, e 224, do Código de Processo Civil), ${dataPubStr}, iniciou-se a contagem do prazo no primeiro dia útil seguinte ao da publicação, isto é em ${inicioPrazoStr}.`),
+                            createStyledParagraph(`Portanto, a petição recursal apresentada em ${dataInterposicaoStr} está intempestiva, já que o prazo recursal findou em ${prazoFinalStr}.`),
+                            createStyledParagraph("Neste sentido:"),
+                            createStyledParagraph('"PROCESSUAL CIVIL. AGRAVO INTERNO NO AGRAVO EM RECURSO ESPECIAL. RECURSO MANEJADO SOB A ÉGIDE DO NCPC. RECURSO INTEMPESTIVO. RECURSO ESPECIAL INTERPOSTO NA VIGÊNCIA DO NCPC. RECURSO ESPECIAL APRESENTADO FORA DO PRAZO LEGAL. INTEMPESTIVIDADE. APLICAÇÃO DOS ARTS. 219 E 1.003, § 5º, AMBOS DO NCPC. ADMISSIBILIDADE DO APELO NOBRE. JUÍZO BIFÁSICO. AUSÊNCIA DE VINCULAÇÃO DO STJ. AGRAVO INTERNO NÃO PROVIDO.'),
+                            createStyledParagraph("1. Aplica-se o NCPC a este julgamento ante os termos do Enunciado Administrativo nº 3, aprovado pelo Plenário do STJ na sessão de 9/3/2016: Aos recursos interpostos com fundamento no CPC/2015 (relativos a decisões publicadas a partir de 18 de março de 2016) serão exigidos os requisitos de admissibilidade recursal na forma do novo CPC."),
+                            createStyledParagraph("2. A interposição de recurso especial após o prazo legal implica o seu não conhecimento, por intempestividade, nos termos dos arts. 219 e 1.003, § 5º, ambos do NCPC."),
+                            createStyledParagraph("3. O juízo de admissibilidade do apelo nobre é bifásico, não ficando o STJ vinculado à decisão proferida pela Corte estadual."),
+                            createStyledParagraph('4. Agravo interno não provido."'),
+                            createStyledParagraph("(AgInt no AREsp n. 2.039.729/RS, relator Ministro Moura Ribeiro, Terceira Turma, julgado em 9/5/2022, DJe de 11/5/2022.)"),
+                            createStyledParagraph("Diante do exposto, inadmito o recurso especial interposto."),
+                            createStyledParagraph("Intime-se. Diligências necessárias."),
+                            new window.docx.Paragraph({ text: "" }),
+                            new window.docx.Paragraph({ text: "" }),
+                            createStyledParagraph("Curitiba, data da assinatura digital."),
+                            new window.docx.Paragraph({ text: "" }),
+                            new window.docx.Paragraph({ text: "" }),
+                            createStyledParagraph("Desembargador HAYTON LEE SWAIN FILHO"),
+                            createStyledParagraph("1º Vice-Presidente do Tribunal de Justiça do Estado do Paraná"),
+                        ],
+                    }],
+                });
 
-            const link = document.createElement('a');
-            link.href = URL.createObjectURL(fileBuffer);
-            link.download = `Minuta_Intempestividade_${numeroProcesso || 'processo'}.doc`;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
+                window.docx.Packer.toBlob(doc).then(blob => {
+                    saveAs(blob, `Minuta_Intempestividade_${numeroProcesso || 'processo'}.docx`);
+                }).catch(err => { throw err; }); // Propaga o erro para o catch principal
+            } catch (err) {
+                console.error("Erro ao gerar o documento:", err);
+                setError("Ocorreu um erro ao tentar gerar o arquivo .doc. Verifique o console para mais detalhes.");
+            }
+          };
+
+          const gerarMinutaIntimacaoDecreto = async () => {
+            try {
+                const doc = new window.docx.Document({
+                    sections: [{
+                        children: [
+                            createStyledParagraph("Intime-se a parte Recorrente, nos termos dos artigos 1.003, § 6º c/c 224, §1, ambos do Código de Processo Civil, sob pena de ser reconhecida a intempestividade do recurso, para, no prazo de 5 (cinco) dias, comprovar a ocorrência do feriado local ou a determinação de suspensão do expediente ou do prazo recursal neste Tribunal de Justiça, por meio de documento idôneo, conforme publicado no Diário da Justiça Eletrônico (AgInt no AREsp n. 2.734.555/RJ, relator Ministro Humberto Martins, Terceira Turma, julgado em 16/12/2024, DJEN de 19/12/2024.)."),
+                            createStyledParagraph("Diligências necessárias."),
+                            new window.docx.Paragraph({ text: "" }),
+                            new window.docx.Paragraph({ text: "" }),
+                            createStyledParagraph("Curitiba, data da assinatura digital."),
+                            new window.docx.Paragraph({ text: "" }),
+                            new window.docx.Paragraph({ text: "" }),
+                            createStyledParagraph("Desembargador HAYTON LEE SWAIN FILHO"),
+                            createStyledParagraph("1º Vice-Presidente do Tribunal de Justiça do Estado do Paraná"),
+                        ],
+                    }],
+                });
+
+                window.docx.Packer.toBlob(doc).then(blob => {
+                    saveAs(blob, `Minuta_Intimacao_Decreto_${numeroProcesso || 'processo'}.docx`);
+                }).catch(err => { throw err; });
+            } catch (err) {
+                console.error("Erro ao gerar o documento de intimação:", err);
+                setError("Ocorreu um erro ao tentar gerar o arquivo .docx. Verifique o console para mais detalhes.");
+            }
+          };
+
+          const gerarMinutaFaltaDecreto = async () => {
+            try {
+                const { inicioPrazo, semDecreto } = resultado;
+                const dataLeituraStr = new Date(dataDisponibilizacao + 'T00:00:00').toLocaleDateString('pt-BR', { timeZone: 'UTC' });
+                const inicioPrazoStr = inicioPrazo.toLocaleDateString('pt-BR', { timeZone: 'UTC' });
+                const prazoFinalStr = semDecreto.prazoFinal.toLocaleDateString('pt-BR', { timeZone: 'UTC' });
+
+                const doc = new window.docx.Document({
+                    sections: [{
+                        children: [
+                            createStyledParagraph("Trata-se de recurso especial interposto em face do acórdão proferido pela xxª Câmara Cível deste Tribunal de Justiça, que negou provimento ao recurso de xxx (mov. xx.1 - xxxx)."),
+                            new window.docx.Paragraph({ text: "" }),
+                            createStyledParagraph(`A leitura da intimação do acórdão recorrido foi confirmada em ${dataLeituraStr} (xxx - mov. xx), de modo que o prazo de 15 (quinze) dias úteis para interposição de recursos aos Tribunais Superiores passou a fluir no dia ${inicioPrazoStr} e findou em ${prazoFinalStr}.`),
+                            new window.docx.Paragraph({ text: "" }),
+                            createStyledParagraph("Instada a comprovar o feriado local ou a determinação de suspensão do prazo neste Tribunal de Justiça, nos termos do artigo 1.003, § 6º, do Código de Processo Civil (despacho de mov. xx.1), a parte recorrente permaneceu inerte (certidão de decurso de prazo de mov. xx.1)."),
+                            new window.docx.Paragraph({ text: "" }),
+                            createStyledParagraph("Desse modo, é forçoso reconhecer a intempestividade do recurso especial, o que faço."),
+                            new window.docx.Paragraph({ text: "" }),
+                            createStyledParagraph("Nesse sentido é o entendimento vigente no âmbito do Superior Tribunal de Justiça:"),
+                            new window.docx.Paragraph({ text: "" }),
+                            createStyledParagraph('"PROCESSUAL CIVIL. AGRAVO INTERNO NO AGRAVO EM RECURSO ESPECIAL. INTEMPESTIVIDADE DO RECURSO ESPECIAL. INCIDÊNCIA DO CPC DE 2015. FERIADO LOCAL E/OU SUSPENSÃO DE EXPEDIENTE FORENSE. QUESTÃO DE ORDEM NO ARESP 2.638.376/MG. ART. 1.003, § 6º, DO CPC/2015. INTIMAÇÃO PARA COMPROVAÇÃO POSTERIOR. DECURSO DO PRAZO. AGRAVO INTERNO DESPROVIDO. 1. A agravante foi intimada, nos termos da Questão de Ordem lavrada pela Corte Especial do Superior Tribunal de Justiça, no AREsp 2.638.376/MG, para comprovar, no prazo de 5 (cinco) dias úteis, a ocorrência de feriado local ou a suspensão de expediente forense, em consonância com a nova redação conferida pela Lei 14.939 /2024, ao art. 1.003, § 6º, do CPC, tendo deixado, contudo transcorrer in albis o prazo assinalado, conforme certidão de fl. 765. 2. Na hipótese dos autos, portanto, como não houve a juntada de documento comprobatório durante o iter processual, não é possível superar a intempestividade do apelo nobre. 3. Agravo interno a que se nega provimento." (AgInt no AREsp n. 2.710.026/MT, relator Ministro Raul Araújo, Quarta Turma, julgado em 14/4/2025, DJEN de 25/4/2025.)'),
+                            new window.docx.Paragraph({ text: "" }),
+                            createStyledParagraph("Diante do exposto, inadmito o recurso especial interposto."),
+                            new window.docx.Paragraph({ text: "" }),
+                            createStyledParagraph("Diligências necessárias."),
+                            new window.docx.Paragraph({ text: "" }), new window.docx.Paragraph({ text: "" }),
+                            createStyledParagraph("Curitiba, data da assinatura digital."),
+                            new window.docx.Paragraph({ text: "" }), new window.docx.Paragraph({ text: "" }),
+                            createStyledParagraph("Desembargador HAYTON LEE SWAIN FILHO"),
+                            createStyledParagraph("1º Vice-Presidente do Tribunal de Justiça do Estado do Paraná"),
+                        ],
+                    }],
+                });
+
+                window.docx.Packer.toBlob(doc).then(blob => {
+                    saveAs(blob, `Minuta_Intempestivo_Falta_Decreto_${numeroProcesso || 'processo'}.docx`);
+                }).catch(err => { throw err; });
+            } catch (err) { console.error("Erro ao gerar o documento:", err); setError("Ocorreu um erro ao tentar gerar o arquivo .docx."); }
           };
 
           return (
@@ -493,7 +610,7 @@
                                             <p className="text-center mt-2 text-2xl font-bold text-green-600 dark:text-green-400">{resultado.comDecreto.prazoFinal.toLocaleDateString('pt-BR', {timeZone: 'UTC'})}</p>
                                             {resultado.comDecreto.diasNaoUteis.length > 0 && <div className="mt-4 text-left"><p className="text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">Dias não úteis considerados:</p><ul className="text-xs space-y-1"><GroupedDiasNaoUteis dias={resultado.comDecreto.diasNaoUteis} /></ul></div>}
                                             <div className="mt-4 text-left border-t border-slate-300 dark:border-slate-600 pt-2">
-                                                <h4 className="text-xs font-semibold text-orange-600 dark:text-orange-400 mb-2">Marque as suspensões comprovadas:</h4>
+                                                <h4 className="text-xs font-semibold text-orange-600 dark:text-orange-400 mb-2">Decretos que influenciaram na dilação do prazo:</h4>
                                                 <div className="space-y-1">
                                                     {resultado.suspensoesComprovaveis.map(dia => {
                                                         const dataString = dia.data.toISOString().split('T')[0];
@@ -533,12 +650,25 @@
                                         )}
                                         <div>
                                             <p className="font-bold">{tempestividade === 'tempestivo' ? 'RECURSO TEMPESTIVO' : 'RECURSO INTEMPESTIVO'}</p>
-                                            <p className="text-sm">O recurso foi interposto {tempestividade === 'tempestivo' ? 'dentro do' : 'fora do'} prazo legal, que se encerrou em {resultado.comDecreto.prazoFinal.toLocaleDateString('pt-BR', { timeZone: 'UTC' })}.</p>
+                                            <p className="text-sm">O recurso foi interposto {tempestividade === 'tempestivo' ? 'dentro do' : 'fora do'} prazo legal. O prazo final, considerando as suspensões selecionadas, é {resultado.comDecreto.prazoFinal.toLocaleDateString('pt-BR', { timeZone: 'UTC' })}.</p>
                                         </div>
                                     </div>
                                 )}
-                                {tempestividade === 'intempestivo' && (
-                                    <div className="mt-4"><button onClick={gerarMinutaIntempestividade} className="w-full md:w-auto flex justify-center items-center bg-gradient-to-br from-red-500 to-red-600 text-white font-semibold py-2 px-5 rounded-lg hover:from-red-600 hover:to-red-700 transition-all duration-300 shadow-md">Gerar Minuta de Intempestividade (.doc)</button></div>
+                                {(tempestividade === 'puramente_intempestivo' || tempestividade === 'intempestivo_falta_decreto') && (
+                                    <div className="mt-4"><button onClick={gerarMinutaIntempestividade} className="w-full md:w-auto flex justify-center items-center bg-gradient-to-br from-red-500 to-red-600 text-white font-semibold py-2 px-5 rounded-lg hover:from-red-600 hover:to-red-700 transition-all duration-300 shadow-md">Baixar minuta Puramente Intempestivo</button></div>
+                                )}
+                                {(tempestividade === 'tempestivo' || tempestividade === 'intempestivo_falta_decreto') && resultado.suspensoesComprovaveis.length > 0 && (
+                                    <div className="mt-4 space-y-2 md:space-y-0 md:flex md:items-center md:gap-3">
+                                        {tempestividade === 'intempestivo_falta_decreto' && (
+                                            <div className="p-3 text-sm text-amber-800 rounded-lg bg-amber-50 dark:bg-gray-800 dark:text-amber-400" role="alert">
+                                                <span className="font-medium">Atenção:</span> O recurso está intempestivo, a menos que as suspensões de prazo sejam comprovadas.
+                                            </div>
+                                        )}
+                                        <p className="text-sm text-slate-600 dark:text-slate-300 font-medium">Gerar outras minutas:</p>
+                                        <div className="flex gap-3">
+                                            <button onClick={gerarMinutaIntimacaoDecreto} className="flex-1 md:flex-auto justify-center flex items-center bg-gradient-to-br from-sky-500 to-sky-600 text-white font-semibold py-2 px-4 rounded-lg hover:from-sky-600 hover:to-sky-700 transition-all duration-300 shadow-md text-sm">Intimação Decreto</button><button onClick={gerarMinutaFaltaDecreto} className="flex-1 md:flex-auto justify-center flex items-center bg-gradient-to-br from-amber-500 to-amber-600 text-white font-semibold py-2 px-4 rounded-lg hover:from-amber-600 hover:to-amber-700 transition-all duration-300 shadow-md text-sm">Intempestivo Falta Decreto</button>
+                                        </div>
+                                    </div>
                                 )}
                             </div>
                         )}
@@ -940,7 +1070,9 @@
         const AdminPage = () => {
              const { user } = useAuth();
              const [stats, setStats] = useState({ total: 0, perMateria: {}, perPrazo: {}, byDay: {} });
+             const [adminView, setAdminView] = useState('calculadora'); // 'calculadora' ou 'djen_consulta'
              const [allData, setAllData] = useState([]);
+             const [viewData, setViewData] = useState([]);
              const [filteredData, setFilteredData] = useState([]);
              const [loading, setLoading] = useState(true);
              const [filters, setFilters] = useState({ startDate: '', endDate: '', email: 'todos', materia: 'todos', prazo: 'todos', userId: '' });
@@ -974,12 +1106,21 @@
                 fetchData();
                 return () => { isMounted = false; };
              }, []); // Executa apenas uma vez
+             
+            useEffect(() => {
+                // Filtra os dados brutos com base na visualização selecionada (Calculadora ou Consulta)
+                const dataForView = allData.filter(item => (item.type || 'calculadora') === adminView);
+                setViewData(dataForView);
+                // Reseta os filtros e resultados ao trocar de aba
+                setHasSearched(false);
+                setFilteredData([]);
+            }, [adminView, allData]);
 
             const handleFilter = () => {
                 setHasSearched(true);
                 setCurrentPage(1);
                 setSelectedUser(null);
-                let usageData = allData.filter(item => {
+                let usageData = viewData.filter(item => {
                     const itemDate = item.timestamp.toDate();
                     if (filters.startDate) {
                         const startDate = new Date(filters.startDate);
@@ -1003,12 +1144,19 @@
                     total: usageData.length,
                     perMateria: usageData.reduce((acc, curr) => { acc[curr.materia] = (acc[curr.materia] || 0) + 1; return acc; }, {}),
                     perPrazo: usageData.reduce((acc, curr) => { acc[curr.prazo] = (acc[curr.prazo] || 0) + 1; return acc; }, {}),
-                    byDay: usageData.reduce((acc, curr) => {
-                        const date = curr.timestamp.toDate().toLocaleDateString('pt-BR');
-                        acc[date] = (acc[date] || 0) + 1;
-                        return acc;
-                    },{})
                 };
+
+                // Lógica para o gráfico dos últimos 7 dias
+                const today = new Date();
+                const last7Days = {};
+                for (let i = 6; i >= 0; i--) {
+                    const d = new Date(today);
+                    d.setDate(today.getDate() - i);
+                    const dateString = d.toLocaleDateString('pt-BR');
+                    last7Days[dateString] = 0;
+                }
+                usageData.forEach(item => { const dateString = item.timestamp.toDate().toLocaleDateString('pt-BR'); if (dateString in last7Days) { last7Days[dateString]++; } });
+                summary.byDay = last7Days;
                 setStats(summary);
             };
 
@@ -1028,6 +1176,7 @@
                     'Utilizador': item.userName || item.userEmail,
                     'Matéria': item.materia,
                     'Prazo (dias)': item.prazo,
+                    'Tipo de Uso': item.type === 'djen_consulta' ? 'Consulta DJEN' : (item.type || 'Calculadora'),
                     'Número do Processo': item.numeroProcesso || '',
                     'Data': item.timestamp?.toDate().toLocaleString('pt-BR')
                 }));
@@ -1038,7 +1187,7 @@
             };
 
             const topUsers = Object.entries(
-                allData.reduce((acc, curr) => {
+                viewData.reduce((acc, curr) => {
                     if(curr.userName || curr.userEmail) acc[curr.userName || curr.userEmail] = (acc[curr.userName || curr.userEmail] || 0) + 1;
                     return acc;
                 }, {})
@@ -1094,9 +1243,9 @@
 
              return(
                  <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
-                    {/* Coluna Lateral com Top 10 */}
+                    {/* Coluna Lateral */}
                     <div className="lg:col-span-1 bg-white/60 dark:bg-slate-800/60 backdrop-blur-xl p-6 rounded-2xl shadow-lg border border-slate-200/50 dark:border-slate-700/50 self-start">
-                        <h3 className="font-semibold text-lg mb-4 text-slate-800 dark:text-slate-100">Top 10 Utilizadores</h3>
+                        <h3 className="font-semibold text-lg mb-4 text-slate-800 dark:text-slate-100">Top 10 - {adminView === 'calculadora' ? 'Calculadora' : 'Consulta DJEN'}</h3>
                         {topUsers.length > 0 ? (
                             <ul className="space-y-2 text-left">
                                 {topUsers.map(([name, count], index) => (
@@ -1111,18 +1260,26 @@
 
                     {/* Conteúdo Principal */}
                     <div className="lg:col-span-3 bg-white/60 dark:bg-slate-800/60 backdrop-blur-xl p-6 sm:p-8 rounded-2xl shadow-lg border border-slate-200/50 dark:border-slate-700/50 space-y-8">
-                    <div className="flex justify-between items-center">
-                        <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Painel Administrativo</h2>
-                        <span className="text-sm text-slate-500 dark:text-slate-400">Total de Cálculos: {allData.length}</span>
+                    <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
+                        <div>
+                            <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Painel Administrativo</h2>
+                            <div className="flex items-center gap-2 mt-2">
+                                <button onClick={() => setAdminView('calculadora')} className={`px-3 py-1 text-sm font-semibold rounded-md transition-colors ${adminView === 'calculadora' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>Calculadora</button>
+                                <button onClick={() => setAdminView('djen_consulta')} className={`px-3 py-1 text-sm font-semibold rounded-md transition-colors ${adminView === 'djen_consulta' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>Consulta DJEN</button>
+                            </div>
+                        </div>
+                        <span className="text-sm text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-900/50 px-3 py-1.5 rounded-lg">Total de Usos: <strong className="font-bold text-lg text-slate-700 dark:text-slate-200">{viewData.length}</strong></span>
                     </div>
                     
                     <div className="p-4 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg space-y-4">
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 items-end">
                             <div><label className="text-xs font-medium text-slate-500">Data Inicial</label><input type="date" name="startDate" value={filters.startDate} onChange={handleFilterChange} className="w-full mt-1 p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700"/></div>
                             <div><label className="text-xs font-medium text-slate-500">Data Final</label><input type="date" name="endDate" value={filters.endDate} onChange={handleFilterChange} className="w-full mt-1 p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700"/></div>
-                            <div className="lg:col-span-1"><label className="text-xs font-medium text-slate-500">Utilizador</label><select name="email" value={filters.email} onChange={handleFilterChange} className="w-full mt-1 p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700"><option value="todos">Todos</option>{allUsers.map(u => <option key={u} value={u}>{u}</option>)}</select></div>
-                            <div><label className="text-xs font-medium text-slate-500">Matéria</label><select name="materia" value={filters.materia} onChange={handleFilterChange} className="w-full mt-1 p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700"><option value="todos">Todas</option><option value="civel">Cível</option><option value="crime">Crime</option></select></div>
-                            <div><label className="text-xs font-medium text-slate-500">Prazo</label><select name="prazo" value={filters.prazo} onChange={handleFilterChange} className="w-full mt-1 p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700"><option value="todos">Todos</option><option value="5">5 Dias</option><option value="15">15 Dias</option></select></div>
+                            {adminView === 'calculadora' && <>
+                                <div><label className="text-xs font-medium text-slate-500">Matéria</label><select name="materia" value={filters.materia} onChange={handleFilterChange} className="w-full mt-1 p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700"><option value="todos">Todas</option><option value="civel">Cível</option><option value="crime">Crime</option></select></div>
+                                <div><label className="text-xs font-medium text-slate-500">Prazo</label><select name="prazo" value={filters.prazo} onChange={handleFilterChange} className="w-full mt-1 p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700"><option value="todos">Todos</option><option value="5">5 Dias</option><option value="15">15 Dias</option></select></div>
+                            </>}
+                            <div className="lg:col-span-full"><label className="text-xs font-medium text-slate-500">Utilizador</label><select name="email" value={filters.email} onChange={handleFilterChange} className="w-full mt-1 p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700"><option value="todos">Todos</option>{allUsers.map(u => <option key={u} value={u}>{u}</option>)}</select></div>
                         </div>
                         <div className="border-t border-slate-200 dark:border-slate-700 pt-4">
                              <label className="text-xs font-medium text-slate-500">Pesquisar por ID do Utilizador</label>
@@ -1152,29 +1309,30 @@
                         <>
                             <div className="space-y-6">
                                 <div className="p-4 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg shadow-sm h-64">
-                                     <h3 className="font-semibold text-center mb-2">Utilização por Dia</h3>
+                                     <h3 className="font-semibold text-center mb-2">Utilização nos Últimos 7 Dias</h3>
                                      <Bar data={chartDataByDay} options={{ responsive: true, maintainAspectRatio: false }}/>
                                 </div>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                    <div className="p-4 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg shadow-sm h-48"><h3 className="font-semibold text-center mb-2">Utilização por Matéria</h3><HorizontalBar data={chartDataMateria} options={{...chartOptions, maintainAspectRatio: false}}/></div>
-                                    <div className="p-4 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg shadow-sm h-48"><h3 className="font-semibold text-center mb-2">Utilização por Prazo</h3><HorizontalBar data={chartDataPrazo} options={{...chartOptions, maintainAspectRatio: false}}/></div>
-                                </div>
+                                {adminView === 'calculadora' && (
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                        <div className="p-4 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg shadow-sm h-48"><h3 className="font-semibold text-center mb-2">Utilização por Matéria</h3><HorizontalBar data={chartDataMateria} options={{...chartOptions, maintainAspectRatio: false}}/></div>
+                                        <div className="p-4 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg shadow-sm h-48"><h3 className="font-semibold text-center mb-2">Utilização por Prazo</h3><HorizontalBar data={chartDataPrazo} options={{...chartOptions, maintainAspectRatio: false}}/></div>
+                                    </div>
+                                )}
                             </div>
                              <div>
                                 <h3 className="text-lg font-semibold mb-2">Resultados Filtrados ({filteredData.length})</h3>
                                 <div className="overflow-x-auto bg-slate-100/70 dark:bg-slate-900/50 rounded-lg">
                                     <table className="w-full text-sm text-left">
                                         <thead className="text-xs text-slate-700 dark:text-slate-300 uppercase bg-slate-200/50 dark:bg-slate-800/50">
-                                            <tr><th className="px-4 py-3">Utilizador</th><th className="px-4 py-3">ID</th><th className="px-4 py-3">Nº Processo</th><th className="px-4 py-3">Matéria</th><th className="px-4 py-3">Prazo</th><th className="px-4 py-3">Data</th></tr>
+                                            <tr><th className="px-4 py-3">Utilizador</th><th className="px-4 py-3">Tipo</th><th className="px-4 py-3">Nº Processo</th><th className="px-4 py-3">Detalhes</th><th className="px-4 py-3 text-right">Data</th></tr>
                                         </thead>
                                         <tbody>
                                         {paginatedData.map(item => (
-                                            <tr key={item.id} className="border-b border-slate-200/50 dark:border-slate-700/50"><td className="px-4 py-4 font-medium break-words"><a href="#" onClick={(e) => {e.preventDefault(); handleUserClick(item.userEmail)}} className="text-indigo-600 hover:underline">{item.userName}</a></td>
-                                                <td className="px-4 py-4 text-xs text-slate-500 break-words">{item.userId}</td>
+                                            <tr key={item.id} className="border-b border-slate-200/50 dark:border-slate-700/50"><td className="px-4 py-4 font-medium break-words"><a href="#" onClick={(e) => {e.preventDefault(); handleUserClick(item.userEmail)}} className="text-indigo-600 hover:underline">{item.userName || item.userEmail}</a></td>
+                                                <td className="px-4 py-4 capitalize">{(item.type || 'calculadora').split('_')[0]}</td>
                                                 <td className="px-4 py-4 break-words">{item.numeroProcesso}</td>
-                                                <td className="px-4 py-4">{item.materia}</td>
-                                                <td className="px-4 py-4">{item.prazo} dias</td>
-                                                <td className="px-4 py-4">{item.timestamp?.toDate().toLocaleString('pt-BR')}</td>
+                                                <td className="px-4 py-4">{item.materia ? `${item.materia}, ${item.prazo} dias` : 'N/A'}</td>
+                                                <td className="px-4 py-4 text-right">{item.timestamp?.toDate().toLocaleString('pt-BR')}</td>
                                             </tr>
                                         ))}
                                         </tbody>
@@ -1289,7 +1447,7 @@
 
         // --- Componente Principal ---
         const App = () => {
-          const { user, loading, openCalendario } = useAuth();
+          const { user, loading } = useAuth();
 
           if (loading) {
             return <div className="min-h-screen flex items-center justify-center"><p>A carregar...</p></div>;
@@ -1307,7 +1465,7 @@
           
           return (
             <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-200 dark:from-slate-800 dark:to-slate-900 text-slate-800 dark:text-slate-200 flex flex-col relative">
-                {user && user.emailVerified && <Header openCalendario={openCalendario} />}
+                {user && user.emailVerified && <Header />}
                 <div className="flex-grow">
                   {renderContent()}
                 </div>
@@ -1318,19 +1476,9 @@
         };
         
         const root = ReactDOM.createRoot(document.getElementById('root'));
-        // Criamos um componente wrapper para passar o estado do modal para o Header via contexto
-        const AppWrapper = () => {
-            const [showCalendario, setShowCalendario] = useState(false);
-            return (
-                <AuthContext.Provider value={{ ...useContext(AuthContext), openCalendario: () => setShowCalendario(true) }}>
-                    <App />
-                    {showCalendario && <CalendarioModal onClose={() => setShowCalendario(false)} />}
-                </AuthContext.Provider>
-            );
-        };
         root.render(
             <AuthProvider>
-                <AppWrapper />
+                <App />
             </AuthProvider>
         );
     </script>
