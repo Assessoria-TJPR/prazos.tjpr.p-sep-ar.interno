@@ -870,11 +870,6 @@
                 setError('');
                 setMessage('');
 
-                // Validação estrita do domínio apenas no cadastro.
-                if (!isLogin && !email.toLowerCase().endsWith('@tjpr.jus.br')) {
-                    setError("Para se cadastrar, é necessário usar um e-mail com domínio @tjpr.jus.br.");
-                    return;
-                }
 
                 if (!email.trim()) {
                     setError("Por favor, insira o seu nome de utilizador.");
@@ -886,7 +881,7 @@
                 }
 
                 try {
-                    const finalEmail = email; // Usa o e-mail completo inserido pelo usuário
+                    const finalEmail = email.includes('@') ? email : `${email}@tjpr.jus.br`;
                     if (isLogin) {
                         await auth.signInWithEmailAndPassword(finalEmail, password);
                         localStorage.setItem('lastUserEmail', finalEmail);
@@ -969,7 +964,12 @@
                                 <h2 className="text-3xl font-bold text-center text-slate-800 dark:text-slate-100">{isLogin ? 'Login' : 'Criar Conta'}</h2>
                                 <form onSubmit={handleSubmit} className="space-y-4">
                                     {!isLogin && <input type="text" placeholder="Nome Completo" value={displayName} onChange={e => setDisplayName(e.target.value)} required className="w-full px-4 py-3 bg-white/50 dark:bg-slate-900/50 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition" />}
-                                    <input type="email" placeholder="Email Completo (ex: seu.usuario@tjpr.jus.br)" value={email} onChange={e => setEmail(e.target.value)} required className="w-full px-4 py-3 bg-white/50 dark:bg-slate-900/50 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition" />
+                                    <div className="flex items-center border border-slate-300 dark:border-slate-600 rounded-lg focus-within:ring-2 focus-within:ring-indigo-500 focus-within:border-indigo-500 transition">
+                                        <input type="text" placeholder="seu.usuario" value={email} onChange={e => setEmail(e.target.value)} required className="w-full px-4 py-3 bg-transparent border-0 outline-none" />
+                                        <span className="px-4 py-3 bg-slate-100/50 dark:bg-slate-900/50 text-slate-500 dark:text-slate-400 rounded-r-lg">
+                                            @tjpr.jus.br
+                                        </span>
+                                    </div>
                                     <input type="password" placeholder="Palavra-passe" value={password} onChange={e => setPassword(e.target.value)} required className="w-full px-4 py-3 bg-white/50 dark:bg-slate-900/50 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition" />
                                     <div className="flex items-center justify-between text-sm">
                                         <label className="flex items-center gap-2 text-slate-600 dark:text-slate-300"><input type="checkbox" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"/>Lembrar-me</label>
@@ -998,17 +998,20 @@
             const [error, setError] = useState('');
             const [isResending, setIsResending] = useState(false);
             const [cooldown, setCooldown] = useState(0);
+            const [initialCooldown, setInitialCooldown] = useState(60);
 
             useEffect(() => {
                 let timer;
-                if (cooldown > 0) {
+                if (initialCooldown > 0) {
+                    timer = setTimeout(() => setInitialCooldown(initialCooldown - 1), 1000);
+                } else if (cooldown > 0) {
                     timer = setTimeout(() => setCooldown(cooldown - 1), 1000);
                 }
                 return () => clearTimeout(timer);
-            }, [cooldown]);
+            }, [initialCooldown, cooldown]);
 
             const handleResend = async () => {
-                if (isResending || cooldown > 0) return;
+                if (isResending || cooldown > 0 || initialCooldown > 0) return;
                 setIsResending(true);
                 setMessage('');
                 setError('');
@@ -1040,8 +1043,10 @@
                         </p>
                         <p className="text-xs text-slate-500 dark:text-slate-400">(Se não encontrar, verifique a sua pasta de spam)</p>
                         <div className="space-y-4">
-                            <button onClick={handleResend} disabled={isResending || cooldown > 0} className="w-full bg-gradient-to-br from-indigo-500 to-indigo-600 text-white font-semibold py-3 rounded-lg hover:from-indigo-600 hover:to-indigo-700 transition-all duration-300 shadow-md disabled:opacity-50 disabled:cursor-not-allowed">
-                                {isResending ? 'A enviar...' : (cooldown > 0 ? `Aguarde ${cooldown}s` : 'Reenviar E-mail')}
+                            <button onClick={handleResend} disabled={isResending || cooldown > 0 || initialCooldown > 0} className="w-full bg-gradient-to-br from-indigo-500 to-indigo-600 text-white font-semibold py-3 rounded-lg hover:from-indigo-600 hover:to-indigo-700 transition-all duration-300 shadow-md disabled:opacity-50 disabled:cursor-not-allowed">
+                                {isResending ? 'A enviar...' : 
+                                 initialCooldown > 0 ? `Aguarde ${initialCooldown}s para reenviar` : 
+                                 (cooldown > 0 ? `Aguarde ${cooldown}s` : 'Reenviar E-mail')}
                             </button>
                             <button onClick={() => auth.signOut()} className="w-full bg-slate-200 text-slate-700 font-semibold py-3 rounded-lg hover:bg-slate-300 transition-all duration-300">
                                 Voltar para o Login
@@ -1144,7 +1149,10 @@
                             db.collection('usageStats').orderBy('timestamp', 'desc').get(),
                             db.collection('users').get()
                         ]);
-                        const usersMap = usersSnapshot.docs.reduce((acc, doc) => ({ ...acc, [doc.id]: doc.data().displayName }), {});
+                        const usersMap = usersSnapshot.docs.reduce((acc, doc) => {
+                            acc[doc.id] = doc.data().displayName;
+                            return acc;
+                        }, {});
                         const usageData = usageSnapshot.docs.map(doc => ({id: doc.id, ...doc.data()}));
                         const enrichedData = usageData.map(d => ({...d, userName: usersMap[d.userId] || d.userEmail }));
                         if (isMounted) {
@@ -1168,9 +1176,6 @@
             }, [adminView, allData]);
 
             const handleFilter = () => {
-                setHasSearched(true);
-                setCurrentPage(1);
-                setSelectedUser(null);
                 let usageData = viewData.filter(item => {
                     const itemDate = item.timestamp.toDate();
                     if (filters.startDate) {
@@ -1189,7 +1194,10 @@
                     if(filters.userId && item.userId !== filters.userId) return false;
                     return true;
                 });
+                setCurrentPage(1);
+                setSelectedUser(null);
                 setFilteredData(usageData);
+                setHasSearched(true); // Marca que uma busca foi feita
 
                 const summary = {
                     total: usageData.length,
@@ -1207,7 +1215,7 @@
                     last7Days[dateString] = 0;
                 }
                 usageData.forEach(item => { const dateString = item.timestamp.toDate().toLocaleDateString('pt-BR'); if (dateString in last7Days) { last7Days[dateString]++; } });
-                summary.byDay = last7Days;
+                summary.byDay = last7Days
                 setStats(summary);
             };
 
@@ -1353,9 +1361,7 @@
                     {!hasSearched ? (
                         <div className="text-center p-8 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg"><p className="text-slate-500 dark:text-slate-400">Selecione os filtros e clique em "Filtrar" para ver os resultados.</p></div>
                     ) : filteredData.length === 0 ? (
-                        <div className="text-center p-8 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg">
-                            <p className="text-slate-500 dark:text-slate-400">Nenhum resultado encontrado para os filtros selecionados.</p>
-                        </div>
+                        <div className="text-center p-8 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg"><p className="text-slate-500 dark:text-slate-400">Nenhum resultado encontrado para os filtros selecionados.</p></div>
                     ) : (
                         <>
                             <div className="space-y-6">
