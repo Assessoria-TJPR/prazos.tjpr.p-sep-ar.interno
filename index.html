@@ -1042,7 +1042,7 @@
                         <p className="text-slate-600 dark:text-slate-300">
                             Enviámos um link de verificação para <strong>{user?.email}</strong>. Por favor, clique no link para ativar a sua conta.
                         </p>
-                        <p className="text-xs text-slate-500 dark:text-slate-400">(Se não encontrar, verifique a sua pasta de spam)</p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">(Se não encontrar na sua caixa de entrada, verifique a pasta de Lixo Eletrônico/Spam)</p>
                         <div className="space-y-4">
                             <button onClick={handleResend} disabled={isResending || cooldown > 0 || initialCooldown > 0} className="w-full bg-gradient-to-br from-indigo-500 to-indigo-600 text-white font-semibold py-3 rounded-lg hover:from-indigo-600 hover:to-indigo-700 transition-all duration-300 shadow-md disabled:opacity-50 disabled:cursor-not-allowed">
                                 {isResending ? 'A enviar...' : 
@@ -1550,9 +1550,12 @@
                 setError('');
                 setMessage('');
                 try {
-                    await db.collection('users').doc(user.uid).update({
-                        displayName: displayName.trim()
-                    });
+                    // Atualiza tanto o perfil de autenticação quanto o documento do Firestore
+                    await Promise.all([
+                        user.updateProfile({ displayName: displayName.trim() }),
+                        db.collection('users').doc(user.uid).update({ displayName: displayName.trim() })
+                    ]);
+
                     setMessage('Nome atualizado com sucesso!');
                     onUpdate(); // Chama a função para atualizar os dados do usuário na UI
                     setTimeout(() => {
