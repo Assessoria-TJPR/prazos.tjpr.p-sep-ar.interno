@@ -888,6 +888,7 @@
                     } else {
                         const userCredential = await auth.createUserWithEmailAndPassword(finalEmail, password);
                         await Promise.all([
+                            userCredential.user.updateProfile({ displayName: displayName.trim() }),
                             db.collection('users').doc(userCredential.user.uid).set({ email: finalEmail, isAdmin: false, displayName: displayName.trim() }),
                             userCredential.user.sendEmailVerification()
                         ]);
