@@ -886,10 +886,7 @@
                 }
 
                 try {
-                    // Garante que o domínio @tjpr.jus.br seja adicionado se não estiver presente
-                    const finalEmail = email.includes('@') ? email : `${email}@tjpr.jus.br`;
-
-                    await auth.setPersistence(rememberMe ? firebase.auth.Auth.Persistence.LOCAL : firebase.auth.Auth.Persistence.SESSION);
+                    const finalEmail = email; // Usa o e-mail completo inserido pelo usuário
                     if (isLogin) {
                         await auth.signInWithEmailAndPassword(finalEmail, password);
                         localStorage.setItem('lastUserEmail', finalEmail);
@@ -921,12 +918,7 @@
                             <h2 className="text-3xl font-bold text-center text-slate-800 dark:text-slate-100">Redefinir Palavra-passe</h2>
                             <p className="text-center text-sm text-slate-500 dark:text-slate-400">Insira o seu e-mail para receber um link de redefinição.</p>
                             <form onSubmit={handlePasswordReset} className="space-y-6">
-                                <div className="flex items-center bg-white/50 dark:bg-slate-900/50 border border-slate-300 dark:border-slate-600 rounded-lg focus-within:ring-2 focus-within:ring-indigo-500 focus-within:border-indigo-500 transition">
-                                    <input type="text" placeholder="seu.usuario" value={email} onChange={e => setEmail(e.target.value)} required className="flex-grow px-4 py-3 bg-transparent outline-none" />
-                                    <span className="px-4 py-3 text-slate-500 dark:text-slate-400 bg-slate-100/50 dark:bg-slate-800/50 rounded-r-lg">
-                                        @tjpr.jus.br
-                                    </span>
-                                </div>
+                                <input type="email" placeholder="Email Completo (ex: seu.usuario@tjpr.jus.br)" value={email} onChange={e => setEmail(e.target.value)} required className="w-full px-4 py-3 bg-white/50 dark:bg-slate-900/50 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition" />
                                 <button type="submit" className="w-full bg-gradient-to-br from-indigo-500 to-indigo-600 text-white font-semibold py-3 rounded-lg hover:from-indigo-600 hover:to-indigo-700 transition-all duration-300 shadow-md">Enviar Link</button>
                             </form>
                             {error && <p className="text-sm text-center text-red-500">{error}</p>}
@@ -977,10 +969,7 @@
                                 <h2 className="text-3xl font-bold text-center text-slate-800 dark:text-slate-100">{isLogin ? 'Login' : 'Criar Conta'}</h2>
                                 <form onSubmit={handleSubmit} className="space-y-4">
                                     {!isLogin && <input type="text" placeholder="Nome Completo" value={displayName} onChange={e => setDisplayName(e.target.value)} required className="w-full px-4 py-3 bg-white/50 dark:bg-slate-900/50 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition" />}
-                                    <div className="flex items-center bg-white/50 dark:bg-slate-900/50 border border-slate-300 dark:border-slate-600 rounded-lg focus-within:ring-2 focus-within:ring-indigo-500 focus-within:border-indigo-500 transition">
-                                        <input type="text" placeholder="seu.usuario" value={email} onChange={e => setEmail(e.target.value)} required className="flex-grow px-4 py-3 bg-transparent outline-none" />
-                                        <span className="px-4 py-3 text-slate-500 dark:text-slate-400 bg-slate-100/50 dark:bg-slate-800/50 rounded-r-lg">@tjpr.jus.br</span>
-                                    </div>
+                                    <input type="email" placeholder="Email Completo (ex: seu.usuario@tjpr.jus.br)" value={email} onChange={e => setEmail(e.target.value)} required className="w-full px-4 py-3 bg-white/50 dark:bg-slate-900/50 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition" />
                                     <input type="password" placeholder="Palavra-passe" value={password} onChange={e => setPassword(e.target.value)} required className="w-full px-4 py-3 bg-white/50 dark:bg-slate-900/50 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition" />
                                     <div className="flex items-center justify-between text-sm">
                                         <label className="flex items-center gap-2 text-slate-600 dark:text-slate-300"><input type="checkbox" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"/>Lembrar-me</label>
@@ -1007,16 +996,38 @@
             const { user } = useAuth();
             const [message, setMessage] = useState('');
             const [error, setError] = useState('');
+            const [isResending, setIsResending] = useState(false);
+            const [cooldown, setCooldown] = useState(0);
+
+            useEffect(() => {
+                let timer;
+                if (cooldown > 0) {
+                    timer = setTimeout(() => setCooldown(cooldown - 1), 1000);
+                }
+                return () => clearTimeout(timer);
+            }, [cooldown]);
 
             const handleResend = async () => {
+                if (isResending || cooldown > 0) return;
+                setIsResending(true);
                 setMessage('');
                 setError('');
-                if (!user) return;
+                if (!user) {
+                    setIsResending(false);
+                    return;
+                }
                 try {
                     await user.sendEmailVerification();
                     setMessage('Um novo e-mail de verificação foi enviado.');
+                    setCooldown(30); // Inicia um cooldown de 30 segundos
                 } catch (err) {
-                    setError(err.message);
+                    if (err.code === 'auth/too-many-requests') {
+                        setError('Muitas tentativas. Por favor, aguarde um pouco antes de tentar novamente.');
+                    } else {
+                        setError('Ocorreu um erro ao reenviar o e-mail.');
+                    }
+                } finally {
+                    setIsResending(false);
                 }
             };
             
@@ -1029,8 +1040,8 @@
                         </p>
                         <p className="text-xs text-slate-500 dark:text-slate-400">(Se não encontrar, verifique a sua pasta de spam)</p>
                         <div className="space-y-4">
-                            <button onClick={handleResend} className="w-full bg-gradient-to-br from-indigo-500 to-indigo-600 text-white font-semibold py-3 rounded-lg hover:from-indigo-600 hover:to-indigo-700 transition-all duration-300 shadow-md">
-                                Reenviar E-mail
+                            <button onClick={handleResend} disabled={isResending || cooldown > 0} className="w-full bg-gradient-to-br from-indigo-500 to-indigo-600 text-white font-semibold py-3 rounded-lg hover:from-indigo-600 hover:to-indigo-700 transition-all duration-300 shadow-md disabled:opacity-50 disabled:cursor-not-allowed">
+                                {isResending ? 'A enviar...' : (cooldown > 0 ? `Aguarde ${cooldown}s` : 'Reenviar E-mail')}
                             </button>
                             <button onClick={() => auth.signOut()} className="w-full bg-slate-200 text-slate-700 font-semibold py-3 rounded-lg hover:bg-slate-300 transition-all duration-300">
                                 Voltar para o Login
