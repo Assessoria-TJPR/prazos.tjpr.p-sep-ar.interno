@@ -29,9 +29,10 @@ const feriadosMap = {
 };
 const decretosMap = {
     '2025-03-03': 'N° 645/2024 - Véspera de Carnaval', '2025-04-17': 'N° 645/2024 - Quinta-feira Santa', '2025-05-02': 'N° 127/2025 - P-SEP - Decreto', '2025-06-19': 'N° 645/2024 - Corpus Christi', '2025-06-20': 'N° 645/2024 - Feriado Estipulado pelo CNJ', '2025-09-08': 'N° 645/2024 - Padroeira de Curitiba', '2025-10-27': 'N° 127/2025 - P-SEP - Decreto', '2025-11-21': 'N° 127/2025 - P-SEP - Decreto', '2025-12-19': 'N° 645/2024 - Emancipação Política do Paraná', '2025-12-24': 'N° 645/2024 - Véspera de Natal', '2025-12-31': 'N° 645/2024 - Véspera de Ano Novo',
+    '2025-09-02': 'Nº486/2025 - Instabilidade do Projudi',
 };
 const instabilidadeMap = {
-    '2025-01-31': 'Nº 102/2025 - Instabilidade do Projudi', '2025-04-04': 'Nº 207/2025 - Instabilidade do Projudi', '2025-05-23': 'Nº 279/2025 - Instabilidade do Projudi', '2025-05-29': 'Nº 288/2025 - Instabilidade do Projudi', '2025-09-02': 'Nº486/2025 - Instabilidade do Projudi',
+    '2025-01-31': 'Nº 102/2025 - Instabilidade do Projudi', '2025-04-04': 'Nº 207/2025 - Instabilidade do Projudi', '2025-05-23': 'Nº 279/2025 - Instabilidade do Projudi', '2025-05-29': 'Nº 288/2025 - Instabilidade do Projudi',
 };
 const recessoForense = {
     janeiro: { inicio: 2, fim: 20 },
@@ -80,6 +81,7 @@ const AuthProvider = ({ children }) => {
     const [isAdmin, setIsAdmin] = useState(false);
     const [userData, setUserData] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [currentArea, setCurrentArea] = useState('Calculadora');
 
     const updateUserAndAdminStatus = async (firebaseUser) => {
         if (firebaseUser) {
@@ -130,9 +132,17 @@ const AuthProvider = ({ children }) => {
     }, []);
 
     // A função de atualização é exposta para que componentes filhos possam forçar a atualização do usuário.
-    const value = { user, isAdmin, userData, loading, refreshUser: () => auth.currentUser && updateUserAndAdminStatus(auth.currentUser) };
+    const value = { 
+        user, 
+        isAdmin, 
+        userData, 
+        loading, 
+        refreshUser: () => auth.currentUser && updateUserAndAdminStatus(auth.currentUser),
+        currentArea,
+        setCurrentArea
+    };
 
-    return <AuthContext.Provider value={value}>{!loading && children}</AuthContext.Provider>;
+    return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
 
 const useAuth = () => {
@@ -478,8 +488,8 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
     const pStyle = "text-align: justify; text-indent: 50px; margin-bottom: 1em;";
     const corpoMinuta = `
         <p style="${pStyle}">O recurso especial não pode ser admitido, pois foi interposto sem observância do prazo previsto no artigo 1.003, § 5º, c/c artigo 219, ambos do Código de Processo Civil.</p>
-        <p style="${pStyle}">Isto porque se verifica que a intimação do acórdão recorrido (mov. x.x, dos autos sob nº ${numeroProcesso || 'xxxxxx'}) se deu pela disponibilização no DJEN na data de ${dataDispStr} e, considerada como data da publicação o primeiro dia útil seguinte ao da disponibilização da informação (artigos 4º, §3º, da Lei 11.419/2006, e 224, do Código de Processo Civil), ${dataPubStr}, iniciou-se a contagem do prazo no primeiro dia útil seguinte ao da publicação, isto é em ${inicioPrazoStr}.</p>
-        <p style="${pStyle}">Portanto, a petição recursal apresentada em ${dataInterposicaoStr} está intempestiva, já que o prazo recursal findou em ${prazoFinalStr}.</p>
+        <p style="${pStyle}">Isto porque se verifica que a intimação do acórdão recorrido (<span style="color: red;">mov. x.x</span>, dos autos sob nº <span style="color: red;">${numeroProcesso || 'xxxxxx'}</span>) se deu pela disponibilização no DJEN na data de ${dataDispStr} e, considerada como data da publicação o primeiro dia útil seguinte ao da disponibilização da informação (artigos 4º, §3º, da Lei 11.419/2006, e 224, do Código de Processo Civil), ${dataPubStr}, iniciou-se a contagem do prazo no primeiro dia útil seguinte ao da publicação, isto é em ${inicioPrazoStr}.</p>
+        <p style="${pStyle}">Portanto, a petição recursal apresentada em ${dataInterposicaoStr} está intempestiva, já que protocolado além do prazo legal de ${prazoSelecionado} dias.</p>
         <p style="${pStyle}">Neste sentido:</p>
         <p style="${pStyle}">"PROCESSUAL CIVIL. AGRAVO INTERNO NO AGRAVO EM RECURSO ESPECIAL. RECURSO MANEJADO SOB A ÉGIDE DO NCPC. RECURSO INTEMPESTIVO. RECURSO ESPECIAL INTERPOSTO NA VIGÊNCIA DO NCPC. RECURSO ESPECIAL APRESENTADO FORA DO PRAZO LEGAL. INTEMPESTIVIDADE. APLICAÇÃO DOS ARTS. 219 E 1.003, § 5º, AMBOS DO NCPC. ADMISSIBILIDADE DO APELO NOBRE. JUÍZO BIFÁSICO. AUSÊNCIA DE VINCULAÇÃO DO STJ. AGRAVO INTERNO NÃO PROVIDO.</p>
         <p style="${pStyle}">1. Aplica-se o NCPC a este julgamento ante os termos do Enunciado Administrativo nº 3, aprovado pelo Plenário do STJ na sessão de 9/3/2016: Aos recursos interpostos com fundamento no CPC/2015 (relativos a decisões publicadas a partir de 18 de março de 2016) serão exigidos os requisitos de admissibilidade recursal na forma do novo CPC.</p>
@@ -515,9 +525,9 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
 
     const pStyle = "text-align: justify; text-indent: 50px; margin-bottom: 1em;";
     const corpoMinuta = `
-        <p style="${pStyle}">Trata-se de recurso especial interposto em face do acórdão proferido pela xxª Câmara Cível deste Tribunal de Justiça, que negou provimento ao recurso de xxx (mov. xx.1 - xxxx).</p>
-        <p style="${pStyle}">A leitura da intimação do acórdão recorrido foi confirmada em ${dataLeituraStr} (xxx - mov. xx), de modo que o prazo de 15 (quinze) dias úteis para interposição de recursos aos Tribunais Superiores passou a fluir no dia ${inicioPrazoStr} e findou em ${prazoFinalStr}.</p>
-        <p style="${pStyle}">Instada a comprovar o feriado local ou a determinação de suspensão do prazo neste Tribunal de Justiça, nos termos do artigo 1.003, § 6º, do Código de Processo Civil (despacho de mov. xx.1), a parte recorrente permaneceu inerte (certidão de decurso de prazo de mov. xx.1).</p>
+        <p style="${pStyle}">Trata-se de recurso especial interposto em face do acórdão proferido pela <span style="color: red;">xxª Câmara Cível</span> deste Tribunal de Justiça, que negou provimento ao recurso de <span style="color: red;">xxx (mov. xx.1 - xxxx)</span>.</p>
+        <p style="${pStyle}">A leitura da intimação do acórdão recorrido foi confirmada em ${dataLeituraStr} (<span style="color: red;">xxx - mov. xx</span>), de modo que o prazo de 15 (quinze) dias úteis para interposição de recursos aos Tribunais Superiores passou a fluir no dia ${inicioPrazoStr} e findou em ${prazoFinalStr}.</p>
+        <p style="${pStyle}">Instada a comprovar o feriado local ou a determinação de suspensão do prazo neste Tribunal de Justiça, nos termos do artigo 1.003, § 6º, do Código de Processo Civil (despacho de <span style="color: red;">mov. xx.1</span>), a parte recorrente permaneceu inerte (certidão de decurso de prazo de <span style="color: red;">mov. xx.1</span>).</p>
         <p style="${pStyle}">Desse modo, é forçoso reconhecer a intempestividade do recurso especial, o que faço.</p>
         <p style="${pStyle}">Nesse sentido é o entendimento vigente no âmbito do Superior Tribunal de Justiça:</p>
         <p style="${pStyle}">"PROCESSUAL CIVIL. AGRAVO INTERNO NO AGRAVO EM RECURSO ESPECIAL. INTEMPESTIVIDADE DO RECURSO ESPECIAL. INCIDÊNCIA DO CPC DE 2015. FERIADO LOCAL E/OU SUSPENSÃO DE EXPEDIENTE FORENSE. QUESTÃO DE ORDEM NO ARESP 2.638.376/MG. ART. 1.003, § 6º, DO CPC/2015. INTIMAÇÃO PARA COMPROVAÇÃO POSTERIOR. DECURSO DO PRAZO. AGRAVO INTERNO DESPROVIDO. 1. A agravante foi intimada, nos termos da Questão de Ordem lavrada pela Corte Especial do Superior Tribunal de Justiça, no AREsp 2.638.376/MG, para comprovar, no prazo de 5 (cinco) dias úteis, a ocorrência de feriado local ou a suspensão de expediente forense, em consonância com a nova redação conferida pela Lei 14.939 /2024, ao art. 1.003, § 6º, do CPC, tendo deixado, contudo transcorrer in albis o prazo assinalado, conforme certidão de fl. 765. 2. Na hipótese dos autos, portanto, como não houve a juntada de documento comprobatório durante o iter processual, não é possível superar a intempestividade do apelo nobre. 3. Agravo interno a que se nega provimento." (AgInt no AREsp n. 2.710.026/MT, relator Ministro Raul Araújo, Quarta Turma, julgado em 14/4/2025, DJEN de 25/4/2025.)</p>
@@ -858,7 +868,7 @@ const LoginPage = () => {
 
     if (isResettingPassword) {
         return (
-            <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-200 dark:from-slate-800 dark:to-slate-900 relative">
+            <div className="flex items-center justify-center h-full">
                 <div className="w-full max-w-md p-8 space-y-6 bg-white/60 dark:bg-slate-800/60 backdrop-blur-xl rounded-2xl shadow-lg">
                     <h2 className="text-3xl font-bold text-center text-slate-800 dark:text-slate-100">Redefinir Palavra-passe</h2>
                     <p className="text-center text-sm text-slate-500 dark:text-slate-400">Insira o seu e-mail para receber um link de redefinição.</p>
@@ -871,8 +881,7 @@ const LoginPage = () => {
                     <p className="text-center text-sm">
                         <a href="#" onClick={(e) => { e.preventDefault(); setIsResettingPassword(false); setError(''); }} className="font-medium text-indigo-600 hover:text-indigo-500">Voltar para o Login</a>
                     </p>
-                </div>
-                <CreditsWatermark />
+                </div>                
             </div>
         );
     }
@@ -887,7 +896,7 @@ const LoginPage = () => {
     };
 
     return (
-        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-200 dark:from-slate-800 dark:to-slate-900 relative">
+        <div className="flex items-center justify-center h-full">
             <div className="w-full max-w-md p-8 space-y-6 bg-white/60 dark:bg-slate-800/60 backdrop-blur-xl rounded-2xl shadow-lg">
                 {rememberedUser && isLogin ? (
                     <>
@@ -937,8 +946,7 @@ const LoginPage = () => {
                     </>
                 )}
             </div>
-             <CreditsWatermark />
-        </div>
+         </div>
     )
 };
 
@@ -1582,7 +1590,7 @@ const Header = () => {
     }, [menuRef]);
 
     return (
-    <header className="bg-white/30 dark:bg-slate-900/30 backdrop-blur-xl shadow-sm sticky top-0 z-10 border-b border-slate-200/50 dark:border-slate-700/50">
+    <header className="bg-white/30 dark:bg-slate-900/30 backdrop-blur-xl shadow-sm sticky top-0 z-30 border-b border-slate-200/50 dark:border-slate-700/50">
         <div className="container mx-auto px-4 py-4 flex justify-between items-center">
             <div className="flex items-center gap-4">
                 <svg className="h-9 w-9 text-indigo-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18-3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" /></svg>
@@ -1621,42 +1629,27 @@ const Header = () => {
 };
 
 const CalculatorApp = () => {
-    const [currentArea, setCurrentArea] = useState('Calculadora');
     const [numeroProcesso, setNumeroProcesso] = useState('');
-    const { isAdmin, user, openCalendario } = useAuth();
+    const { currentArea } = useAuth(); // Usaremos o contexto para gerenciar a área atual
     
-    return(
+    return (
     <>
-        <nav className="bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm border-b border-slate-200/50 dark:border-slate-700/50">
-            <div className="container mx-auto px-4">
-              <div className="flex justify-center items-center space-x-2 p-2">
-                 <button onClick={() => setCurrentArea('Calculadora')} className={`px-4 py-2 text-sm font-semibold rounded-lg transition-all duration-200 ${currentArea === 'Calculadora' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'}`}>Calculadora</button>
-                 <button onClick={() => setShowCalendario(true)} className="sm:hidden px-4 py-2 text-sm font-semibold rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700">
-                    Calendário {/* Este botão precisa ser corrigido para usar o contexto também */}
-                 </button>
-                 {isAdmin && <button onClick={() => setCurrentArea('Admin')} className={`px-4 py-2 text-sm font-semibold rounded-lg transition-all duration-200 ${currentArea === 'Admin' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'}`}>Admin</button>}
-              </div>
-            </div>
-          </nav>
-        <main className="container mx-auto px-4 py-8 sm:py-12">
-            <div className="max-w-4xl mx-auto">
-              <style>{`.animate-fade-in { animation: fadeIn 0.7s ease-in-out; } @keyframes fadeIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }`}</style>
-                {currentArea === 'Calculadora' ? (
-                    <div className="space-y-8">
-                        <ConsultaAssistidaPJE numeroProcesso={numeroProcesso} setNumeroProcesso={setNumeroProcesso} />
-                        <CalculadoraDePrazo numeroProcesso={numeroProcesso} />
-                    </div>
-                ) : (
-                    <AdminPage />
-                )}
-            </div>
-        </main>
+        <div className="max-w-4xl mx-auto animate-fade-in">
+            {currentArea === 'Calculadora' ? (
+                <div className="space-y-8">
+                    <ConsultaAssistidaPJE numeroProcesso={numeroProcesso} setNumeroProcesso={setNumeroProcesso} />
+                    <CalculadoraDePrazo numeroProcesso={numeroProcesso} />
+                </div>
+            ) : (
+                <AdminPage />
+            )}
+        </div>
     </>
-    )
+    );
 };
 
 const CreditsWatermark = () => (
-     <div className="fixed bottom-2 right-2 text-xs text-slate-400 dark:text-slate-600 z-50 text-right pointer-events-none">
+     <div className="fixed bottom-2 right-6 text-xs text-slate-400 dark:text-slate-600 z-50 text-right pointer-events-none">
         <p>Desenvolvido por:</p>
         <p><strong>P-SEP-AR - GESTÃO 2025/2026</strong></p>
         <p>Assessoria de Recursos aos Tribunais Superiores (STF e STJ) da Secretaria Especial da Presidência</p>
@@ -1686,12 +1679,16 @@ const UserIDWatermark = ({ overlay = false }) => {
 
 // --- Componente Principal ---
 const App = () => {
-  const { user, loading, refreshUser } = useAuth();
+  const { user, isAdmin, loading, refreshUser, currentArea, setCurrentArea } = useAuth();
   const [showCalendario, setShowCalendario] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
 
   useEffect(() => {
+    // Adiciona o estilo de animação ao head do documento uma única vez.
+    const style = document.createElement('style');
+    style.innerHTML = `.animate-fade-in { animation: fadeIn 0.7s ease-in-out; } @keyframes fadeIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }`;
+    document.head.appendChild(style);
     const openCalendarioHandler = () => setShowCalendario(true);
     const openProfileHandler = () => setShowProfile(true);
     const openSettingsHandler = () => setShowSettings(true);
@@ -1711,38 +1708,59 @@ const App = () => {
     return <div className="min-h-screen flex items-center justify-center"><p>A carregar...</p></div>;
   }
 
-  const renderContent = () => {
-    if (!user) {
-      return <LoginPage />;
-    }
-    if (!user.emailVerified) {
-      return <VerifyEmailPage />;
-    }
-    return <CalculatorApp />;
-  };
-  
+  // Se não houver usuário, exibe a página de login em tela cheia.
+  if (!user) {
+    return <LoginPage />;
+  }
+
+  // Se o e-mail não for verificado, exibe a página de verificação.
+  if (!user.emailVerified) {
+    return <VerifyEmailPage />;
+  }
+
+  // Se o usuário estiver logado e verificado, exibe a aplicação principal.
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-200 dark:from-slate-800 dark:to-slate-900 text-slate-800 dark:text-slate-200 flex flex-col relative">
-        <AuthContext.Provider value={{ ...useAuth(), openCalendario: () => document.dispatchEvent(new CustomEvent('openCalendario')), openProfile: () => document.dispatchEvent(new CustomEvent('openProfile')) }}>
-            {user && user.emailVerified && <Header />}
-        </AuthContext.Provider>
-        <div className="flex-grow">
-          {renderContent()}
+    <div id="app-wrapper" className="h-screen flex flex-col">
+        {/* 
+            Alterado de `min-h-screen` para `h-screen`.
+            Isso força o contêiner principal a ter exatamente a altura da tela,
+            evitando que o `body` crie uma barra de rolagem.
+        */}
+        <Header />
+        <nav className="bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm border-b border-slate-200/50 dark:border-slate-700/50 sticky top-0 z-20">
+            <div className="container mx-auto px-4">
+              <div className="flex justify-center items-center space-x-2 p-2"> 
+                 <button onClick={() => setCurrentArea('Calculadora')} className={`px-4 py-2 text-sm font-semibold rounded-lg transition-all duration-200 ${currentArea === 'Calculadora' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'}`}>Calculadora</button>
+                 <button onClick={() => setShowCalendario(true)} className="sm:hidden px-4 py-2 text-sm font-semibold rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700">
+                    Calendário
+                 </button>
+                 {isAdmin && <button onClick={() => setCurrentArea('Admin')} className={`px-4 py-2 text-sm font-semibold rounded-lg transition-all duration-200 ${currentArea === 'Admin' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'}`}>Admin</button>}
+              </div>
+            </div>
+        </nav>
+        <div className="flex-grow overflow-y-auto">
+            <main className="container mx-auto px-4 py-8 sm:py-12">
+                <CalculatorApp />
+            </main>
         </div>
-        <UserIDWatermark />
-        <CreditsWatermark />
+        <footer className="p-2"><CreditsWatermark /></footer>
+
         {showCalendario && <CalendarioModal onClose={() => setShowCalendario(false)} />}
         {showProfile && <ProfileModal user={user} userData={useAuth().userData} onClose={() => setShowProfile(false)} onUpdate={refreshUser} />}
         {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
+        <UserIDWatermark />
     </div>
   );
 };
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(
-    <AuthProvider>
-        <SettingsProvider>
+    <SettingsProvider>
+        <AuthProvider>
             <App />
-        </SettingsProvider>
-    </AuthProvider>
+        </AuthProvider>
+    </SettingsProvider>
 );
+
+// Adicionei o SettingsProvider envolvendo o AuthProvider para que o contexto de autenticação
+// possa acessar as configurações, se necessário no futuro.
