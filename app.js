@@ -139,7 +139,8 @@ const AuthProvider = ({ children }) => {
         loading, 
         refreshUser: () => auth.currentUser && updateUserAndAdminStatus(auth.currentUser),
         currentArea,
-        setCurrentArea
+        setCurrentArea,
+        openCalendario: () => document.dispatchEvent(new CustomEvent('openCalendario'))
     };
 
     return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
@@ -593,14 +594,12 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div className="border-r md:pr-4">
                                     <h3 className="text-lg font-bold text-slate-700 dark:text-slate-200 text-center mb-2">Cenário 1: Sem Decreto</h3>
-                                    <p className="text-center text-sm text-slate-500 dark:text-slate-400 mb-1 whitespace-nowrap">Publicação em {resultado.dataPublicacao.toLocaleDateString('pt-BR', {timeZone: 'UTC'})} / Início em {resultado.inicioPrazo.toLocaleDateString('pt-BR', {timeZone: 'UTC'})}</p>
                                     <p className="text-center text-slate-600 dark:text-slate-300">O prazo final de {resultado.prazo} dias úteis é:</p>
                                     <p className="text-center mt-2 text-2xl font-bold text-indigo-600 dark:text-indigo-400">{resultado.semDecreto.prazoFinal.toLocaleDateString('pt-BR', {timeZone: 'UTC'})}</p>
                                     {resultado.semDecreto.diasNaoUteis.length > 0 && <div className="mt-4 text-left"><p className="text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">Dias não úteis:</p><ul className="text-xs space-y-1"><GroupedDiasNaoUteis dias={resultado.semDecreto.diasNaoUteis} /></ul></div>}
                                 </div>
                                 <div className="border-t md:border-t-0 md:border-l border-slate-200 dark:border-slate-700 md:pl-4 pt-4 md:pt-0">
                                     <h3 className="text-lg font-bold text-slate-700 dark:text-slate-200 text-center mb-2">Cenário 2: Com Decreto</h3>
-                                    <p className="text-center text-sm text-slate-500 dark:text-slate-400 mb-1 whitespace-nowrap">Publicação em {resultado.dataPublicacao.toLocaleDateString('pt-BR', {timeZone: 'UTC'})} / Início em {resultado.inicioPrazo.toLocaleDateString('pt-BR', {timeZone: 'UTC'})}</p>
                                     <p className="text-center text-slate-600 dark:text-slate-300">O prazo final, <strong>comprovando as suspensões</strong>, é:</p>
                                     <p className="text-center mt-2 text-2xl font-bold text-green-600 dark:text-green-400">{resultado.comDecreto.prazoFinal.toLocaleDateString('pt-BR', {timeZone: 'UTC'})}</p>
                                     {resultado.comDecreto.diasNaoUteis.length > 0 && <div className="mt-4 text-left"><p className="text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">Dias não úteis considerados:</p><ul className="text-xs space-y-1"><GroupedDiasNaoUteis dias={resultado.comDecreto.diasNaoUteis} /></ul></div>}
@@ -1575,7 +1574,7 @@ const ProfileModal = ({ user, userData, onClose, onUpdate }) => {
 };
 
 const Header = () => {
-    const { user, userData, openCalendario } = useAuth();
+    const { user, userData, openCalendario } = useAuth(); // A propriedade openCalendario é disponibilizada pelo AuthContext
     const [isMenuOpen, setIsMenuOpen] = useState(false);
     const menuRef = React.useRef(null);
 
