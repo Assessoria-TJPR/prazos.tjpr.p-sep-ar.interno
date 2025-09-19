@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Modulo Prazos - P-SEP-AR - TJPR</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="style.css">
     <script>
         tailwind.config = {
             darkMode: 'class', // Ativa o modo escuro via classe no HTML
@@ -29,16 +30,6 @@
     <!-- Biblioteca para salvar arquivos (alternativa robusta para download) -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
     
-    <style>
-        html, body, #root {
-            height: 100%;
-            font-family: Inter, sans-serif; /* Fonte similar à original */
-        }
-        .watermark-overlay {
-            position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
-            font-size: 1.5rem; font-weight: bold; color: rgba(0, 0, 0, 0.05); transform: rotate(-15deg); pointer-events: none; z-index: 10;
-        }
-    </style>
 </head>
 <body class="bg-gradient-to-br from-slate-50 to-slate-200 text-slate-800 dark:from-slate-800 dark:to-slate-900 dark:text-slate-200 overflow-hidden">
     <!-- 
