@@ -127,7 +127,6 @@ const AuthContext = createContext(null);
 
 const AuthProvider = ({ children }) => {
     const [user, setUser] = useState(null);
-    const [isAdmin, setIsAdmin] = useState(false);
     const [userData, setUserData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [currentArea, setCurrentArea] = useState('Calculadora');
@@ -135,56 +134,58 @@ const AuthProvider = ({ children }) => {
     const updateUserAndAdminStatus = async (firebaseUser) => {
         if (firebaseUser) {
             setUser(firebaseUser);
-            const userDoc = await db.collection('users').doc(firebaseUser.uid).get();
-            if (userDoc.exists) setUserData(userDoc.data());
-            if (userDoc.exists) {
-                setIsAdmin(userDoc.data().isAdmin === true);
-            } else {
-                // Se o documento do usuário não existe, ele não deve ser admin.
-                setIsAdmin(false);
+            try {
+                const userDoc = await db.collection('users').doc(firebaseUser.uid).get();
+                if (userDoc.exists) {
+                    setUserData(userDoc.data());
+                } else {
+                    // Se o documento não existe, desloga por segurança.
+                    console.warn("Documento do usuário não encontrado no Firestore. Deslogando.");
+                    auth.signOut();
+                    setUserData(null);
+                }
+            } catch (error) {
+                console.error("Erro ao buscar dados do usuário:", error);
+                auth.signOut();
+                setUserData(null);
             }
         } else {
             setUser(null);
-            setIsAdmin(false);
             setUserData(null);
         }
         setLoading(false); // Garante que o loading termine em todos os casos.
     };
 
     useEffect(() => {
-        const onAuthChange = async (user) => {
-            if (user) {
-                setUser(user);
-                const userDoc = await db.collection('users').doc(user.uid).get();
-                if (userDoc.exists) setUserData(userDoc.data());
-                if (userDoc.exists) {
-                    setIsAdmin(userDoc.data().isAdmin === true);
-                } else {
-                    // Se o documento do usuário não existe no DB, desloga por segurança.
-                    auth.signOut();
-                    setIsAdmin(false);
-                }
-            } else {
-                setUser(null);
-                setIsAdmin(false);
-                setUserData(null);
-            }
-            setLoading(false);
-        };
-
         if (!auth) {
             setLoading(false);
             return;
         }
-        const unsubscribe = auth.onAuthStateChanged(onAuthChange);
+        const unsubscribe = auth.onAuthStateChanged(updateUserAndAdminStatus);
         return () => unsubscribe();
     }, []);
+
+    useEffect(() => {
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'visible' && auth.currentUser) {
+                // Força a atualização dos dados do usuário quando a aba se torna visível
+                updateUserAndAdminStatus(auth.currentUser);
+            }
+        };
+
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+        return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+    }, []);
+
+    const isAdmin = userData?.role === 'admin';
+    const isIntermediate = userData?.role === 'intermediate';
 
     // A função de atualização é exposta para que componentes filhos possam forçar a atualização do usuário.
     const value = { 
         user, 
-        isAdmin, 
-        userData, 
+        userData,
+        isAdmin,
+        isIntermediate,
         loading, 
         refreshUser: () => auth.currentUser && updateUserAndAdminStatus(auth.currentUser),
         currentArea,
@@ -269,7 +270,7 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
   const [tempestividade, setTempestividade] = useState(null);
   const [error, setError] = useState('');
   const { user } = useAuth();
-
+  const { userData } = useAuth();
   const { feriadosMap, decretosMap, instabilidadeMap, recessoForense, calendarLoading } = settings;
 
   const getMotivoDiaNaoUtil = (date, considerarDecretos, tipo = 'todos') => {
@@ -703,7 +704,7 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
                         )}
                     </>
                 )}
-                {resultado && resultado.tipo === 'civel' && (
+                {resultado && resultado.tipo === 'civel' && (userData?.role === 'intermediate' || userData?.role === 'admin') && (
                     <div className="mt-6 border-t border-slate-300 dark:border-slate-600 pt-4">
                         <h3 className="text-lg font-bold text-slate-700 dark:text-slate-200 mb-2">Verificação de Tempestividade</h3>
                         <div>
@@ -862,11 +863,31 @@ const LoginPage = () => {
     const [password, setPassword] = useState('');
     const [displayName, setDisplayName] = useState('');
     const [rememberMe, setRememberMe] = useState(true);
+    const [setorId, setSetorId] = useState(''); // Novo estado para o setor
     const [isResettingPassword, setIsResettingPassword] = useState(false);
     const [error, setError] = useState('');
     const [message, setMessage] = useState('');
     const [rememberedUser, setRememberedUser] = useState(null);
+    const [setores, setSetores] = useState([]); // Novo estado para a lista de setores
+    const [isCreatingNewSector, setIsCreatingNewSector] = useState(false);
+    const [newCustomSector, setNewCustomSector] = useState('');
 
+    // Busca os setores do Firestore quando o modo de registro é ativado
+    useEffect(() => {
+        if (!isLogin && db) {
+            const fetchSetores = async () => {
+                try {
+                    const snapshot = await db.collection('setores').orderBy('nome').get();
+                    const setoresList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    setSetores(setoresList);
+                } catch (err) {
+                    console.error("Erro ao buscar setores para o registro:", err);
+                    setError("Não foi possível carregar a lista de setores.");
+                }
+            };
+            fetchSetores();
+        }
+    }, [isLogin]);
     const handlePasswordReset = async (e) => {
         e.preventDefault();
         setError('');
@@ -903,6 +924,11 @@ const LoginPage = () => {
             setError("Por favor, insira o seu nome de utilizador.");
             return;
         }
+        // Validação do setor
+        if (!isLogin && !setorId && !isCreatingNewSector) {
+            setError("Por favor, selecione um setor.");
+            return;
+        }
         if (!auth) {
             setError("Serviço de autenticação não disponível.");
             return;
@@ -914,12 +940,31 @@ const LoginPage = () => {
                 await auth.signInWithEmailAndPassword(finalEmail, password);
                 localStorage.setItem('lastUserEmail', finalEmail);
             } else {
-                // 1. Cria o usuário na autenticação
+                // CORREÇÃO: Garante que temos o ID do setor antes de continuar.
+                const getFinalSetorId = async () => {
+                    if (isCreatingNewSector) {
+                        if (!newCustomSector.trim()) {
+                            setError("Por favor, digite o nome do novo setor.");
+                            return null; // Retorna nulo para indicar falha
+                        }
+                        const newSectorDoc = await db.collection('setores').add({ nome: newCustomSector.trim() });
+                        return newSectorDoc.id;
+                    }
+                    return setorId;
+                };
+
+                const finalSetorId = await getFinalSetorId();
+                if (!finalSetorId) {
+                    return; // Interrompe a execução se o ID do setor não foi obtido
+                }
+
                 const userCredential = await auth.createUserWithEmailAndPassword(finalEmail, password);
-                
-                // 2. CRÍTICO: Aguarda a criação do documento no Firestore ANTES de prosseguir.
-                // Isso resolve a condição de corrida com o AuthProvider.
-                await db.collection('users').doc(userCredential.user.uid).set({ email: finalEmail, isAdmin: false, displayName: displayName.trim() });
+                await db.collection('users').doc(userCredential.user.uid).set({ 
+                    email: finalEmail, 
+                    role: 'basic', 
+                    displayName: displayName.trim(),
+                    setorId: finalSetorId // Adiciona o setor selecionado ou o novo
+                });
 
                 // 3. Executa outras tarefas (atualizar perfil e enviar e-mail)
                 await userCredential.user.updateProfile({ displayName: displayName.trim() });
@@ -969,6 +1014,17 @@ const LoginPage = () => {
         localStorage.removeItem('lastUserEmail');
     };
 
+    const handleSectorSelectionChange = (e) => {
+        const value = e.target.value;
+        if (value === '__outros__') {
+            setIsCreatingNewSector(true);
+            setSetorId(''); // Limpa o ID do setor selecionado
+        } else {
+            setIsCreatingNewSector(false);
+            setSetorId(value);
+        }
+    };
+
     return (
         <div className="flex items-center justify-center h-full">
             <div className="w-full max-w-md p-8 space-y-6 bg-white/60 dark:bg-slate-800/60 backdrop-blur-xl rounded-2xl shadow-lg">
@@ -997,6 +1053,24 @@ const LoginPage = () => {
                         <h2 className="text-3xl font-bold text-center text-slate-800 dark:text-slate-100">{isLogin ? 'Login' : 'Criar Conta'}</h2>
                         <form onSubmit={handleSubmit} className="space-y-4">
                             {!isLogin && <input type="text" placeholder="Nome Completo" value={displayName} onChange={e => setDisplayName(e.target.value)} required className="w-full px-4 py-3 bg-white/50 dark:bg-slate-900/50 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition" />}
+                            {!isLogin && 
+                                <>
+                                    <select value={isCreatingNewSector ? '__outros__' : setorId} onChange={handleSectorSelectionChange} required className="w-full px-4 py-3 bg-white/50 dark:bg-slate-900/50 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition">
+                                        <option value="" disabled>Selecione um Setor</option>
+                                        {setores.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
+                                        <option value="__outros__">Outro / Não encontrei meu setor</option>
+                                    </select>
+                                    {isCreatingNewSector && (
+                                        <input 
+                                            type="text" 
+                                            placeholder="Digite o nome do seu setor" 
+                                            value={newCustomSector} 
+                                            onChange={e => setNewCustomSector(e.target.value)} 
+                                            required 
+                                            className="w-full px-4 py-3 bg-white/50 dark:bg-slate-900/50 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition animate-fade-in" />
+                                    )}
+                                </>
+                            }
                             <div className="flex items-center border border-slate-300 dark:border-slate-600 rounded-lg focus-within:ring-2 focus-within:ring-indigo-500 focus-within:border-indigo-500 transition">
                                 <input type="text" placeholder="seu.usuario" value={email} onChange={e => setEmail(e.target.value)} required className="w-full px-4 py-3 bg-transparent border-0 outline-none" />
                                 <span className="px-4 py-3 bg-slate-100/50 dark:bg-slate-900/50 text-slate-500 dark:text-slate-400 rounded-r-lg">
@@ -1328,8 +1402,8 @@ const CalendarioAdminPage = () => {
 
 const AdminPage = () => {
      const { user } = useAuth();
-     // Estado para controlar a visão dentro da página de Admin
-     const [adminSection, setAdminSection] = useState('stats'); // 'stats' ou 'calendar'
+     // Estado para controlar a visão dentro da página de Admin: 'stats', 'calendar', 'users'
+     const [adminSection, setAdminSection] = useState('stats'); // 'stats', 'calendar' ou 'users'
 
      const [stats, setStats] = useState({ total: 0, perMateria: {}, perPrazo: {}, byDay: {} });
      const [statsView, setStatsView] = useState('calculadora'); // 'calculadora' ou 'djen_consulta'
@@ -1342,6 +1416,14 @@ const AdminPage = () => {
      const [hasSearched, setHasSearched] = useState(false);
      const [currentPage, setCurrentPage] = useState(1);
      const [selectedUser, setSelectedUser] = useState(null);
+     // Estados para gerenciamento de usuários
+     const [allUsersForManagement, setAllUsersForManagement] = useState([]);
+     const [userManagementLoading, setUserManagementLoading] = useState(false);
+     const [userSearchTerm, setUserSearchTerm] = useState('');
+     // Estados para gerenciamento de setores (CORREÇÃO)
+     const [setores, setSetores] = useState([]);
+     const [newSectorName, setNewSectorName] = useState('');
+
      const ITEMS_PER_PAGE = 10;
      
     useEffect(() => {
@@ -1356,7 +1438,7 @@ const AdminPage = () => {
                     db.collection('users').get()
                 ]);
                 const usersMap = usersSnapshot.docs.reduce((acc, doc) => {
-                    acc[doc.id] = doc.data().displayName;
+                    acc[doc.id] = doc.data().displayName || doc.data().email;
                     return acc;
                 }, {});
                 const usageData = usageSnapshot.docs.map(doc => ({id: doc.id, ...doc.data()}));
@@ -1371,6 +1453,77 @@ const AdminPage = () => {
         fetchData();
         return () => { isMounted = false; };
      }, []); // Executa apenas uma vez
+
+     const fetchAllUsersForManagement = async () => {
+        setUserManagementLoading(true);
+        try {
+            const snapshot = await db.collection('users').orderBy('displayName').get();
+            const usersList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setAllUsersForManagement(usersList);
+        } catch (err) {
+            console.error("Erro ao buscar usuários para gerenciamento:", err);
+        } finally {
+            setUserManagementLoading(false);
+        }
+    };
+
+    const fetchSetores = async () => {
+        if (!db) return;
+        try {
+            const snapshot = await db.collection('setores').orderBy('nome').get();
+            const setoresList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setSetores(setoresList);
+        } catch (err) {
+            console.error("Erro ao buscar setores:", err);
+        }
+    };
+    const handleRoleChange = async (userId, newRole) => {
+        if (window.confirm(`Tem certeza que deseja alterar a permissão deste usuário para '${newRole}'?`)) {
+            try {
+                await db.collection('users').doc(userId).update({ role: newRole });
+                fetchAllUsersForManagement(); // Recarrega a lista
+            } catch (err) {
+                console.error("Erro ao alterar a permissão:", err);
+                alert("Falha ao alterar a permissão. Verifique o console para mais detalhes.");
+            }
+        }
+    };
+
+    const handleSectorChange = async (userId, newSectorId) => {
+        try {
+            await db.collection('users').doc(userId).update({ setorId: newSectorId });
+            fetchAllUsersForManagement(); // Recarrega a lista para refletir a mudança
+        } catch (err) {
+            console.error("Erro ao alterar o setor:", err);
+            alert("Falha ao alterar o setor. Verifique o console para mais detalhes.");
+        }
+    };
+
+    const handleAddSector = async (e) => {
+        e.preventDefault();
+        if (!newSectorName.trim()) return;
+        try {
+            await db.collection('setores').add({ nome: newSectorName.trim() });
+            setNewSectorName('');
+            fetchSetores(); // Recarrega a lista de setores
+        } catch (err) {
+            console.error("Erro ao adicionar setor:", err);
+            alert("Falha ao adicionar setor.");
+        }
+    };
+
+    const handleDeleteSector = async (sectorId) => {
+        if (window.confirm("Tem certeza que deseja excluir este setor? Esta ação não pode ser desfeita.")) {
+            await db.collection('setores').doc(sectorId).delete();
+            fetchSetores(); // Recarrega a lista
+        }
+    };
+     useEffect(() => {
+        if (adminSection === 'users') {
+            fetchAllUsersForManagement();
+            fetchSetores();
+        }
+     }, [adminSection]);
      
     useEffect(() => {
         // Filtra os dados brutos com base na visualização selecionada (Calculadora ou Consulta)
@@ -1513,6 +1666,7 @@ const AdminPage = () => {
                 <div className="flex items-center gap-2 mt-4 border-b border-slate-200 dark:border-slate-700 pb-4">
                     <button onClick={() => setAdminSection('stats')} className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors ${adminSection === 'stats' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>Estatísticas de Uso</button>
                     <button onClick={() => setAdminSection('calendar')} className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors ${adminSection === 'calendar' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>Gerir Calendário</button>
+                    <button onClick={() => setAdminSection('users')} className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors ${adminSection === 'users' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>Usuários e Setores</button>
                 </div>
             </div>
 
@@ -1626,6 +1780,90 @@ const AdminPage = () => {
         )}
         {adminSection === 'calendar' && (
             <CalendarioAdminPage />
+        )}
+        {adminSection === 'users' && (
+            <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-xl p-6 sm:p-8 rounded-2xl shadow-lg border border-slate-200/50 dark:border-slate-700/50 space-y-6">
+                <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Gerenciamento de Usuários e Setores</h2>
+                <div className="relative">
+                    <input 
+                        type="text" 
+                        placeholder="Pesquisar por nome ou email..." 
+                        value={userSearchTerm}
+                        onChange={e => setUserSearchTerm(e.target.value)}
+                        className="w-full p-3 pl-10 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700"
+                    />
+                    <svg className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" /></svg>
+                </div>
+                {/* Gerenciamento de Setores */}
+                <div className="p-4 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg space-y-4">
+                    <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Setores</h3>
+                    <form onSubmit={handleAddSector} className="flex items-center gap-2">
+                        <input 
+                            type="text"
+                            placeholder="Nome do novo setor"
+                            value={newSectorName}
+                            onChange={e => setNewSectorName(e.target.value)}
+                            className="flex-grow p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700"
+                        />
+                        <button type="submit" className="px-4 py-2 text-sm font-semibold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">Adicionar</button>
+                    </form>
+                    <div className="flex flex-wrap gap-2">
+                        {setores.map(setor => (
+                            <div key={setor.id} className="flex items-center gap-2 bg-slate-200 dark:bg-slate-700 rounded-full px-3 py-1 text-sm">
+                                <span>{setor.nome}</span>
+                                <button onClick={() => handleDeleteSector(setor.id)} className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300">
+                                    &times;
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
+                {/* Tabela de Usuários */}
+                {userManagementLoading ? (
+                    <p className="text-center text-slate-500 dark:text-slate-400">Carregando usuários...</p>
+                ) : (
+                    <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700">
+                        <table className="w-full text-sm text-left">
+                            <thead className="text-xs text-slate-700 dark:text-slate-300 uppercase bg-slate-200/50 dark:bg-slate-800/50">
+                                <tr>
+                                    <th className="px-4 py-3 w-1/4">Nome</th>
+                                    <th className="px-4 py-3 w-1/4">Setor</th>
+                                    <th className="px-4 py-3 w-1/4 text-center">Permissão</th>
+                                    <th className="px-4 py-3 w-1/4 text-right">Ações de Permissão</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {allUsersForManagement && allUsersForManagement
+                                    .filter(u => 
+                                        u.displayName?.toLowerCase().includes(userSearchTerm.toLowerCase()) || 
+                                        u.email?.toLowerCase().includes(userSearchTerm.toLowerCase())
+                                    )
+                                    .map(u => {
+                                        const setorDoUsuario = setores.find(s => s.id === u.setorId);
+                                        return (
+                                            <tr key={u.id} className="border-b border-slate-200/50 dark:border-slate-700/50 last:border-b-0">
+                                                <td className="px-4 py-3 font-medium">{u.displayName || 'Não definido'}<br/><span className="text-xs text-slate-500">{u.email}</span></td>
+                                                <td className="px-4 py-3">
+                                                    <select value={u.setorId || ''} onChange={(e) => handleSectorChange(u.id, e.target.value)} className="w-full p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700">
+                                                        <option value="">Nenhum</option>
+                                                        {setores.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
+                                                    </select>
+                                                </td>
+                                                <td className="px-4 py-3 text-center capitalize font-semibold">{u.role}</td>
+                                                <td className="px-4 py-3 text-right space-x-2">
+                                                    {u.role !== 'admin' && <button onClick={() => handleRoleChange(u.id, 'admin')} className="font-semibold text-red-600 hover:text-red-500">Tornar Admin</button>}
+                                                    {u.role !== 'intermediate' && <button onClick={() => handleRoleChange(u.id, 'intermediate')} className="font-semibold text-sky-600 hover:text-sky-500">Tornar Intermediário</button>}
+                                                    {u.role !== 'basic' && <button onClick={() => handleRoleChange(u.id, 'basic')} className="font-semibold text-amber-600 hover:text-amber-500">Tornar Básico</button>}
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+            </div>
         )}
         </div>
      );
@@ -1934,7 +2172,7 @@ const UserIDWatermark = ({ overlay = false }) => {
 
 // --- Componente Principal ---
 const App = () => {
-  const { user, isAdmin, loading, refreshUser, currentArea, setCurrentArea } = useAuth();
+  const { user, userData, isAdmin, loading, refreshUser, currentArea, setCurrentArea } = useAuth();
   const [showCalendario, setShowCalendario] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -2004,7 +2242,7 @@ const App = () => {
         <footer className="p-2"><CreditsWatermark /></footer>
 
         {showCalendario && <CalendarioModal onClose={() => setShowCalendario(false)} />}
-        {showProfile && <ProfileModal user={user} userData={useAuth().userData} onClose={() => setShowProfile(false)} onUpdate={refreshUser} />} 
+        {showProfile && <ProfileModal user={user} userData={userData} onClose={() => setShowProfile(false)} onUpdate={refreshUser} />} 
         {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
         <UserIDWatermark />
     </div>
