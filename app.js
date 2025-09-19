@@ -23,20 +23,11 @@ const db = app ? firebase.firestore() : null;
 const { useState, useEffect, useCallback, createContext, useContext } = React;
 const { Bar, HorizontalBar } = window.ReactChartjs2;
 
-// --- Dados Globais de Calendário ---
-const feriadosMap = {
-    '2025-01-01': 'N° 645/2024 - Confraternização Universal', '2025-03-04': 'N° 645/2024 - Carnaval', '2025-04-18': 'N° 645/2024 - Paixão de Cristo', '2025-04-21': 'N° 645/2024 - Tiradentes', '2025-05-01': 'N° 645/2024 - Dia do Trabalho', '2025-09-07': 'N° 645/2024 - Independência do Brasil', '2025-10-12': 'N° 645/2024 - Nossa Senhora Aparecida', '2025-10-28': 'N° 645/2024 - Dia do Funcionário Público', '2025-11-02': 'N° 645/2024 - Finados', '2025-11-15': 'N° 645/2024 - Proclamação da República', '2025-11-20': 'N° 645/2024 - Dia Nacional de Zumbi e da Consciência Negra', '2025-12-08': 'N° 645/2024 - Dia da Justiça', '2025-12-25': 'N° 645/2024 - Natal',
-};
-const decretosMap = {
-    '2025-03-03': 'N° 645/2024 - Véspera de Carnaval', '2025-04-17': 'N° 645/2024 - Quinta-feira Santa', '2025-05-02': 'N° 127/2025 - P-SEP - Decreto', '2025-06-19': 'N° 645/2024 - Corpus Christi', '2025-06-20': 'N° 645/2024 - Feriado Estipulado pelo CNJ', '2025-09-08': 'N° 645/2024 - Padroeira de Curitiba', '2025-10-27': 'N° 127/2025 - P-SEP - Decreto', '2025-11-21': 'N° 127/2025 - P-SEP - Decreto', '2025-12-19': 'N° 645/2024 - Emancipação Política do Paraná', '2025-12-24': 'N° 645/2024 - Véspera de Natal', '2025-12-31': 'N° 645/2024 - Véspera de Ano Novo',
-    '2025-09-02': 'Nº486/2025 - Instabilidade do Projudi',
-};
-const instabilidadeMap = {
-    '2025-01-31': 'Nº 102/2025 - Instabilidade do Projudi', '2025-04-04': 'Nº 207/2025 - Instabilidade do Projudi', '2025-05-23': 'Nº 279/2025 - Instabilidade do Projudi', '2025-05-29': 'Nº 288/2025 - Instabilidade do Projudi',
-};
-const recessoForense = {
-    janeiro: { inicio: 2, fim: 20 },
-    dezembro: { inicio: 20, fim: 30 }
+// --- Função Auxiliar de Formatação de Data ---
+const formatarData = (date) => {
+    if (!date) return '';
+    // Garante que a data seja tratada como UTC para evitar problemas de fuso horário
+    return new Date(date.getTime() + date.getTimezoneOffset() * 60000).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
 };
 
 // --- Contexto de Configurações ---
@@ -47,6 +38,15 @@ const SettingsProvider = ({ children }) => {
         theme: 'system', // 'light', 'dark', 'system'
         defaultMateria: 'civel',
         defaultPrazo: 15,
+        // Dados do calendário serão carregados aqui
+        feriadosMap: {},
+        decretosMap: {},
+        instabilidadeMap: {},
+        recessoForense: {
+            janeiro: { inicio: 2, fim: 20 },
+            dezembro: { inicio: 20, fim: 30 }
+        },
+        calendarLoading: true,
     });
 
     useEffect(() => {
@@ -54,6 +54,55 @@ const SettingsProvider = ({ children }) => {
         if (savedSettings) {
             setSettings(JSON.parse(savedSettings));
         }
+    }, []);
+
+    const fetchCalendarData = useCallback(async () => {
+        if (db) {
+            setSettings(s => ({ ...s, calendarLoading: true }));
+            try {
+                // Busca todos os documentos da coleção 'calendario' que você criou.
+                const snapshot = await db.collection('calendario').get();
+
+                if (snapshot.empty) {
+                    console.warn("A coleção 'calendario' está vazia ou não foi encontrada no Firestore.");
+                    updateSettings({ feriadosMap: {}, decretosMap: {}, instabilidadeMap: {}, calendarLoading: false });
+                    return;
+                }
+
+                const feriados = {};
+                const decretos = {};
+                const instabilidades = {};
+
+                // Itera sobre cada documento (cada dia não útil) e organiza nos mapas corretos.
+                snapshot.forEach(doc => {
+                    const item = doc.data();
+                    // O ID do documento é a data no formato 'YYYY-MM-DD'
+                    // O ID do documento é a própria data no formato 'YYYY-MM-DD'
+                    const data = doc.id; 
+                    if (data && item.motivo && item.tipo) {
+                        switch (item.tipo) {
+                            case 'feriado':
+                                feriados[data] = item.motivo;
+                                break;
+                            case 'decreto':
+                                decretos[data] = item.motivo;
+                                break;
+                            case 'instabilidade':
+                                instabilidades[data] = item.motivo;
+                                break;
+                        }
+                    }
+                });
+
+                updateSettings({ feriadosMap: feriados, decretosMap: decretos, instabilidadeMap: instabilidades, calendarLoading: false });
+
+            } catch (error) { console.error("Erro ao carregar calendário da coleção:", error); updateSettings({ calendarLoading: false }); }
+        }
+    }, []);
+
+    useEffect(() => {
+        // Carrega os dados do calendário do Firestore na montagem inicial
+        fetchCalendarData();
     }, []);
 
     useEffect(() => {
@@ -69,7 +118,7 @@ const SettingsProvider = ({ children }) => {
         localStorage.setItem('appSettings', JSON.stringify(updated));
     };
 
-    const value = { settings, updateSettings };
+    const value = { settings, updateSettings, refreshCalendar: fetchCalendarData };
     return <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>;
 };
 
@@ -209,7 +258,7 @@ const ConsultaAssistidaPJE = ({ numeroProcesso, setNumeroProcesso }) => {
 };
 
 const CalculadoraDePrazo = ({ numeroProcesso }) => {
-  const { settings } = useContext(SettingsContext);
+  const { settings, updateSettings } = useContext(SettingsContext);
   const [dataDisponibilizacao, setDataDisponibilizacao] = useState('');
   const [prazoSelecionado, setPrazoSelecionado] = useState(settings.defaultPrazo || 15);
   const [tipoPrazo, setTipoPrazo] = useState(settings.defaultMateria || 'civel');
@@ -221,19 +270,28 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
   const [error, setError] = useState('');
   const { user } = useAuth();
 
-  const getMotivoDiaNaoUtil = (date, considerarDecretos) => {
+  const { feriadosMap, decretosMap, instabilidadeMap, recessoForense, calendarLoading } = settings;
+
+  const getMotivoDiaNaoUtil = (date, considerarDecretos, tipo = 'todos') => {
     const dateString = date.toISOString().split('T')[0];
-    if (feriadosMap[dateString]) return { motivo: feriadosMap[dateString], tipo: 'feriado' };
-    if (considerarDecretos) {
+    if (tipo === 'todos' || tipo === 'feriado') {
+        if (feriadosMap[dateString]) return { motivo: feriadosMap[dateString], tipo: 'feriado' };
+    }
+    if (considerarDecretos && (tipo === 'todos' || tipo === 'decreto')) {
         if (decretosMap[dateString]) return { motivo: decretosMap[dateString], tipo: 'decreto' };
+    }
+    // A instabilidade é tratada separadamente, mas pode ser verificada aqui se necessário.
+    if (considerarDecretos && (tipo === 'todos' || tipo === 'instabilidade')) {
         if (instabilidadeMap[dateString]) return { motivo: instabilidadeMap[dateString], tipo: 'instabilidade' };
     }
     const month = date.getMonth() + 1;
     const day = date.getDate();
     const { janeiro, dezembro } = recessoForense;
-    if ((month === 1 && day >= janeiro.inicio && day <= janeiro.fim) || 
-        (month === 12 && day >= dezembro.inicio && day <= dezembro.fim)) 
-        return { motivo: 'Recesso Forense', tipo: 'recesso' };
+    if (tipo === 'todos' || tipo === 'recesso') {
+        if ((month === 1 && day >= janeiro.inicio && day <= janeiro.fim) || 
+            (month === 12 && day >= dezembro.inicio && day <= dezembro.fim)) 
+            return { motivo: 'Recesso Forense', tipo: 'recesso' };
+    }
     return null;
   };
   
@@ -241,7 +299,7 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
       const proximoDia = new Date(data.getTime());
       do {
           proximoDia.setDate(proximoDia.getDate() + 1);
-      } while (proximoDia.getDay() === 0 || proximoDia.getDay() === 6 || getMotivoDiaNaoUtil(proximoDia, true));
+      } while (proximoDia.getDay() === 0 || proximoDia.getDay() === 6 || getMotivoDiaNaoUtil(proximoDia, true, 'todos'));
       return proximoDia;
   };
 
@@ -249,7 +307,7 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
       const proximoDia = new Date(data.getTime());
       do {
           proximoDia.setDate(proximoDia.getDate() + 1);
-      } while (proximoDia.getDay() === 0 || proximoDia.getDay() === 6 || getMotivoDiaNaoUtil(proximoDia, false));
+      } while (proximoDia.getDay() === 0 || proximoDia.getDay() === 6 || getMotivoDiaNaoUtil(proximoDia, false, 'todos'));
       return proximoDia;
   };
 
@@ -270,14 +328,23 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
         dataCorrente.setDate(dataCorrente.getDate() + 1);
         const diaDaSemana = dataCorrente.getDay();
         const dataCorrenteStr = dataCorrente.toISOString().split('T')[0];
-        // Considera decretos/instabilidades apenas se estiverem na lista de 'comprovados'.
-        const considerarDecretosParaEsteDia = comprovados.has(dataCorrenteStr);
-        const infoDiaNaoUtil = getMotivoDiaNaoUtil(dataCorrente, considerarDecretosParaEsteDia);
+        
+        // Para a contagem, considera apenas feriados, recessos e decretos comprovados.
+        // A instabilidade não suspende o prazo intermediário, apenas o início ou o fim.
+        const considerarDecretosParaEsteDia = comprovados.has(dataCorrenteStr) && decretosMap[dataCorrenteStr];
+        const infoDiaNaoUtil = getMotivoDiaNaoUtil(dataCorrente, considerarDecretosParaEsteDia, 'feriado') || 
+                               getMotivoDiaNaoUtil(dataCorrente, considerarDecretosParaEsteDia, 'recesso') ||
+                               getMotivoDiaNaoUtil(dataCorrente, considerarDecretosParaEsteDia, 'decreto');
+
         if (diaDaSemana === 0 || diaDaSemana === 6 || infoDiaNaoUtil) {
             if (infoDiaNaoUtil) diasNaoUteisEncontrados.push({ data: new Date(dataCorrente.getTime()), ...infoDiaNaoUtil });
         } else {
             diasUteisContados++;
         }
+    }
+    // Após encontrar o prazo final, verifica se ele caiu em um dia de instabilidade comprovada.
+    while(comprovados.has(dataCorrente.toISOString().split('T')[0]) && instabilidadeMap[dataCorrente.toISOString().split('T')[0]]) {
+        dataCorrente.setDate(dataCorrente.getDate() + 1);
     }
 
     let prazoFinalAjustado = dataCorrente;
@@ -322,13 +389,21 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
         
         if (tipoPrazo === 'civel') {
             // Para cível, o início do prazo não é afetado por decretos, apenas a contagem.
-            const dataPublicacao = getProximoDiaUtilSemDecreto(inicioDisponibilizacao);
-            const inicioDoPrazo = getProximoDiaUtilSemDecreto(dataPublicacao);
+            const diasNaoUteisDoInicio = []; // Variável para armazenar suspensões que afetam o início do prazo
+
+            let dataPublicacao = getProximoDiaUtilSemDecreto(inicioDisponibilizacao);
+            let inicioDoPrazo = getProximoDiaUtilSemDecreto(dataPublicacao);
+
+            // Prorroga o início do prazo se cair em dia de instabilidade (regra específica)
+            while(instabilidadeMap[inicioDoPrazo.toISOString().split('T')[0]]) {
+                diasNaoUteisDoInicio.push({ data: new Date(inicioDoPrazo.getTime()), motivo: instabilidadeMap[inicioDoPrazo.toISOString().split('T')[0]], tipo: 'instabilidade' });
+                inicioDoPrazo.setDate(inicioDoPrazo.getDate() + 1);
+            }
 
             // Calcula o prazo considerando TODOS os decretos para encontrar os que são relevantes.
             const todasSuspensoesPossiveis = new Set(Object.keys(decretosMap).concat(Object.keys(instabilidadeMap)));
             const resultadoComTodasSuspensoes = calcularPrazoFinalDiasUteis(inicioDoPrazo, prazoNumerico, todasSuspensoesPossiveis);
-            const suspensoesRelevantes = resultadoComTodasSuspensoes.diasNaoUteis.filter(d => d.tipo === 'decreto' || d.tipo === 'instabilidade');
+            const suspensoesRelevantes = [...diasNaoUteisDoInicio, ...resultadoComTodasSuspensoes.diasNaoUteis.filter(d => d.tipo === 'decreto' || d.tipo === 'instabilidade')];
 
             // Cenário 1: Sem comprovação de decretos/instabilidades.
             const resultadoSemDecreto = calcularPrazoFinalDiasUteis(inicioDoPrazo, prazoNumerico, new Set());
@@ -480,11 +555,11 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
     const todasSuspensoes = new Set(suspensoesComprovaveis.map(d => d.data.toISOString().split('T')[0]));
     const prazoFinalMaximo = calcularPrazoFinalDiasUteis(inicioPrazo, prazo, todasSuspensoes).prazoFinal;
     
-    const dataDispStr = new Date(dataDisponibilizacao + 'T00:00:00').toLocaleDateString('pt-BR', { timeZone: 'UTC' });
-    const dataPubStr = dataPublicacao.toLocaleDateString('pt-BR', { timeZone: 'UTC' });
-    const inicioPrazoStr = inicioPrazo.toLocaleDateString('pt-BR', { timeZone: 'UTC' });
-    const dataInterposicaoStr = new Date(dataInterposicao + 'T00:00:00').toLocaleDateString('pt-BR', { timeZone: 'UTC' });
-    const prazoFinalStr = prazoFinalMaximo.toLocaleDateString('pt-BR', { timeZone: 'UTC' });
+    const dataDispStr = formatarData(new Date(dataDisponibilizacao + 'T00:00:00'));
+    const dataPubStr = formatarData(dataPublicacao);
+    const inicioPrazoStr = formatarData(inicioPrazo);
+    const dataInterposicaoStr = formatarData(new Date(dataInterposicao + 'T00:00:00'));
+    const prazoFinalStr = formatarData(prazoFinalMaximo);
 
     const pStyle = "text-align: justify; text-indent: 50px; margin-bottom: 1em;";
     const corpoMinuta = `
@@ -520,9 +595,9 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
 
   const gerarMinutaFaltaDecreto = async () => {
     const { inicioPrazo, semDecreto } = resultado;
-    const dataLeituraStr = new Date(dataDisponibilizacao + 'T00:00:00').toLocaleDateString('pt-BR', { timeZone: 'UTC' });
-    const inicioPrazoStr = inicioPrazo.toLocaleDateString('pt-BR', { timeZone: 'UTC' });
-    const prazoFinalStr = semDecreto.prazoFinal.toLocaleDateString('pt-BR', { timeZone: 'UTC' });
+    const dataLeituraStr = formatarData(new Date(dataDisponibilizacao + 'T00:00:00'));
+    const inicioPrazoStr = formatarData(inicioPrazo);
+    const prazoFinalStr = formatarData(semDecreto.prazoFinal);
 
     const pStyle = "text-align: justify; text-indent: 50px; margin-bottom: 1em;";
     const corpoMinuta = `
@@ -594,14 +669,14 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div className="border-r md:pr-4">
                                     <h3 className="text-lg font-bold text-slate-700 dark:text-slate-200 text-center mb-2">Cenário 1: Sem Decreto</h3>
-                                    <p className="text-center text-slate-600 dark:text-slate-300">O prazo final de {resultado.prazo} dias úteis é:</p>
-                                    <p className="text-center mt-2 text-2xl font-bold text-indigo-600 dark:text-indigo-400">{resultado.semDecreto.prazoFinal.toLocaleDateString('pt-BR', {timeZone: 'UTC'})}</p>
+                                    <p className="text-center text-slate-600 dark:text-slate-300">O prazo final de {resultado.prazo} dias úteis é:</p> 
+                                    <p className="text-center mt-2 text-2xl font-bold text-indigo-600 dark:text-indigo-400">{formatarData(resultado.semDecreto.prazoFinal)}</p>
                                     {resultado.semDecreto.diasNaoUteis.length > 0 && <div className="mt-4 text-left"><p className="text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">Dias não úteis:</p><ul className="text-xs space-y-1"><GroupedDiasNaoUteis dias={resultado.semDecreto.diasNaoUteis} /></ul></div>}
                                 </div>
                                 <div className="border-t md:border-t-0 md:border-l border-slate-200 dark:border-slate-700 md:pl-4 pt-4 md:pt-0">
-                                    <h3 className="text-lg font-bold text-slate-700 dark:text-slate-200 text-center mb-2">Cenário 2: Com Decreto</h3>
-                                    <p className="text-center text-slate-600 dark:text-slate-300">O prazo final, <strong>comprovando as suspensões</strong>, é:</p>
-                                    <p className="text-center mt-2 text-2xl font-bold text-green-600 dark:text-green-400">{resultado.comDecreto.prazoFinal.toLocaleDateString('pt-BR', {timeZone: 'UTC'})}</p>
+                                    <h3 className="text-lg font-bold text-slate-700 dark:text-slate-200 text-center mb-2">Cenário 2: Com Decreto</h3> 
+                                    <p className="text-center text-slate-600 dark:text-slate-300">O prazo final, <strong>comprovando as suspensões</strong>, é:</p> 
+                                    <p className="text-center mt-2 text-2xl font-bold text-green-600 dark:text-green-400">{formatarData(resultado.comDecreto.prazoFinal)}</p>
                                     {resultado.comDecreto.diasNaoUteis.length > 0 && <div className="mt-4 text-left"><p className="text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">Dias não úteis considerados:</p><ul className="text-xs space-y-1"><GroupedDiasNaoUteis dias={resultado.comDecreto.diasNaoUteis} /></ul></div>}
                                     <div className="mt-4 text-left border-t border-slate-300 dark:border-slate-600 pt-2">
                                         <h4 className="text-xs font-semibold text-orange-600 dark:text-orange-400 mb-2">Decretos que influenciaram na dilação do prazo:</h4>
@@ -609,7 +684,7 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
                                             {resultado.suspensoesComprovaveis.map(dia => {
                                                 const dataString = dia.data.toISOString().split('T')[0];
                                                 return (
-                                                    <label key={dataString} className="flex items-center p-2 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg cursor-pointer hover:bg-slate-200/70 dark:hover:bg-slate-700/50 transition-colors"><input type="checkbox" checked={diasComprovados.has(dataString)} onChange={() => handleComprovacaoChange(dataString)} className="h-4 w-4 rounded border-slate-400 text-indigo-600 focus:ring-indigo-500" /><span className="ml-2 text-xs text-slate-700 dark:text-slate-200"><strong className="font-semibold">{dia.data.toLocaleDateString('pt-BR', {timeZone: 'UTC'})}:</strong> {dia.motivo}</span></label>
+                                                    <label key={dataString} className="flex items-center p-2 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg cursor-pointer hover:bg-slate-200/70 dark:hover:bg-slate-700/50 transition-colors"><input type="checkbox" checked={diasComprovados.has(dataString)} onChange={() => handleComprovacaoChange(dataString)} className="h-4 w-4 rounded border-slate-400 text-indigo-600 focus:ring-indigo-500" /><span className="ml-2 text-xs text-slate-700 dark:text-slate-200"><strong className="font-semibold">{formatarData(dia.data)}:</strong> {dia.motivo}</span></label>
                                                 );
                                             })}
                                         </div>
@@ -620,9 +695,9 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
                         ) : (
                             <div className="text-center">
                                 <h3 className="text-lg font-bold text-slate-700 dark:text-slate-200 mb-2">Resultado do Cálculo</h3>
-                                <p className="text-sm text-slate-500 dark:text-slate-400 mb-1 whitespace-nowrap">Publicação em {resultado.dataPublicacao.toLocaleDateString('pt-BR', {timeZone: 'UTC'})} / Início do prazo em {resultado.inicioPrazo.toLocaleDateString('pt-BR', {timeZone: 'UTC'})}</p>
+                                <p className="text-sm text-slate-500 dark:text-slate-400 mb-1 whitespace-nowrap">Publicação em {formatarData(resultado.dataPublicacao)} / Início do prazo em {formatarData(resultado.inicioPrazo)}</p>
                                 <p className="text-slate-600 dark:text-slate-300">O prazo final de {resultado.prazo} dias úteis é:</p>
-                                <p className="mt-2 text-3xl font-bold text-indigo-600 dark:text-indigo-400">{resultado.semDecreto.prazoFinal.toLocaleDateString('pt-BR', {timeZone: 'UTC'})}</p>
+                                <p className="mt-2 text-3xl font-bold text-indigo-600 dark:text-indigo-400">{formatarData(resultado.semDecreto.prazoFinal)}</p>
                                 {resultado.semDecreto.diasNaoUteis.length > 0 && <div className="mt-6 text-left border-t border-slate-300 dark:border-slate-600 pt-4"><p className="text-sm font-semibold text-slate-600 dark:text-slate-300 mb-2">Dias não úteis considerados no cálculo:</p><ul className="text-xs space-y-1"><GroupedDiasNaoUteis dias={resultado.semDecreto.diasNaoUteis} /></ul></div>}
                             </div>
                         )}
@@ -644,7 +719,7 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
                                 )}
                                 <div>
                                     <p className="font-bold">{tempestividade === 'tempestivo' ? 'RECURSO TEMPESTIVO' : 'RECURSO INTEMPESTIVO'}</p>
-                                    <p className="text-sm">O recurso foi interposto {tempestividade === 'tempestivo' ? 'dentro do' : 'fora do'} prazo legal. O prazo final, considerando as suspensões selecionadas, é {resultado.comDecreto.prazoFinal.toLocaleDateString('pt-BR', { timeZone: 'UTC' })}.</p>
+                                    <p className="text-sm">O recurso foi interposto {tempestividade === 'tempestivo' ? 'dentro do' : 'fora do'} prazo legal. O prazo final, considerando as suspensões selecionadas, é {formatarData(resultado.comDecreto.prazoFinal)}.</p>
                                 </div>
                             </div>
                         )}
@@ -670,16 +745,16 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
                         <div className={`grid grid-cols-1 ${resultado.decretoImpactou ? 'md:grid-cols-2' : ''} gap-4`}>
                             <div className={resultado.decretoImpactou ? 'border-r md:pr-4' : ''}>
                                 <h3 className="text-lg font-bold text-slate-700 dark:text-slate-200 text-center mb-2">{resultado.decretoImpactou ? "Cenário 1: Sem Decreto" : "Prazo Final"}</h3>
-                                <p className="text-center text-sm text-slate-500 dark:text-slate-400 mb-1 whitespace-nowrap">Publicação em {resultado.dataPublicacaoSemDecreto.toLocaleDateString('pt-BR', {timeZone: 'UTC'})} / Início em {resultado.inicioPrazoSemDecreto.toLocaleDateString('pt-BR', {timeZone: 'UTC'})}</p>
+                                <p className="text-center text-sm text-slate-500 dark:text-slate-400 mb-1 whitespace-nowrap">Publicação em {formatarData(resultado.dataPublicacaoSemDecreto)} / Início em {formatarData(resultado.inicioPrazoSemDecreto)}</p>
                                 <p className="text-center text-slate-600 dark:text-slate-300">O prazo final de {resultado.prazo} dias úteis é:</p>
-                                <p className="text-center mt-2 text-2xl font-bold text-indigo-600 dark:text-indigo-400">{resultado.semDecreto.prazoFinal.toLocaleDateString('pt-BR', {timeZone: 'UTC'})}</p>
+                                <p className="text-center mt-2 text-2xl font-bold text-indigo-600 dark:text-indigo-400">{formatarData(resultado.semDecreto.prazoFinal)}</p>
                             </div>
                             {resultado.decretoImpactou && (
                                 <div className="border-t md:border-t-0 md:border-l border-slate-200 dark:border-slate-700 md:pl-4 pt-4 md:pt-0">
                                     <h3 className="text-lg font-bold text-slate-700 dark:text-slate-200 text-center mb-2">Cenário 2: Com Decreto</h3>
-                                    <p className="text-center text-sm text-slate-500 dark:text-slate-400 mb-1 whitespace-nowrap">Publicação em {resultado.dataPublicacaoComDecreto.toLocaleDateString('pt-BR', {timeZone: 'UTC'})} / Início em {resultado.inicioPrazoComDecreto.toLocaleDateString('pt-BR', {timeZone: 'UTC'})}</p>
+                                    <p className="text-center text-sm text-slate-500 dark:text-slate-400 mb-1 whitespace-nowrap">Publicação em {formatarData(resultado.dataPublicacaoComDecreto)} / Início em {formatarData(resultado.inicioPrazoComDecreto)}</p>
                                     <p className="text-center text-slate-600 dark:text-slate-300">O prazo final de {resultado.prazo} dias úteis, <strong>comprovando o decreto</strong>, é:</p>
-                                    <p className="text-center mt-2 text-2xl font-bold text-green-600 dark:text-green-400">{resultado.comDecreto.prazoFinal.toLocaleDateString('pt-BR', {timeZone: 'UTC'})}</p>
+                                    <p className="text-center mt-2 text-2xl font-bold text-green-600 dark:text-green-400">{formatarData(resultado.comDecreto.prazoFinal)}</p>
                                     {resultado.comDecreto.diasNaoUteis.some(d => ['2025-06-19', '2025-06-20'].includes(d.data.toISOString().split('T')[0])) && (
                                         <div className="mt-4 p-3 text-xs text-blue-800 rounded-lg bg-blue-50 dark:bg-gray-800 dark:text-blue-400" role="alert"><span className="font-medium">Atenção:</span> A comprovação do feriado de Corpus Christi (19/06) e da suspensão do dia 20/06 é necessária para validar a prorrogação do prazo.</div>
                                     )}
@@ -716,8 +791,8 @@ const GroupedDiasNaoUteis = ({ dias }) => {
             const endDate = dias[j].data;
             groupedDias.push({
                 ...dias[i],
-                id: `recesso-${i}-${j}`,
-                motivo: `Recesso Forense de ${startDate.toLocaleDateString('pt-BR', {timeZone: 'UTC'})} até ${endDate.toLocaleDateString('pt-BR', {timeZone: 'UTC'})}`,
+                id: `recesso-${i}-${j}`, 
+                motivo: `Recesso Forense de ${formatarData(startDate)} até ${formatarData(endDate)}`,
                 data: startDate, // Apenas para a chave
                 tipo: 'recesso_grouped' // Tipo especial para renderização
             });
@@ -762,7 +837,7 @@ const DiaNaoUtilItem = ({ dia, as = 'li' }) => {
     if (Tag === 'tr') {
         return (
             <tr className="border-b last:border-b-0 border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors ">
-                <td className="px-4 py-3 font-medium text-slate-900 dark:text-white">{dia.data.toLocaleDateString('pt-BR', {timeZone: 'UTC'})}</td>
+                <td className="px-4 py-3 font-medium text-slate-900 dark:text-white">{formatarData(dia.data)}</td>
                 <td className="px-4 py-3 text-slate-600 dark:text-slate-200">{dia.motivo}</td>
                 <td className="px-4 py-3 text-right">
                     {labelText && <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full ${labelClasses}`}>{labelText}</span>}
@@ -775,7 +850,7 @@ const DiaNaoUtilItem = ({ dia, as = 'li' }) => {
         <Tag className="flex items-center justify-between p-2 bg-slate-100/70 dark:bg-slate-900/50 rounded-md text-slate-700 dark:text-slate-200">
             {dia.tipo === 'recesso_grouped' 
                 ? <span>{dia.motivo}</span> 
-                : <span><strong className="font-semibold text-slate-900 dark:text-white">{dia.data.toLocaleDateString('pt-BR', {timeZone: 'UTC'})}:</strong> {dia.motivo}</span>}
+                : <span><strong className="font-semibold text-slate-900 dark:text-white">{formatarData(dia.data)}:</strong> {dia.motivo}</span>}
             {labelText && <span className={`ml-2 text-xs font-semibold px-2.5 py-0.5 rounded-full ${labelClasses}`}>{labelText}</span>}
         </Tag>
     );
@@ -1018,6 +1093,9 @@ const VerifyEmailPage = () => {
 };
 
 const CalendarioModal = ({ onClose }) => {
+    const { settings } = useContext(SettingsContext);
+    const { feriadosMap, decretosMap, instabilidadeMap, calendarLoading } = settings;
+
     const formatData = (map, tipo) => Object.entries(map).map(([data, motivo]) => ({ data, motivo, tipo }));
 
     const todosDiasNaoUteis = [
@@ -1027,7 +1105,7 @@ const CalendarioModal = ({ onClose }) => {
     ].sort((a, b) => new Date(a.data) - new Date(b.data));
 
     const diasAgrupadosPorMes = todosDiasNaoUteis.reduce((acc, dia) => {
-        const mes = new Date(dia.data + 'T00:00:00').toLocaleString('pt-BR', { month: 'long' });
+        const mes = new Date(dia.data + 'T00:00:00').toLocaleString('pt-BR', { month: 'long', timeZone: 'UTC' });
         const mesCapitalizado = mes.charAt(0).toUpperCase() + mes.slice(1);
         if (!acc[mesCapitalizado]) {
             acc[mesCapitalizado] = [];
@@ -1055,35 +1133,206 @@ const CalendarioModal = ({ onClose }) => {
                         </ul>
                     </div>
 
-                    {Object.entries(diasAgrupadosPorMes).map(([mes, dias]) => (
-                        <div key={mes} className="mb-6">
-                            <h3 className="text-xl font-bold text-slate-800 dark:text-slate-100 mb-3">{mes}</h3>
-                            <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700">
-                                <table className="w-full text-sm text-left">
-                                    <thead className="text-xs text-slate-700 dark:text-slate-200 uppercase bg-slate-100 dark:bg-slate-700/50">
-                                        <tr>
-                                            <th className="px-4 py-3 w-1/4">Data</th>
-                                            <th className="px-4 py-3">Motivo</th>
-                                            <th className="px-4 py-3 w-1/4 text-right">Tipo</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {dias.map(dia => <DiaNaoUtilItem key={dia.data} dia={{ ...dia, data: new Date(dia.data + 'T00:00:00') }} as="tr" />)}
-                                    </tbody>
-                                </table>
+                    {calendarLoading ? (
+                        <p className="text-center text-slate-500 dark:text-slate-400">Carregando calendário...</p>
+                    ) : Object.keys(diasAgrupadosPorMes).length === 0 ? (
+                        <p className="text-center text-slate-500 dark:text-slate-400">Nenhuma suspensão encontrada no calendário.</p>
+                    ) : (
+                        Object.entries(diasAgrupadosPorMes).map(([mes, dias]) => (
+                            <div key={mes} className="mb-6">
+                                <h3 className="text-xl font-bold text-slate-800 dark:text-slate-100 mb-3">{mes}</h3>
+                                <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700">
+                                    <table className="w-full text-sm text-left">
+                                        <thead className="text-xs text-slate-700 dark:text-slate-200 uppercase bg-slate-100 dark:bg-slate-700/50">
+                                            <tr><th className="px-4 py-3 w-1/4">Data</th><th className="px-4 py-3">Motivo</th><th className="px-4 py-3 w-1/4 text-right">Tipo</th></tr>
+                                        </thead>
+                                        <tbody>
+                                            {dias.map(dia => <DiaNaoUtilItem key={dia.data} dia={{ ...dia, data: new Date(dia.data + 'T00:00:00') }} as="tr" />)}
+                                        </tbody>
+                                    </table>
+                                </div>
                             </div>
-                        </div>
-                    ))}
+                        ))
+                    )}
                 </div>
             </div>
         </div>
     );
 };
 
+const CalendarioAdminPage = () => {
+    const { refreshCalendar } = useContext(SettingsContext);
+    const [entradas, setEntradas] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
+    const [editando, setEditando] = useState(null); // Guarda o ID do item sendo editado
+    const [novaEntrada, setNovaEntrada] = useState({ data: '', motivo: '', tipo: 'feriado' });
+
+    const fetchEntradas = async () => {
+        setLoading(true);
+        try {
+            const snapshot = await db.collection('calendario').orderBy(firebase.firestore.FieldPath.documentId()).get();
+            const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setEntradas(items);
+        } catch (err) {
+            setError('Falha ao carregar o calendário. Verifique as permissões do Firestore.');
+            console.error(err);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        fetchEntradas();
+    }, []);
+
+    const handleSave = async (e) => {
+        e.preventDefault();
+        const { data, motivo, tipo } = editando ? editando : novaEntrada;
+        if (!data || !motivo || !tipo) {
+            setError('Todos os campos são obrigatórios.');
+            return;
+        }
+        
+        // O ID do documento será a própria data
+        const docId = data;
+
+        try {
+            await db.collection('calendario').doc(docId).set({ motivo, tipo });
+            
+            // Limpa os formulários e recarrega os dados
+            setNovaEntrada({ data: '', motivo: '', tipo: 'feriado' });
+            setEditando(null);
+            setError('');
+            await fetchEntradas();
+            await refreshCalendar(); // Atualiza o calendário globalmente na aplicação
+
+        } catch (err) {
+            setError('Falha ao salvar a entrada.');
+            console.error(err);
+        }
+    };
+
+    const handleDelete = async (docId) => {
+        if (window.confirm(`Tem certeza que deseja excluir a entrada para ${docId}?`)) {
+            try {
+                await db.collection('calendario').doc(docId).delete();
+                await fetchEntradas();
+                await refreshCalendar(); // Atualiza o calendário globalmente
+            } catch (err) {
+                setError('Falha ao excluir a entrada.');
+                console.error(err);
+            }
+        }
+    };
+
+    const handleInputChange = (e) => {
+        const { name, value } = e.target;
+        if (editando) {
+            setEditando(prev => ({ ...prev, [name]: value }));
+        } else {
+            setNovaEntrada(prev => ({ ...prev, [name]: value }));
+        }
+    };
+
+    const renderForm = () => {
+        const item = editando || novaEntrada;
+        return ( 
+            <form onSubmit={handleSave} className="p-6 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg space-y-4">
+                <h3 className="text-xl font-bold text-slate-800 dark:text-slate-100">{editando ? `Editando ${editando.id}` : 'Adicionar Nova Data'}</h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                        <label className="text-xs font-medium text-slate-500">Data</label>
+                        <input type="date" name="data" value={item.data} onChange={handleInputChange} disabled={!!editando} required className="w-full mt-1 p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700 disabled:bg-slate-200 dark:disabled:bg-slate-800"/>
+                    </div>
+                    <div className="md:col-span-2">
+                        <label className="text-xs font-medium text-slate-500">Motivo (Ex: N° 645/2024 - Feriado)</label>
+                        <input type="text" name="motivo" value={item.motivo} onChange={handleInputChange} required className="w-full mt-1 p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700"/>
+                    </div>
+                    <div>
+                        <label className="text-xs font-medium text-slate-500">Tipo</label>
+                        <select name="tipo" value={item.tipo} onChange={handleInputChange} required className="w-full mt-1 p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700">
+                            <option value="feriado">Feriado</option>
+                            <option value="decreto">Decreto</option>
+                            <option value="instabilidade">Instabilidade</option>
+                        </select>
+                    </div>
+                </div>
+                <div className="flex justify-end gap-3">
+                    {editando && <button type="button" onClick={() => setEditando(null)} className="px-4 py-2 text-sm font-semibold bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300">Cancelar</button>}
+                    <button type="submit" className="px-4 py-2 text-sm font-semibold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">Salvar</button>
+                </div>
+                {error && <p className="text-sm text-red-500">{error}</p>}
+            </form>
+        );
+    };
+
+    return (
+        <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-xl p-6 sm:p-8 rounded-2xl shadow-lg border border-slate-200/50 dark:border-slate-700/50 space-y-6">
+            <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Gerenciamento do Calendário</h2>
+            {renderForm()}
+            <div className="space-y-8">
+                {loading ? (
+                    <p className="text-center text-slate-500 dark:text-slate-400">Carregando calendário...</p>
+                ) : (
+                    ['feriado', 'decreto', 'instabilidade'].map(tipo => {
+                        const itemsFiltrados = entradas.filter(item => item.tipo === tipo);
+                        if (itemsFiltrados.length === 0) return null;
+
+                        const titulos = {
+                            feriado: 'Feriados',
+                            decreto: 'Decretos',
+                            instabilidade: 'Instabilidades'
+                        };
+                        
+                        const tituloCores = {
+                            feriado: 'text-blue-700 dark:text-blue-400',
+                            decreto: 'text-red-700 dark:text-red-400',
+                            instabilidade: 'text-amber-600 dark:text-amber-400'
+                        };
+
+                        return (
+                            <div key={tipo} className="space-y-3">
+                                <h3 className={`text-xl font-bold ${tituloCores[tipo]}`}>{titulos[tipo]}</h3>
+                                <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700">
+                                    <table className="w-full text-sm text-left">
+                                        <thead className="text-xs text-slate-700 dark:text-slate-300 uppercase bg-slate-200/50 dark:bg-slate-800/50">
+                                            <tr>
+                                                <th className="px-4 py-3">Data</th>
+                                                <th className="px-4 py-3">Motivo</th>
+                                                <th className="px-4 py-3 text-right">Ações</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {itemsFiltrados.map(item => (
+                                                <tr key={item.id} className="border-b border-slate-200/50 dark:border-slate-700/50 last:border-b-0">
+                                                    <td className="px-4 py-3 font-medium">{formatarData(new Date(item.id + 'T00:00:00'))}</td>
+                                                    <td className="px-4 py-3">{item.motivo}</td>
+                                                    <td className="px-4 py-3 text-right space-x-2">
+                                                        <button onClick={() => setEditando({id: item.id, data: item.id, motivo: item.motivo, tipo: item.tipo})} className="font-semibold text-indigo-600 hover:text-indigo-500">Editar</button>
+                                                        <button onClick={() => handleDelete(item.id)} className="font-semibold text-red-600 hover:text-red-500">Excluir</button>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        );
+                    })
+                )}
+            </div>
+        </div>
+    );
+}
+
 const AdminPage = () => {
      const { user } = useAuth();
+     // Estado para controlar a visão dentro da página de Admin
+     const [adminSection, setAdminSection] = useState('stats'); // 'stats' ou 'calendar'
+
      const [stats, setStats] = useState({ total: 0, perMateria: {}, perPrazo: {}, byDay: {} });
-     const [adminView, setAdminView] = useState('calculadora'); // 'calculadora' ou 'djen_consulta'
+     const [statsView, setStatsView] = useState('calculadora'); // 'calculadora' ou 'djen_consulta'
      const [allData, setAllData] = useState([]);
      const [viewData, setViewData] = useState([]);
      const [filteredData, setFilteredData] = useState([]);
@@ -1125,12 +1374,12 @@ const AdminPage = () => {
      
     useEffect(() => {
         // Filtra os dados brutos com base na visualização selecionada (Calculadora ou Consulta)
-        const dataForView = allData.filter(item => (item.type || 'calculadora') === adminView);
+        const dataForView = allData.filter(item => (item.type || 'calculadora') === statsView);
         setViewData(dataForView);
         // Reseta os filtros e resultados ao trocar de aba
         setHasSearched(false);
         setFilteredData([]);
-    }, [adminView, allData]);
+    }, [statsView, allData]);
 
     const handleFilter = () => {
         let usageData = viewData.filter(item => {
@@ -1168,10 +1417,10 @@ const AdminPage = () => {
         for (let i = 6; i >= 0; i--) {
             const d = new Date(today);
             d.setDate(today.getDate() - i);
-            const dateString = d.toLocaleDateString('pt-BR');
+            const dateString = formatarData(d);
             last7Days[dateString] = 0;
         }
-        usageData.forEach(item => { const dateString = item.timestamp.toDate().toLocaleDateString('pt-BR'); if (dateString in last7Days) { last7Days[dateString]++; } });
+        usageData.forEach(item => { const dateString = formatarData(item.timestamp.toDate()); if (dateString in last7Days) { last7Days[dateString]++; } });
         summary.byDay = last7Days
         setStats(summary);
     };
@@ -1193,8 +1442,8 @@ const AdminPage = () => {
             'Matéria': item.materia,
             'Prazo (dias)': item.prazo,
             'Tipo de Uso': item.type === 'djen_consulta' ? 'Consulta DJEN' : (item.type || 'Calculadora'),
-            'Número do Processo': item.numeroProcesso || '',
-            'Data': item.timestamp?.toDate().toLocaleString('pt-BR')
+            'Número do Processo': item.numeroProcesso || '', 
+            'Data': item.timestamp ? formatarData(item.timestamp.toDate()) : ''
         }));
         const worksheet = XLSX.utils.json_to_sheet(dataToExport);
         const workbook = XLSX.utils.book_new();
@@ -1217,7 +1466,7 @@ const AdminPage = () => {
     const chartDataByDay = { labels: Object.keys(stats.byDay || {}).reverse(), datasets: [{ label: 'Cálculos por Dia', data: Object.values(stats.byDay || {}).reverse(), backgroundColor: 'rgba(79, 70, 229, 0.8)' }] };
     const chartOptions = { legend: { display: false }, scales: { xAxes: [{ ticks: { beginAtZero: true } }] }};
 
-    if(loading) return <div className="text-center p-8"><p>A carregar dados...</p></div>
+    if(loading && adminSection === 'stats') return <div className="text-center p-8"><p>A carregar dados...</p></div>
 
     if (selectedUser) {
         return (
@@ -1243,10 +1492,10 @@ const AdminPage = () => {
                         </thead>
                         <tbody>
                         {selectedUser.data.map(item => (
-                            <tr key={item.id} className="border-b border-slate-200/50 dark:border-slate-700/50">
-                                <td className="px-6 py-4">{item.timestamp?.toDate().toLocaleString('pt-BR')}</td>
+                            <tr key={item.id} className="border-b border-slate-200/50 dark:border-slate-700/50"> 
+                                <td className="px-6 py-4">{item.timestamp ? formatarData(item.timestamp.toDate()) : ''}</td>
                                 <td className="px-6 py-4">{item.numeroProcesso}</td>
-                                <td className="px-6 py-4">{item.materia}</td>
+                                <td className="px-6 py-4">{item.materia}</td> 
                                 <td className="px-6 py-4">{item.prazo} dias</td>
                             </tr>
                         ))}
@@ -1258,10 +1507,20 @@ const AdminPage = () => {
     }
 
      return(
-         <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
+        <div className="space-y-8">
+            <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-xl p-6 sm:p-8 rounded-2xl shadow-lg border border-slate-200/50 dark:border-slate-700/50">
+                <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Painel Administrativo</h2>
+                <div className="flex items-center gap-2 mt-4 border-b border-slate-200 dark:border-slate-700 pb-4">
+                    <button onClick={() => setAdminSection('stats')} className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors ${adminSection === 'stats' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>Estatísticas de Uso</button>
+                    <button onClick={() => setAdminSection('calendar')} className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors ${adminSection === 'calendar' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>Gerir Calendário</button>
+                </div>
+            </div>
+
+            {adminSection === 'stats' && (
+            <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
             {/* Coluna Lateral */}
             <div className="lg:col-span-1 bg-white/60 dark:bg-slate-800/60 backdrop-blur-xl p-6 rounded-2xl shadow-lg border border-slate-200/50 dark:border-slate-700/50 self-start">
-                <h3 className="font-semibold text-lg mb-4 text-slate-800 dark:text-slate-100">Top 10 - {adminView === 'calculadora' ? 'Calculadora' : 'Consulta DJEN'}</h3>
+                <h3 className="font-semibold text-lg mb-4 text-slate-800 dark:text-slate-100">Top 10 - {statsView === 'calculadora' ? 'Calculadora' : 'Consulta DJEN'}</h3>
                 {topUsers.length > 0 ? (
                     <ul className="space-y-2 text-left">
                         {topUsers.map(([name, count], index) => (
@@ -1278,10 +1537,10 @@ const AdminPage = () => {
             <div className="lg:col-span-3 bg-white/60 dark:bg-slate-800/60 backdrop-blur-xl p-6 sm:p-8 rounded-2xl shadow-lg border border-slate-200/50 dark:border-slate-700/50 space-y-8">
             <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
                 <div>
-                    <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Painel Administrativo</h2>
+                    <h3 className="text-xl font-bold text-slate-800 dark:text-slate-100">Filtros de Estatísticas</h3>
                     <div className="flex items-center gap-2 mt-2">
-                        <button onClick={() => setAdminView('calculadora')} className={`px-3 py-1 text-sm font-semibold rounded-md transition-colors ${adminView === 'calculadora' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>Calculadora</button>
-                        <button onClick={() => setAdminView('djen_consulta')} className={`px-3 py-1 text-sm font-semibold rounded-md transition-colors ${adminView === 'djen_consulta' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>Consulta DJEN</button>
+                        <button onClick={() => setStatsView('calculadora')} className={`px-3 py-1 text-sm font-semibold rounded-md transition-colors ${statsView === 'calculadora' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>Calculadora</button>
+                        <button onClick={() => setStatsView('djen_consulta')} className={`px-3 py-1 text-sm font-semibold rounded-md transition-colors ${statsView === 'djen_consulta' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>Consulta DJEN</button>
                     </div>
                 </div>
                 <span className="text-sm text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-900/50 px-3 py-1.5 rounded-lg">Total de Usos: <strong className="font-bold text-lg text-slate-700 dark:text-slate-200">{viewData.length}</strong></span>
@@ -1291,7 +1550,7 @@ const AdminPage = () => {
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 items-end">
                     <div><label className="text-xs font-medium text-slate-500">Data Inicial</label><input type="date" name="startDate" value={filters.startDate} onChange={handleFilterChange} className="w-full mt-1 p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700"/></div>
                     <div><label className="text-xs font-medium text-slate-500">Data Final</label><input type="date" name="endDate" value={filters.endDate} onChange={handleFilterChange} className="w-full mt-1 p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700"/></div>
-                    {adminView === 'calculadora' && <>
+                    {statsView === 'calculadora' && <>
                         <div><label className="text-xs font-medium text-slate-500">Matéria</label><select name="materia" value={filters.materia} onChange={handleFilterChange} className="w-full mt-1 p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700"><option value="todos">Todas</option><option value="civel">Cível</option><option value="crime">Crime</option></select></div>
                         <div><label className="text-xs font-medium text-slate-500">Prazo</label><select name="prazo" value={filters.prazo} onChange={handleFilterChange} className="w-full mt-1 p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700"><option value="todos">Todos</option><option value="5">5 Dias</option><option value="15">15 Dias</option></select></div>
                     </>}
@@ -1326,7 +1585,7 @@ const AdminPage = () => {
                              <h3 className="font-semibold text-center mb-2">Utilização nos Últimos 7 Dias</h3>
                              <Bar data={chartDataByDay} options={{ responsive: true, maintainAspectRatio: false }}/>
                         </div>
-                        {adminView === 'calculadora' && (
+                        {statsView === 'calculadora' && (
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <div className="p-4 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg shadow-sm h-48"><h3 className="font-semibold text-center mb-2">Utilização por Matéria</h3><HorizontalBar data={chartDataMateria} options={{...chartOptions, maintainAspectRatio: false}}/></div>
                                 <div className="p-4 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg shadow-sm h-48"><h3 className="font-semibold text-center mb-2">Utilização por Prazo</h3><HorizontalBar data={chartDataPrazo} options={{...chartOptions, maintainAspectRatio: false}}/></div>
@@ -1345,8 +1604,8 @@ const AdminPage = () => {
                                     <tr key={item.id} className="border-b border-slate-200/50 dark:border-slate-700/50"><td className="px-4 py-4 font-medium break-words"><a href="#" onClick={(e) => {e.preventDefault(); handleUserClick(item.userEmail)}} className="text-indigo-600 hover:underline">{item.userName || item.userEmail}</a></td>
                                         <td className="px-4 py-4 capitalize">{(item.type || 'calculadora').split('_')[0]}</td>
                                         <td className="px-4 py-4 break-words">{item.numeroProcesso}</td>
-                                        <td className="px-4 py-4">{item.materia ? `${item.materia}, ${item.prazo} dias` : 'N/A'}</td>
-                                        <td className="px-4 py-4 text-right">{item.timestamp?.toDate().toLocaleString('pt-BR')}</td>
+                                        <td className="px-4 py-4">{item.materia ? `${item.materia}, ${item.prazo} dias` : 'N/A'}</td> 
+                                        <td className="px-4 py-4 text-right">{item.timestamp ? formatarData(item.timestamp.toDate()) : ''}</td>
                                     </tr>
                                 ))}
                                 </tbody>
@@ -1363,6 +1622,11 @@ const AdminPage = () => {
                 </>
             )}
             </div>
+        </div>
+        )}
+        {adminSection === 'calendar' && (
+            <CalendarioAdminPage />
+        )}
         </div>
      );
 };
@@ -1632,18 +1896,10 @@ const CalculatorApp = () => {
     const { currentArea } = useAuth(); // Usaremos o contexto para gerenciar a área atual
     
     return (
-    <>
-        <div className="max-w-4xl mx-auto animate-fade-in">
-            {currentArea === 'Calculadora' ? (
-                <div className="space-y-8">
-                    <ConsultaAssistidaPJE numeroProcesso={numeroProcesso} setNumeroProcesso={setNumeroProcesso} />
-                    <CalculadoraDePrazo numeroProcesso={numeroProcesso} />
-                </div>
-            ) : (
-                <AdminPage />
-            )}
+        <div className="max-w-4xl mx-auto animate-fade-in space-y-8">
+            <ConsultaAssistidaPJE numeroProcesso={numeroProcesso} setNumeroProcesso={setNumeroProcesso} />
+            <CalculadoraDePrazo numeroProcesso={numeroProcesso} />
         </div>
-    </>
     );
 };
 
@@ -1685,9 +1941,6 @@ const App = () => {
 
   useEffect(() => {
     // Adiciona o estilo de animação ao head do documento uma única vez.
-    const style = document.createElement('style');
-    style.innerHTML = `.animate-fade-in { animation: fadeIn 0.7s ease-in-out; } @keyframes fadeIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }`;
-    document.head.appendChild(style);
     const openCalendarioHandler = () => setShowCalendario(true);
     const openProfileHandler = () => setShowProfile(true);
     const openSettingsHandler = () => setShowSettings(true);
@@ -1739,13 +1992,19 @@ const App = () => {
         </nav>
         <div className="flex-grow overflow-y-auto">
             <main className="container mx-auto px-4 py-8 sm:py-12">
-                <CalculatorApp />
+                {currentArea === 'Calculadora' ? (
+                    <CalculatorApp />
+                ) : currentArea === 'Admin' ? (
+                    <AdminPage />
+                ) : (
+                    <p>Área desconhecida.</p>
+                )}
             </main>
         </div>
         <footer className="p-2"><CreditsWatermark /></footer>
 
         {showCalendario && <CalendarioModal onClose={() => setShowCalendario(false)} />}
-        {showProfile && <ProfileModal user={user} userData={useAuth().userData} onClose={() => setShowProfile(false)} onUpdate={refreshUser} />}
+        {showProfile && <ProfileModal user={user} userData={useAuth().userData} onClose={() => setShowProfile(false)} onUpdate={refreshUser} />} 
         {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
         <UserIDWatermark />
     </div>
