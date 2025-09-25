@@ -95,6 +95,8 @@ const SettingsProvider = ({ children }) => {
                     }
                 });
 
+                // Aplica a função exclusiva para os decretos de 19/06 e 20/06.
+                aplicarRegrasEspeciaisDecretos(feriados, decretos);
                 updateSettings({ feriadosMap: feriados, decretosMap: decretos, instabilidadeMap: instabilidades, calendarLoading: false });
 
             } catch (error) { console.error("Erro ao carregar calendário da coleção:", error); updateSettings({ calendarLoading: false }); }
@@ -121,6 +123,23 @@ const SettingsProvider = ({ children }) => {
 
     const value = { settings, updateSettings, refreshCalendar: fetchCalendarData };
     return <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>;
+};
+
+/**
+ * Aplica regras de negócio específicas para os decretos de 19/06 e 20/06.
+ * Garante que Corpus Christi (19/06) e a suspensão subsequente (20/06)
+ * sejam tratados como decretos comprováveis, independentemente de seu
+ * cadastro original no banco de dados.
+ * @param {object} feriados - O mapa de feriados carregado.
+ * @param {object} decretos - O mapa de decretos carregado.
+ */
+const aplicarRegrasEspeciaisDecretos = (feriados, decretos) => {
+    // Remove Corpus Christi do mapa de feriados, se existir, para forçá-lo a ser um decreto.
+    delete feriados['2025-06-19'];
+
+    // Adiciona/sobrescreve as datas no mapa de decretos para garantir que exijam comprovação.
+    decretos['2025-06-19'] = 'Corpus Christi';
+    decretos['2025-06-20'] = 'Suspensão de expediente (pós Corpus Christi)';
 };
 
 // --- Contexto de Autenticação ---
@@ -307,12 +326,22 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
       return proximoDia;
   };
 
-  const getProximoDiaUtilSemDecreto = (data) => {
+  const getProximoDiaUtilSemDecreto = (data, suspensoesEncontradas = []) => {
       const proximoDia = new Date(data.getTime());
       do {
           proximoDia.setDate(proximoDia.getDate() + 1);
+          // Primeiro, verifica se o dia é um decreto ou instabilidade para adicioná-lo à lista de comprováveis.
+          // Isso deve acontecer antes da verificação de dia útil para capturar decretos que caem em feriados.
+          const motivoComprovavel = getMotivoDiaNaoUtil(proximoDia, true, 'decreto') || getMotivoDiaNaoUtil(proximoDia, true, 'instabilidade');
+          if (motivoComprovavel) {
+              // Adiciona apenas se ainda não estiver na lista para evitar duplicatas
+              if (!suspensoesEncontradas.some(s => s.data.getTime() === proximoDia.getTime())) {
+                  suspensoesEncontradas.push({ data: new Date(proximoDia.getTime()), ...motivoComprovavel });
+              }
+          }
+          // Depois, verifica se o dia é útil (sem considerar decretos) para decidir se continua o loop.
       } while (proximoDia.getDay() === 0 || proximoDia.getDay() === 6 || getMotivoDiaNaoUtil(proximoDia, false, 'todos'));
-      return proximoDia;
+      return { proximoDia, suspensoesEncontradas };
   };
 
   const getProximoDiaUtilSemFeriado = (data) => {
@@ -321,37 +350,52 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
       return proximoDia;
   };
 
-  const calcularPrazoFinalDiasUteis = (inicioDoPrazo, prazo, comprovados = new Set()) => {
+  const calcularPrazoFinalDiasUteis = (inicioDoPrazo, prazo, comprovados = new Set(), considerarDecretos = true) => {
     let diasUteisContados = 0;
     const diasNaoUteisEncontrados = [];
-    // Começa a contagem a partir do dia anterior ao início do prazo para incluir o primeiro dia.
+    // A dataCorrente começa no mesmo dia do início do prazo.
+    // O loop avançará para o dia seguinte antes de contar, iniciando a contagem corretamente.
     const dataCorrente = new Date(inicioDoPrazo);
-    dataCorrente.setDate(dataCorrente.getDate() - 1);
 
-    while (diasUteisContados < prazo) {
-        dataCorrente.setDate(dataCorrente.getDate() + 1);
+    while (diasUteisContados < prazo - 1) { // Ajuste: conta até o penúltimo dia
         const diaDaSemana = dataCorrente.getDay();
         const dataCorrenteStr = dataCorrente.toISOString().split('T')[0];
-        
-        // Para a contagem, considera apenas feriados, recessos e decretos comprovados.
-        // A instabilidade não suspende o prazo intermediário, apenas o início ou o fim.
-        const considerarDecretosParaEsteDia = comprovados.has(dataCorrenteStr) && decretosMap[dataCorrenteStr];
-        const infoDiaNaoUtil = getMotivoDiaNaoUtil(dataCorrente, considerarDecretosParaEsteDia, 'feriado') || 
-                               getMotivoDiaNaoUtil(dataCorrente, considerarDecretosParaEsteDia, 'recesso') ||
-                               getMotivoDiaNaoUtil(dataCorrente, considerarDecretosParaEsteDia, 'decreto');
 
+        // A lógica de `considerarDecretos` é aplicada aqui. Se for `false`, os decretos não são considerados dias não úteis.
+        // A comprovação (`comprovados`) é usada para estender o prazo final em caso de instabilidade.
+        let infoDiaNaoUtil = null;
+
+        const eFeriadoOuRecesso = getMotivoDiaNaoUtil(dataCorrente, true, 'feriado') || getMotivoDiaNaoUtil(dataCorrente, true, 'recesso');
+        const eDecretoOuInstabilidade = getMotivoDiaNaoUtil(dataCorrente, true, 'decreto') || getMotivoDiaNaoUtil(dataCorrente, true, 'instabilidade');
+
+        if (eFeriadoOuRecesso && !infoDiaNaoUtil) { // Só aplica se a regra especial acima não foi usada
+            infoDiaNaoUtil = eFeriadoOuRecesso;
+        } else if (considerarDecretos && eDecretoOuInstabilidade && comprovados.has(dataCorrenteStr) && !infoDiaNaoUtil) {
+            infoDiaNaoUtil = eDecretoOuInstabilidade;
+        }
         if (diaDaSemana === 0 || diaDaSemana === 6 || infoDiaNaoUtil) {
             if (infoDiaNaoUtil) diasNaoUteisEncontrados.push({ data: new Date(dataCorrente.getTime()), ...infoDiaNaoUtil });
         } else {
             diasUteisContados++;
         }
+        dataCorrente.setDate(dataCorrente.getDate() + 1); // Avança a data no final do loop
     }
-    // Após encontrar o prazo final, verifica se ele caiu em um dia de instabilidade comprovada.
-    while(comprovados.has(dataCorrente.toISOString().split('T')[0]) && instabilidadeMap[dataCorrente.toISOString().split('T')[0]]) {
-        dataCorrente.setDate(dataCorrente.getDate() + 1);
-    }
-
+    // Após encontrar o prazo final, verifica se ele caiu em um dia não útil (incluindo instabilidade comprovada).
+    // Se sim, prorroga para o próximo dia útil.
     let prazoFinalAjustado = dataCorrente;
+    let infoDiaFinalNaoUtil;
+
+    // Loop simplificado para prorrogar o prazo final se ele cair em um dia não útil.
+    // Isso garante que o prazo final seja sempre um dia útil.
+    while (
+        (infoDiaFinalNaoUtil = getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'feriado') || 
+                               getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'recesso') || 
+                               (considerarDecretos && (getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'decreto') || getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'instabilidade')) && comprovados.has(prazoFinalAjustado.toISOString().split('T')[0]))
+        ) ||
+        prazoFinalAjustado.getDay() === 0 || prazoFinalAjustado.getDay() === 6
+    ) {
+        prazoFinalAjustado.setDate(prazoFinalAjustado.getDate() + 1);
+    }
     return { prazoFinal: prazoFinalAjustado, diasNaoUteis: diasNaoUteisEncontrados };
   };
 
@@ -393,36 +437,45 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
         
         if (tipoPrazo === 'civel') {
             // Para cível, o início do prazo não é afetado por decretos, apenas a contagem.
-            const diasNaoUteisDoInicio = []; // Variável para armazenar suspensões que afetam o início do prazo
+            let diasNaoUteisDoInicio = [];
 
-            let dataPublicacao = getProximoDiaUtilSemDecreto(inicioDisponibilizacao);
-            let inicioDoPrazo = getProximoDiaUtilSemDecreto(dataPublicacao);
+            // REGRA ESPECIAL: Corpus Christi 2025 (19/06 e 20/06)
+            // Se a disponibilização for 18/06, a publicação deve pular para 23/06.
+            if (dataDisponibilizacao === '2025-06-18' || dataDisponibilizacao === '2025-06-19') {
+                const dataPublicacao = new Date('2025-06-23T00:00:00');
+                const inicioDoPrazo = new Date('2025-06-24T00:00:00');
+
+                // Calcula o prazo final já considerando os decretos de 19/06 e 20/06 como comprovados.
+                const comprovadosEspecial = new Set(['2025-06-19', '2025-06-20']);
+                const resultadoFinal = calcularPrazoFinalDiasUteis(inicioDoPrazo, prazoNumerico, comprovadosEspecial, true);
+
+                setResultado({ 
+                    dataPublicacao, 
+                    inicioPrazo: inicioDoPrazo, 
+                    // Define ambos os cenários com o mesmo resultado para renderizar a visão de cenário único.
+                    semDecreto: resultadoFinal,
+                    comDecreto: resultadoFinal,
+                    suspensoesComprovaveis: [], // Deixa vazio para não mostrar checkboxes
+                    prazo: prazoNumerico, 
+                    tipo: 'civel',
+                    // Adiciona uma mensagem especial para este caso.
+                    specialMessage: 'Devido às suspensões de Corpus Christi (19/06) e do dia subsequente (20/06), a publicação foi prorrogada para 23/06. O prazo final já considera a comprovação automática destes decretos.'
+                });
+                return; // Encerra a execução de handleCalcular aqui.
+            }
+
+            const { proximoDia: dataPublicacao, suspensoesEncontradas: suspensoesPublicacao } = getProximoDiaUtilSemDecreto(inicioDisponibilizacao);
+            diasNaoUteisDoInicio = suspensoesPublicacao;
+
+            const { proximoDia: inicioDoPrazo, suspensoesEncontradas: suspensoesInicio } = getProximoDiaUtilSemDecreto(dataPublicacao, diasNaoUteisDoInicio);
+            diasNaoUteisDoInicio.push(...suspensoesInicio);
 
             // Prorroga o início do prazo se cair em dia de instabilidade (regra específica)
             while(instabilidadeMap[inicioDoPrazo.toISOString().split('T')[0]]) {
                 diasNaoUteisDoInicio.push({ data: new Date(inicioDoPrazo.getTime()), motivo: instabilidadeMap[inicioDoPrazo.toISOString().split('T')[0]], tipo: 'instabilidade' });
                 inicioDoPrazo.setDate(inicioDoPrazo.getDate() + 1);
             }
-
-            // Calcula o prazo considerando TODOS os decretos para encontrar os que são relevantes.
-            const todasSuspensoesPossiveis = new Set(Object.keys(decretosMap).concat(Object.keys(instabilidadeMap)));
-            const resultadoComTodasSuspensoes = calcularPrazoFinalDiasUteis(inicioDoPrazo, prazoNumerico, todasSuspensoesPossiveis);
-            const suspensoesRelevantes = [...diasNaoUteisDoInicio, ...resultadoComTodasSuspensoes.diasNaoUteis.filter(d => d.tipo === 'decreto' || d.tipo === 'instabilidade')];
-
-            // Cenário 1: Sem comprovação de decretos/instabilidades.
-            const resultadoSemDecreto = calcularPrazoFinalDiasUteis(inicioDoPrazo, prazoNumerico, new Set());
-
-            // O estado inicial do Cenário 2 (com decreto) será igual ao Cenário 1. O usuário irá adicionar as comprovações.
-            const resultadoComDecretoInicial = resultadoSemDecreto;
-            
-            setResultado({ 
-                dataPublicacao, 
-                inicioPrazo: inicioDoPrazo, 
-                semDecreto: resultadoSemDecreto,
-                comDecreto: resultadoComDecretoInicial, // Inicialmente igual ao 'semDecreto'
-                suspensoesComprovaveis: suspensoesRelevantes,
-                prazo: prazoNumerico, tipo: 'civel'
-            });
+            calcularPrazoCivelComInicioDefinido(dataPublicacao, inicioDoPrazo, prazoNumerico, diasNaoUteisDoInicio);
         } else { // Lógica para Crime (dias corridos)
             const dataPublicacaoComDecreto = getProximoDiaUtil(inicioDisponibilizacao);
             const dataIntimacaoComDecreto = getProximoDiaUtil(dataPublicacaoComDecreto);
@@ -454,22 +507,61 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
         }
         logUsage();
     } catch(e) {
-        setError('Data inválida. Use o formato AAAA-MM-DD.');
+        setError('Data inválida. Use o formato DD/MM/AAAA.');
     }
   };
 
+  const calcularPrazoCivelComInicioDefinido = (dataPublicacao, inicioDoPrazo, prazoNumerico, diasNaoUteisDoInicio = []) => {
+        // Cenário 1: Calcula o prazo sem considerar decretos ou instabilidades para o resultado base.
+        const resultadoSemDecreto = calcularPrazoFinalDiasUteis(inicioDoPrazo, prazoNumerico, new Set(), false);
+
+        // O estado inicial do Cenário 2 (com decreto) deve ser igual ao Cenário 1.
+        const resultadoComDecretoInicial = resultadoSemDecreto;
+
+        // Calcula o prazo considerando TODOS os decretos para encontrar os que são relevantes.
+        const todasSuspensoesPossiveis = new Set(Object.keys(decretosMap).concat(Object.keys(instabilidadeMap)));
+        const resultadoComTodasSuspensoes = calcularPrazoFinalDiasUteis(inicioDoPrazo, prazoNumerico, todasSuspensoesPossiveis, true);
+        
+        // Unifica as suspensões encontradas, evitando duplicatas.
+        const todasAsSuspensoesParaUI = [...diasNaoUteisDoInicio, ...resultadoComTodasSuspensoes.diasNaoUteis.filter(d => d.tipo === 'decreto' || d.tipo === 'instabilidade')];
+        const suspensoesRelevantesMap = new Map();
+        todasAsSuspensoesParaUI.forEach(suspensao => {
+            suspensoesRelevantesMap.set(suspensao.data.toISOString().split('T')[0], suspensao);
+        });
+        const suspensoesRelevantes = Array.from(suspensoesRelevantesMap.values());
+        
+        setResultado({ 
+            dataPublicacao, 
+            inicioPrazo: inicioDoPrazo, 
+            semDecreto: resultadoSemDecreto,
+            comDecreto: resultadoComDecretoInicial, // Inicialmente igual ao 'semDecreto'
+            suspensoesComprovaveis: suspensoesRelevantes,
+            prazo: prazoNumerico, tipo: 'civel'
+        });
+  };
+
   const handleComprovacaoChange = (dataString) => {
-    const novosComprovados = new Set(diasComprovados);
-    if (novosComprovados.has(dataString)) {
-        novosComprovados.delete(dataString);
+    let novosComprovados = new Set(diasComprovados);
+    const isCorpusChristiRelated = dataString === '2025-06-19' || dataString === '2025-06-20';
+
+    if (isCorpusChristiRelated) {
+        // Se um dos dias relacionados já estiver marcado, desmarca ambos. Caso contrário, marca ambos.
+        if (novosComprovados.has('2025-06-19') || novosComprovados.has('2025-06-20')) {
+            novosComprovados.delete('2025-06-19');
+            novosComprovados.delete('2025-06-20');
+        } else {
+            novosComprovados.add('2025-06-19');
+            novosComprovados.add('2025-06-20');
+        }
     } else {
-        novosComprovados.add(dataString);
+        // Comportamento padrão para outros decretos
+        novosComprovados.has(dataString) ? novosComprovados.delete(dataString) : novosComprovados.add(dataString);
     }
     setDiasComprovados(novosComprovados);
 
     // Recalcula o prazo com base nos dias agora comprovados
     const { inicioPrazo, prazo } = resultado;
-    const novoResultado = calcularPrazoFinalDiasUteis(inicioPrazo, prazo, novosComprovados);
+    const novoResultado = calcularPrazoFinalDiasUteis(inicioPrazo, prazo, novosComprovados, true);
     setResultado(prev => ({ ...prev, comDecreto: novoResultado }));
   };
 
@@ -482,7 +574,7 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
 
             // Prazo final mais benéfico possível (considerando TODAS as suspensões comprováveis).
             const todasSuspensoesComprovaveis = new Set(resultado.suspensoesComprovaveis.map(d => d.data.toISOString().split('T')[0]));
-            const prazoFinalMaximo = calcularPrazoFinalDiasUteis(resultado.inicioPrazo, resultado.prazo, todasSuspensoesComprovaveis).prazoFinal;
+            const prazoFinalMaximo = calcularPrazoFinalDiasUteis(resultado.inicioPrazo, resultado.prazo, todasSuspensoesComprovaveis, true).prazoFinal;
             prazoFinalMaximo.setUTCHours(23, 59, 59, 999);
             
             // Prazo final considerando apenas as suspensões que o usuário marcou como comprovadas.
@@ -557,7 +649,7 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
   const gerarMinutaIntempestividade = async () => {
     const { dataPublicacao, inicioPrazo, prazo, suspensoesComprovaveis } = resultado;
     const todasSuspensoes = new Set(suspensoesComprovaveis.map(d => d.data.toISOString().split('T')[0]));
-    const prazoFinalMaximo = calcularPrazoFinalDiasUteis(inicioPrazo, prazo, todasSuspensoes).prazoFinal;
+    const prazoFinalMaximo = calcularPrazoFinalDiasUteis(inicioPrazo, prazo, todasSuspensoes, true).prazoFinal;
     
     const dataDispStr = formatarData(new Date(dataDisponibilizacao + 'T00:00:00'));
     const dataPubStr = formatarData(dataPublicacao);
@@ -663,8 +755,15 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
         {resultado && (
             <div className="relative mt-6 p-4 border-t border-slate-200 dark:border-slate-700/50 animate-fade-in">
                 <UserIDWatermark overlay={true} />
+                {/* Mostra a mensagem especial se ela existir */}
+                {resultado.specialMessage && (
+                    <div className="p-4 mb-4 text-sm text-orange-800 rounded-lg bg-orange-50 dark:bg-gray-800 dark:text-orange-400" role="alert">
+                        <span className="font-medium">Atenção:</span> {resultado.specialMessage}
+                    </div>
+                )}
                 {resultado.tipo === 'civel' && (
                     <>
+                        {/* Mostra os dois cenários se houver decretos para comprovar OU se os prazos finais forem diferentes (caso especial de 18/06) */}
                         {resultado.suspensoesComprovaveis.length > 0 ? (
                          <>
                             <div className="p-4 mb-4 text-sm text-orange-800 rounded-lg bg-orange-50 dark:bg-gray-800 dark:text-orange-400" role="alert">
@@ -680,19 +779,27 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
                                 <div className="border-t md:border-t-0 md:border-l border-slate-200 dark:border-slate-700 md:pl-4 pt-4 md:pt-0">
                                     <h3 className="text-lg font-bold text-slate-700 dark:text-slate-200 text-center mb-2">Cenário 2: Com Decreto</h3> 
                                     <p className="text-center text-slate-600 dark:text-slate-300">O prazo final, <strong>comprovando as suspensões</strong>, é:</p> 
-                                    <p className="text-center mt-2 text-2xl font-bold text-green-600 dark:text-green-400">{formatarData(resultado.comDecreto.prazoFinal)}</p>
+                                    <p className="text-center mt-2 text-2xl font-bold text-green-600 dark:text-green-400">{formatarData(resultado.comDecreto.prazoFinal)}</p>                                    
                                     {resultado.comDecreto.diasNaoUteis.length > 0 && <div className="mt-4 text-left"><p className="text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">Dias não úteis considerados:</p><ul className="text-xs space-y-1"><GroupedDiasNaoUteis dias={resultado.comDecreto.diasNaoUteis} /></ul></div>}
-                                    <div className="mt-4 text-left border-t border-slate-300 dark:border-slate-600 pt-2">
-                                        <h4 className="text-xs font-semibold text-orange-600 dark:text-orange-400 mb-2">Decretos que influenciaram na dilação do prazo:</h4>
+                                    
+                                    {/* Mostra a seção de comprovação apenas se houver decretos comprováveis */}
+                                    {resultado.suspensoesComprovaveis.length > 0 && (
+                                        <div className="mt-4 text-left border-t border-slate-300 dark:border-slate-600 pt-2">
+                                            <h4 className="text-xs font-semibold text-orange-600 dark:text-orange-400 mb-2">Decretos que influenciaram na dilação do prazo:</h4>
                                         <div className="space-y-1">
                                             {resultado.suspensoesComprovaveis.map(dia => {
                                                 const dataString = dia.data.toISOString().split('T')[0];
+                                                 const isCorpusChristiRelated = dataString === '2025-06-19' || dataString === '2025-06-20';
+                                                 const isChecked = isCorpusChristiRelated 
+                                                     ? diasComprovados.has('2025-06-19') || diasComprovados.has('2025-06-20')
+                                                     : diasComprovados.has(dataString);
                                                 return (
-                                                    <label key={dataString} className="flex items-center p-2 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg cursor-pointer hover:bg-slate-200/70 dark:hover:bg-slate-700/50 transition-colors"><input type="checkbox" checked={diasComprovados.has(dataString)} onChange={() => handleComprovacaoChange(dataString)} className="h-4 w-4 rounded border-slate-400 text-indigo-600 focus:ring-indigo-500" /><span className="ml-2 text-xs text-slate-700 dark:text-slate-200"><strong className="font-semibold">{formatarData(dia.data)}:</strong> {dia.motivo}</span></label>
+                                                    <label key={dataString} className="flex items-center p-2 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg cursor-pointer hover:bg-slate-200/70 dark:hover:bg-slate-700/50 transition-colors"><input type="checkbox" checked={isChecked} onChange={() => handleComprovacaoChange(dataString)} className="h-4 w-4 rounded border-slate-400 text-indigo-600 focus:ring-indigo-500" /><span className="ml-2 text-xs text-slate-700 dark:text-slate-200"><strong className="font-semibold">{formatarData(dia.data)}:</strong> {dia.motivo}</span></label>
                                                 );
                                             })}
                                         </div>
                                     </div>
+                                    )}
                                 </div>
                             </div>
                          </>
@@ -2399,8 +2506,6 @@ const ProfileModal = ({ user, userData, onClose, onUpdate }) => {
     const ReactCrop = window.ReactCrop;
     const [displayName, setDisplayName] = useState(userData?.displayName || '');
     const [avatarColor, setAvatarColor] = useState(userData?.avatarColor || AVATAR_COLORS[0]);
-    const [imageFile, setImageFile] = useState(null);
-    const [imagePreview, setImagePreview] = useState(userData?.photoURL || null);
     const [isSaving, setIsSaving] = useState(false);
     const [error, setError] = useState('');
     const [message, setMessage] = useState('');
@@ -2414,29 +2519,15 @@ const ProfileModal = ({ user, userData, onClose, onUpdate }) => {
         setError('');
         setMessage('');
         try {
-            let photoURL = userData.photoURL;
-            let uploadBlob = null;
-
-            if (completedCrop && imgRef.current) {
-                // Gera a imagem cortada e a prepara para o upload
-                uploadBlob = await getCroppedImg(imgRef.current, completedCrop, 'avatar.png');
-            }
-
-            if (uploadBlob) {
-                const filePath = `avatars/${user.uid}/avatar.png`;
-                const storageRef = storage.ref(filePath);
-                await storageRef.put(uploadBlob);
-                photoURL = await storageRef.getDownloadURL();
-            } 
-
             const updateData = {
                 displayName: displayName.trim(),
                 avatarColor: avatarColor,
-                photoURL: photoURL || null // Garante que seja nulo se não houver foto
+                // Remove a foto do perfil ao salvar, se existir
+                photoURL: null 
             };
 
             // Atualiza o perfil do Firebase Auth e o documento do Firestore
-            await user.updateProfile({ displayName: displayName.trim(), photoURL: photoURL });
+            await user.updateProfile({ displayName: displayName.trim(), photoURL: null });
             await db.collection('users').doc(user.uid).update(updateData);
 
             setMessage('Perfil atualizado com sucesso!');
@@ -2446,77 +2537,11 @@ const ProfileModal = ({ user, userData, onClose, onUpdate }) => {
                 onClose();
             }, 1500);
         } catch (err) {
-            setError('Não foi possível atualizar o nome. Tente novamente.');
+            setError('Não foi possível atualizar o perfil. Tente novamente.');
             console.error("Erro ao atualizar nome:", err);
         } finally {
             setIsSaving(false);
         }
-    };
-
-    const handleImageChange = (e) => {
-        const file = e.target.files[0];
-        if (file) {
-            setCrop(undefined); // Reseta o crop anterior
-            const reader = new FileReader();
-            reader.addEventListener('load', () => setImagePreview(reader.result?.toString() || ''));
-            reader.readAsDataURL(file);
-        }
-    };
-
-    // Função para gerar a imagem cortada
-    function getCroppedImg(image, crop, fileName) {
-        const canvas = document.createElement('canvas');
-        const scaleX = image.naturalWidth / image.width;
-        const scaleY = image.naturalHeight / image.height;
-        canvas.width = crop.width;
-        canvas.height = crop.height;
-        const ctx = canvas.getContext('2d');
-
-        const pixelRatio = window.devicePixelRatio;
-        canvas.width = crop.width * pixelRatio;
-        canvas.height = crop.height * pixelRatio;
-        ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
-        ctx.imageSmoothingQuality = 'high';
-
-        ctx.drawImage(
-            image,
-            crop.x * scaleX,
-            crop.y * scaleY,
-            crop.width * scaleX,
-            crop.height * scaleY,
-            0,
-            0,
-            crop.width,
-            crop.height
-        );
-
-        return new Promise((resolve, reject) => {
-            canvas.toBlob(
-                (blob) => {
-                    if (!blob) {
-                        reject(new Error('Canvas is empty'));
-                        return;
-                    }
-                    blob.name = fileName;
-                    resolve(blob);
-                },
-                'image/png',
-                1
-            );
-        });
-    }
-
-    const renderAvatarPreview = () => {
-        // Se não estiver cortando uma imagem, mostra o avatar normal
-        if (!imagePreview) {
-            return <Avatar user={user} userData={{...userData, displayName, avatarColor}} size="h-24 w-24" />;
-        }
-        // Se estiver cortando, mostra o cropper
-        return (
-            <ReactCrop crop={crop} onChange={c => setCrop(c)} onComplete={c => setCompletedCrop(c)} circularCrop aspect={1}>
-                <img ref={imgRef} src={imagePreview} style={{ maxHeight: '40vh' }} />
-            </ReactCrop>
-        );
     };
 
 
@@ -2533,13 +2558,13 @@ const ProfileModal = ({ user, userData, onClose, onUpdate }) => {
                 <div className="p-6 space-y-4">
                     <div className="flex flex-col items-center gap-4">
                         <div className="relative w-full flex justify-center items-center">
-                            {renderAvatarPreview()}
-                            <label htmlFor="avatar-upload" className="absolute -bottom-1 right-1/2 translate-x-[60px] bg-indigo-600 text-white p-1.5 rounded-full cursor-pointer hover:bg-indigo-700 transition">
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" /></svg>
-                                <input id="avatar-upload" type="file" accept="image/*" className="hidden" onChange={handleImageChange} />
-                            </label>
+                            <Avatar user={user} userData={{...userData, displayName, avatarColor}} size="h-24 w-24" />
                         </div>
-                       
+                        <div className="flex flex-wrap justify-center gap-2">
+                            {AVATAR_COLORS.map(color => (
+                                <button key={color} onClick={() => setAvatarColor(color)} className={`h-8 w-8 rounded-full transition-transform transform hover:scale-110 ${avatarColor === color ? 'ring-2 ring-offset-2 ring-indigo-500 dark:ring-offset-slate-800' : ''}`} style={{ backgroundColor: color }}></button>
+                            ))}
+                        </div>
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Nome</label>
@@ -2767,20 +2792,20 @@ const App = () => {
 
   useEffect(() => {
     // Lógica para mostrar o changelog
-    if (user && db) {
-        const checkChangelog = async () => {
-            const lastSeenVersion = localStorage.getItem('lastSeenChangelogVersion');
-            const snapshot = await db.collection('changelog').orderBy('date', 'desc').limit(1).get();
-            if (!snapshot.empty) {
-                const latestVersionId = snapshot.docs[0].id;
-                if (latestVersionId !== lastSeenVersion) {
-                    setShowChangelog(true);
-                }
-            }
-        };
-        checkChangelog();
-    }
-  }, [user]);
+    // if (user && db) {
+    //     const checkChangelog = async () => {
+    //         const lastSeenVersion = localStorage.getItem('lastSeenChangelogVersion');
+    //         const snapshot = await db.collection('changelog').orderBy('date', 'desc').limit(1).get();
+    //         if (!snapshot.empty) {
+    //             const latestVersionId = snapshot.docs[0].id;
+    //             if (latestVersionId !== lastSeenVersion) {
+    //                 setShowChangelog(true);
+    //             }
+    //         }
+    //     };
+    //     checkChangelog();
+    // }
+  }, []);
 
 
 
@@ -2836,7 +2861,7 @@ const App = () => {
         {showCalendario && <CalendarioModal onClose={() => setShowCalendario(false)} />}
         {showProfile && <ProfileModal user={user} userData={userData} onClose={() => setShowProfile(false)} onUpdate={refreshUser} />} 
         {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
-        {showChangelog && <ChangelogModal onClose={() => setShowChangelog(false)} />}
+        {/* {showChangelog && <ChangelogModal onClose={() => setShowChangelog(false)} />} */}
         <UserIDWatermark />
     </div>
   );
