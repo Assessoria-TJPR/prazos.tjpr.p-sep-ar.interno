@@ -19,6 +19,7 @@ try {
 
 const auth = app ? firebase.auth() : null;
 const db = app ? firebase.firestore() : null;
+const storage = app ? firebase.storage() : null;
 
 const { useState, useEffect, useCallback, createContext, useContext } = React;
 const { Bar, HorizontalBar } = window.ReactChartjs2;
@@ -178,13 +179,15 @@ const AuthProvider = ({ children }) => {
     }, []);
 
     const isAdmin = userData?.role === 'admin';
-    const isIntermediate = userData?.role === 'intermediate';
+    const isSetorAdmin = userData?.role === 'setor_admin'; // Mantido para compatibilidade com regras
+    const isIntermediate = userData?.role === 'intermediate'; // Usado na UI
 
     // A função de atualização é exposta para que componentes filhos possam forçar a atualização do usuário.
     const value = { 
         user, 
         userData,
         isAdmin,
+        isSetorAdmin,
         isIntermediate,
         loading, 
         refreshUser: () => auth.currentUser && updateUserAndAdminStatus(auth.currentUser),
@@ -1400,7 +1403,29 @@ const CalendarioAdminPage = () => {
     );
 }
 
-const AdminPage = () => {
+const Avatar = ({ user, userData, size = 'h-8 w-8' }) => {
+    if (!user || !userData) return null;
+
+    const getInitials = (name) => {
+        if (!name) return '?';
+        const names = name.trim().split(' ');
+        if (names.length > 1) {
+            return `${names[0][0]}${names[names.length - 1][0]}`.toUpperCase();
+        }
+        return name.substring(0, 2).toUpperCase();
+    };
+
+    if (userData.photoURL) {
+        return <img src={userData.photoURL} alt="Avatar" className={`${size} rounded-full object-cover`} />;
+    }
+
+    return (
+        <div className={`${size} rounded-full flex items-center justify-center text-white font-bold text-sm`} style={{ backgroundColor: userData.avatarColor || '#6366F1' }}>
+            {getInitials(userData.displayName)}
+        </div>
+    );
+};
+const AdminPage = ({ setCurrentArea }) => {
      const { user } = useAuth();
      // Estado para controlar a visão dentro da página de Admin: 'stats', 'calendar', 'users'
      const [adminSection, setAdminSection] = useState('stats'); // 'stats', 'calendar' ou 'users'
@@ -1421,7 +1446,7 @@ const AdminPage = () => {
      const [userManagementLoading, setUserManagementLoading] = useState(false);
      const [userSearchTerm, setUserSearchTerm] = useState('');
      // Estados para gerenciamento de setores (CORREÇÃO)
-     const [setores, setSetores] = useState([]);
+     const [setores, setSetoresAdmin] = useState([]); // This was a typo, corrected in a previous step but good to double check.
      const [newSectorName, setNewSectorName] = useState('');
 
      const ITEMS_PER_PAGE = 10;
@@ -1472,7 +1497,7 @@ const AdminPage = () => {
         try {
             const snapshot = await db.collection('setores').orderBy('nome').get();
             const setoresList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            setSetores(setoresList);
+            setSetoresAdmin(setoresList);
         } catch (err) {
             console.error("Erro ao buscar setores:", err);
         }
@@ -1667,6 +1692,7 @@ const AdminPage = () => {
                     <button onClick={() => setAdminSection('stats')} className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors ${adminSection === 'stats' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>Estatísticas de Uso</button>
                     <button onClick={() => setAdminSection('calendar')} className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors ${adminSection === 'calendar' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>Gerir Calendário</button>
                     <button onClick={() => setAdminSection('users')} className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors ${adminSection === 'users' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>Usuários e Setores</button>
+                    <button onClick={() => setCurrentArea('Chamados')} className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors bg-amber-500 text-white hover:bg-amber-600`}>Chamados</button>
                 </div>
             </div>
 
@@ -1809,7 +1835,7 @@ const AdminPage = () => {
                     </form>
                     <div className="flex flex-wrap gap-2">
                         {setores.map(setor => (
-                            <div key={setor.id} className="flex items-center gap-2 bg-slate-200 dark:bg-slate-700 rounded-full px-3 py-1 text-sm">
+                            <div key={setor.id} className="flex items-center gap-2 bg-slate-200 dark:bg-slate-700 rounded-full px-3 py-1 text-sm text-slate-800 dark:text-slate-200">
                                 <span>{setor.nome}</span>
                                 <button onClick={() => handleDeleteSector(setor.id)} className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300">
                                     &times;
@@ -1867,6 +1893,381 @@ const AdminPage = () => {
         )}
         </div>
      );
+};
+
+const BugReportModal = ({ screenshot, onClose, onSubmit }) => {
+    const [description, setDescription] = useState('');
+    const [isSubmitting, setIsSubmitting] = useState(false);
+
+    const handleSubmit = async () => {
+        if (!description.trim()) {
+            alert('Por favor, descreva o problema encontrado.');
+            return;
+        }
+        setIsSubmitting(true);
+        const success = await onSubmit(description);
+        if (success) {
+            onClose();
+        }
+        setIsSubmitting(false); // Para o loading em caso de sucesso ou falha
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4" onClick={onClose}>
+            <div className="bg-white dark:bg-slate-800 w-full max-w-2xl rounded-2xl shadow-2xl flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
+                <div className="flex justify-between items-center p-6 border-b border-slate-200 dark:border-slate-700">
+                    <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Reportar um Problema</h2>
+                    <button onClick={onClose} className="text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 transition">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                    </button>
+                </div>
+                <div className="p-6 space-y-4 overflow-y-auto">
+                    <div>
+                        <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">Screenshot da Tela</label>
+                        <div className="border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-lg p-2">
+                            <img src={screenshot} alt="Screenshot da tela atual" className="w-full h-auto rounded-md" />
+                        </div>
+                    </div>
+                    <div>
+                        <label htmlFor="bug-description" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">
+                            Descrição do Problema
+                        </label>
+                        <textarea
+                            id="bug-description"
+                            rows="4"
+                            value={description}
+                            onChange={e => setDescription(e.target.value)}
+                            placeholder="Por favor, detalhe o que aconteceu, o que você esperava que acontecesse e os passos para reproduzir o erro."
+                            className="w-full p-3 bg-white/50 dark:bg-slate-900/50 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition"
+                        ></textarea>
+                    </div>
+                </div>
+                <div className="p-6 border-t border-slate-200 dark:border-slate-700">
+                    <button
+                        onClick={handleSubmit}
+                        disabled={isSubmitting}
+                        className="w-full flex justify-center items-center bg-gradient-to-br from-indigo-500 to-indigo-600 text-white font-semibold py-3 px-4 rounded-lg hover:from-indigo-600 hover:to-indigo-700 transition-all duration-300 shadow-md disabled:opacity-50"
+                    >
+                        {isSubmitting ? 'Enviando...' : 'Enviar Relatório'}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const BugReportButton = () => {
+    const { user } = useAuth();
+    const [isReporting, setIsReporting] = useState(false);
+    const [screenshot, setScreenshot] = useState(null);
+    const [isCapturing, setIsCapturing] = useState(false);
+
+    const handleReportClick = async () => {
+        setIsCapturing(true);
+        try {
+            // Oculta o próprio botão de report para não aparecer no print
+            const reportButton = document.getElementById('bug-report-button');
+            if(reportButton) reportButton.style.display = 'none';
+
+            // Verifica se o tema escuro está ativo
+            const isDarkMode = document.documentElement.classList.contains('dark');
+
+            // Captura o body inteiro para melhor contexto e define uma cor de fundo sólida
+            const canvas = await html2canvas(document.body, {
+                useCORS: true,
+                // Define a cor de fundo com base no tema para evitar problemas com gradientes
+                backgroundColor: isDarkMode ? '#1e293b' : '#f1f5f9', // Cores sólidas (slate-800 e slate-100)
+                scrollX: -window.scrollX,
+                scrollY: -window.scrollY,
+                windowWidth: document.documentElement.offsetWidth,
+                windowHeight: document.documentElement.offsetHeight,
+            });
+            
+            if(reportButton) reportButton.style.display = 'flex'; // Mostra o botão novamente
+
+            setScreenshot(canvas.toDataURL('image/png'));
+            setIsReporting(true);
+        } catch (error) {
+            console.error("Erro ao capturar a tela:", error);
+            alert("Não foi possível capturar a tela. Tente novamente.");
+        } finally {
+            setIsCapturing(false);
+        }
+    };
+
+    const handleSubmitReport = async (description) => {
+        // A verificação do 'storage' foi removida, pois não o usaremos mais.
+        if (!db || !user || !screenshot) {
+            alert("Erro: Serviços de autenticação ou banco de dados não estão disponíveis.");
+            return false;
+        }
+
+        try {
+            // A variável 'screenshot' já contém a imagem como uma string Base64 (Data URL).
+            // Vamos salvá-la diretamente no Firestore.
+
+            // Salva o relatório no Firestore
+            await db.collection('bug_reports').add({
+                userId: user.uid,
+                userEmail: user.email,
+                description: description,
+                screenshotBase64: screenshot, // Salva a string da imagem
+                status: 'aberto', // 'aberto', 'resolvido'
+                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                pageURL: window.location.href,
+                userAgent: navigator.userAgent,
+            });
+
+            alert('Relatório de problema enviado com sucesso! Agradecemos a sua colaboração.');
+            return true; // Retorna sucesso
+
+        } catch (error) {
+            console.error("Erro ao enviar relatório:", error);
+            alert("Ocorreu uma falha ao enviar seu relatório. Por favor, tente novamente.");
+            return false; // Retorna falha
+        }
+    };
+
+    return (
+        <>
+            <button
+                id="bug-report-button"
+                onClick={handleReportClick}
+                disabled={isCapturing}
+                className="fixed bottom-4 right-4 z-[90] bg-red-600 text-white rounded-full h-14 w-14 flex items-center justify-center shadow-lg hover:bg-red-700 transition-transform transform hover:scale-110"
+                title="Reportar um problema"
+            >
+                {isCapturing ? (
+                    <svg className="animate-spin h-6 w-6 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                ) : (
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                )}
+            </button>
+            {isReporting && screenshot && (
+                <BugReportModal
+                    screenshot={screenshot}
+                    onClose={() => setIsReporting(false)}
+                    onSubmit={handleSubmitReport}
+                />
+            )}
+        </>
+    );
+};
+
+const ChamadosAdminPage = () => {
+    const [chamados, setChamados] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
+
+    const fetchChamados = useCallback(async () => {
+        if (!db) return;
+        setLoading(true);
+        try {
+            const reportsSnapshot = await db.collection('bug_reports').orderBy('createdAt', 'desc').get();
+            const reportsList = reportsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+            const userIds = [...new Set(reportsList.map(r => r.userId))];
+            if (userIds.length > 0) {
+                const usersSnapshot = await db.collection('users').where(firebase.firestore.FieldPath.documentId(), 'in', userIds).get();
+                const usersMap = usersSnapshot.docs.reduce((acc, doc) => {
+                    acc[doc.id] = doc.data().displayName;
+                    return acc;
+                }, {});
+                const enrichedReports = reportsList.map(r => ({ ...r, reporterName: usersMap[r.userId] || r.userEmail }));
+                setChamados(enrichedReports);
+            } else {
+                setChamados([]);
+            }
+        } catch (err) {
+            console.error("Erro ao buscar chamados:", err);
+            setError("Falha ao carregar chamados.");
+        } finally {
+            setLoading(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        fetchChamados();
+    }, [fetchChamados]);
+
+    const handleDeleteChamado = async (chamadoId) => {
+        if (window.confirm("Tem certeza que deseja excluir este chamado permanentemente? Esta ação não pode ser desfeita.")) {
+            if (!db) return;
+            try {
+                await db.collection('bug_reports').doc(chamadoId).delete();
+                fetchChamados(); // Recarrega a lista
+            } catch (err) {
+                console.error("Erro ao excluir chamado:", err);
+                alert("Falha ao excluir o chamado.");
+            }
+        }
+    };
+
+    const viewScreenshot = (base64String) => {
+        const newWindow = window.open();
+        if (newWindow) {
+            newWindow.document.write(`
+                <html>
+                    <head><title>Visualizador de Screenshot</title></head>
+                    <body style="margin:0; background-color:#1e293b; display:flex; justify-content:center; align-items:center;">
+                        <img src="${base64String}" alt="Screenshot do Chamado" style="max-width:100%; max-height:100%; object-fit:contain;">
+                    </body>
+                </html>
+            `);
+            newWindow.document.close();
+        } else {
+            alert('O visualizador de imagem foi bloqueado pelo seu navegador. Por favor, habilite os pop-ups para este site.');
+        }
+    };
+
+    const handleUpdateStatus = async (chamado, newStatus) => {
+        if (!db) return;
+        try {
+            await db.collection('bug_reports').doc(chamado.id).update({ status: newStatus });
+            fetchChamados();
+        } catch (err) {
+            console.error("Erro ao atualizar status:", err);
+            alert("Falha ao atualizar o status do chamado.");
+        }
+    };
+
+    if (loading) return <p>Carregando chamados...</p>;
+    if (error) return <p className="text-red-500">{error}</p>;
+
+    return (
+        <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-xl p-6 sm:p-8 rounded-2xl shadow-lg border border-slate-200/50 dark:border-slate-700/50">
+            <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100 mb-6">Caixa de Chamados de Problemas</h2>
+            <div className="space-y-4">
+                {chamados.length === 0 ? (
+                    <p className="text-slate-500 dark:text-slate-400">Nenhum chamado encontrado.</p>
+                ) : (
+                    chamados.map(chamado => (
+                        <div key={chamado.id} className={`p-4 rounded-lg border ${chamado.status === 'aberto' ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800' : 'bg-slate-100 dark:bg-slate-900/30 border-slate-200 dark:border-slate-700'}`}>
+                            <div className="flex justify-between items-start">
+                                <div>
+                                    <p className="text-sm text-slate-500 dark:text-slate-400">Reportado por: <span className="font-medium text-slate-700 dark:text-slate-200">{chamado.reporterName}</span></p>
+                                    <p className="text-xs text-slate-400 dark:text-slate-500">Em: {chamado.createdAt ? formatarData(chamado.createdAt.toDate()) : 'Data indisponível'}</p>
+                                </div>
+                                <span className={`px-3 py-1 text-xs font-semibold rounded-full ${chamado.status === 'aberto' ? 'bg-amber-200 text-amber-800 dark:bg-amber-500/30 dark:text-amber-300' : 'bg-green-200 text-green-800 dark:bg-green-500/30 dark:text-green-300'}`}>
+                                    {chamado.status}
+                                </span>
+                            </div>
+                            <p className="mt-4 text-slate-800 dark:text-slate-100 bg-slate-100 dark:bg-slate-800/50 p-3 rounded-md">{chamado.description}</p>
+                            <div className="mt-4 flex flex-wrap gap-4 items-center">
+                                <button onClick={() => viewScreenshot(chamado.screenshotBase64)} className="text-sm font-semibold text-indigo-600 hover:underline">
+                                    Ver Screenshot
+                                </button>
+                                {chamado.status === 'aberto' ? (
+                                    <button onClick={() => handleUpdateStatus(chamado, 'resolvido')} className="px-3 py-1 text-sm font-semibold bg-green-600 text-white rounded-lg hover:bg-green-700">Marcar como Resolvido</button>
+                                ) : (
+                                    <button onClick={() => handleUpdateStatus(chamado, 'aberto')} className="px-3 py-1 text-sm font-semibold bg-amber-600 text-white rounded-lg hover:bg-amber-700">Reabrir Chamado</button>
+                                )}
+                                <button onClick={() => handleDeleteChamado(chamado.id)} className="text-sm font-semibold text-red-600 hover:underline">
+                                    Excluir
+                                </button>
+                            </div>
+                        </div>
+                    ))
+                )}
+            </div>
+        </div>
+    );
+};
+
+const ChangelogModal = ({ onClose }) => {
+    const [latestLog, setLatestLog] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const { userData } = useAuth();
+
+    useEffect(() => {
+        const fetchChangelog = async () => {
+            if (!db) return;
+            try {
+                const snapshot = await db.collection('changelog').orderBy('date', 'desc').limit(1).get();
+                if (!snapshot.empty) {
+                    const log = { id: snapshot.docs[0].id, ...snapshot.docs[0].data() };
+                    setLatestLog(log);
+                }
+            } catch (err) {
+                console.error("Erro ao buscar changelog:", err);
+            } finally {
+                setLoading(false);
+            }
+        };
+        fetchChangelog();
+    }, []);
+
+    const handleClose = () => {
+        if (latestLog) {
+            localStorage.setItem('lastSeenChangelogVersion', latestLog.id);
+        }
+        onClose();
+    };
+
+    const filteredChanges = latestLog?.changes?.filter(change => 
+        change.roles.includes(userData.role) || change.roles.includes('all')
+    ) || [];
+
+    if (loading) return null; // Não mostra nada enquanto carrega
+    if (!latestLog || filteredChanges.length === 0) {
+        // Se não há log ou nenhuma mudança visível para este usuário, fecha automaticamente
+        onClose();
+        return null;
+    }
+
+    return (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
+            <div className="bg-white dark:bg-slate-800 w-full max-w-2xl rounded-2xl shadow-2xl flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
+                <div className="p-6 text-center border-b border-slate-200 dark:border-slate-700">
+                    <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100">{latestLog.title}</h2>
+                    <p className="text-sm text-slate-500 dark:text-slate-400">Novidades da versão {latestLog.id} (em {formatarData(latestLog.date.toDate())})</p>
+                </div>
+                <div className="p-6 space-y-4 overflow-y-auto">
+                    <ul className="space-y-3">
+                        {filteredChanges.map((change, index) => (
+                            <li key={index} className="flex items-start gap-3">
+                                <span className="flex-shrink-0 mt-1 h-5 w-5 rounded-full bg-green-200 dark:bg-green-500/30 text-green-800 dark:text-green-300 flex items-center justify-center">
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" /></svg>
+                                </span>
+                                <p className="text-slate-700 dark:text-slate-200">{change.description}</p>
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+                <div className="p-6 border-t border-slate-200 dark:border-slate-700">
+                    <button onClick={handleClose} className="w-full bg-gradient-to-br from-indigo-500 to-indigo-600 text-white font-semibold py-3 px-4 rounded-lg hover:from-indigo-600 hover:to-indigo-700 transition-all duration-300 shadow-md">
+                        Entendido, fechar!
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const NotificationsPanel = ({ notifications, onMarkAllAsRead, onClose }) => {
+    return (
+        <div className="absolute top-full right-0 mt-2 w-80 sm:w-96 bg-white dark:bg-slate-800 rounded-lg shadow-2xl border border-slate-200 dark:border-slate-700 z-20 flex flex-col max-h-[70vh]">
+            <div className="flex justify-between items-center p-4 border-b border-slate-200 dark:border-slate-700">
+                <h3 className="font-semibold text-slate-800 dark:text-slate-100">Notificações</h3>
+                <button onClick={onMarkAllAsRead} className="text-xs font-semibold text-indigo-600 hover:underline">Marcar todas como lidas</button>
+            </div>
+            <div className="overflow-y-auto">
+                {notifications.length === 0 ? (
+                    <p className="p-6 text-center text-sm text-slate-500 dark:text-slate-400">Nenhuma notificação nova.</p>
+                ) : (
+                    <ul className="divide-y divide-slate-200 dark:divide-slate-700">
+                        {notifications.map(notif => (
+                            <li key={notif.id} className={`p-4 ${!notif.read ? 'bg-indigo-50 dark:bg-indigo-900/20' : ''}`}>
+                                <p className="font-semibold text-sm text-slate-800 dark:text-slate-100">{notif.title}</p>
+                                <p className="text-sm text-slate-600 dark:text-slate-300">{notif.message}</p>
+                                <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">{formatarData(notif.createdAt.toDate())}</p>
+                            </li>
+                        ))}
+                    </ul>
+                )}
+            </div>
+        </div>
+    );
 };
 
 const SettingsModal = ({ onClose }) => {
@@ -1994,13 +2395,18 @@ const SettingsModal = ({ onClose }) => {
 
 const ProfileModal = ({ user, userData, onClose, onUpdate }) => {
     if (!user) return null;
+    const AVATAR_COLORS = ['#EF4444', '#F97316', '#F59E0B', '#84CC16', '#22C55E', '#10B981', '#06B6D4', '#3B82F6', '#8B5CF6', '#EC4899'];
+    const ReactCrop = window.ReactCrop;
     const [displayName, setDisplayName] = useState(userData?.displayName || '');
+    const [avatarColor, setAvatarColor] = useState(userData?.avatarColor || AVATAR_COLORS[0]);
+    const [imageFile, setImageFile] = useState(null);
+    const [imagePreview, setImagePreview] = useState(userData?.photoURL || null);
     const [isSaving, setIsSaving] = useState(false);
     const [error, setError] = useState('');
     const [message, setMessage] = useState('');
 
     const handleSave = async () => {
-        if (!displayName.trim()) {
+        if (!displayName.trim() || !avatarColor) {
             setError('O nome não pode ficar em branco.');
             return;
         }
@@ -2008,13 +2414,32 @@ const ProfileModal = ({ user, userData, onClose, onUpdate }) => {
         setError('');
         setMessage('');
         try {
-            // Atualiza tanto o perfil de autenticação quanto o documento do Firestore
-            await Promise.all([
-                user.updateProfile({ displayName: displayName.trim() }),
-                db.collection('users').doc(user.uid).update({ displayName: displayName.trim() })
-            ]);
+            let photoURL = userData.photoURL;
+            let uploadBlob = null;
 
-            setMessage('Nome atualizado com sucesso!');
+            if (completedCrop && imgRef.current) {
+                // Gera a imagem cortada e a prepara para o upload
+                uploadBlob = await getCroppedImg(imgRef.current, completedCrop, 'avatar.png');
+            }
+
+            if (uploadBlob) {
+                const filePath = `avatars/${user.uid}/avatar.png`;
+                const storageRef = storage.ref(filePath);
+                await storageRef.put(uploadBlob);
+                photoURL = await storageRef.getDownloadURL();
+            } 
+
+            const updateData = {
+                displayName: displayName.trim(),
+                avatarColor: avatarColor,
+                photoURL: photoURL || null // Garante que seja nulo se não houver foto
+            };
+
+            // Atualiza o perfil do Firebase Auth e o documento do Firestore
+            await user.updateProfile({ displayName: displayName.trim(), photoURL: photoURL });
+            await db.collection('users').doc(user.uid).update(updateData);
+
+            setMessage('Perfil atualizado com sucesso!');
             onUpdate(); // Chama a função para atualizar os dados do usuário na UI
             setTimeout(() => {
                 setMessage('');
@@ -2028,6 +2453,73 @@ const ProfileModal = ({ user, userData, onClose, onUpdate }) => {
         }
     };
 
+    const handleImageChange = (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            setCrop(undefined); // Reseta o crop anterior
+            const reader = new FileReader();
+            reader.addEventListener('load', () => setImagePreview(reader.result?.toString() || ''));
+            reader.readAsDataURL(file);
+        }
+    };
+
+    // Função para gerar a imagem cortada
+    function getCroppedImg(image, crop, fileName) {
+        const canvas = document.createElement('canvas');
+        const scaleX = image.naturalWidth / image.width;
+        const scaleY = image.naturalHeight / image.height;
+        canvas.width = crop.width;
+        canvas.height = crop.height;
+        const ctx = canvas.getContext('2d');
+
+        const pixelRatio = window.devicePixelRatio;
+        canvas.width = crop.width * pixelRatio;
+        canvas.height = crop.height * pixelRatio;
+        ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+        ctx.imageSmoothingQuality = 'high';
+
+        ctx.drawImage(
+            image,
+            crop.x * scaleX,
+            crop.y * scaleY,
+            crop.width * scaleX,
+            crop.height * scaleY,
+            0,
+            0,
+            crop.width,
+            crop.height
+        );
+
+        return new Promise((resolve, reject) => {
+            canvas.toBlob(
+                (blob) => {
+                    if (!blob) {
+                        reject(new Error('Canvas is empty'));
+                        return;
+                    }
+                    blob.name = fileName;
+                    resolve(blob);
+                },
+                'image/png',
+                1
+            );
+        });
+    }
+
+    const renderAvatarPreview = () => {
+        // Se não estiver cortando uma imagem, mostra o avatar normal
+        if (!imagePreview) {
+            return <Avatar user={user} userData={{...userData, displayName, avatarColor}} size="h-24 w-24" />;
+        }
+        // Se estiver cortando, mostra o cropper
+        return (
+            <ReactCrop crop={crop} onChange={c => setCrop(c)} onComplete={c => setCompletedCrop(c)} circularCrop aspect={1}>
+                <img ref={imgRef} src={imagePreview} style={{ maxHeight: '40vh' }} />
+            </ReactCrop>
+        );
+    };
+
+
     return (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
             <div className="bg-white dark:bg-slate-800 w-full max-w-md rounded-2xl shadow-2xl flex flex-col" onClick={e => e.stopPropagation()}>
@@ -2039,6 +2531,16 @@ const ProfileModal = ({ user, userData, onClose, onUpdate }) => {
                 </div>
 
                 <div className="p-6 space-y-4">
+                    <div className="flex flex-col items-center gap-4">
+                        <div className="relative w-full flex justify-center items-center">
+                            {renderAvatarPreview()}
+                            <label htmlFor="avatar-upload" className="absolute -bottom-1 right-1/2 translate-x-[60px] bg-indigo-600 text-white p-1.5 rounded-full cursor-pointer hover:bg-indigo-700 transition">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" /></svg>
+                                <input id="avatar-upload" type="file" accept="image/*" className="hidden" onChange={handleImageChange} />
+                            </label>
+                        </div>
+                       
+                    </div>
                     <div>
                         <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Nome</label>
                         <input 
@@ -2077,7 +2579,9 @@ const ProfileModal = ({ user, userData, onClose, onUpdate }) => {
 
 const Header = () => {
     const { user, userData, openCalendario } = useAuth(); // A propriedade openCalendario é disponibilizada pelo AuthContext
+    const { openBugReport } = useContext(BugReportContext);
     const [isMenuOpen, setIsMenuOpen] = useState(false);
+    const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
     const menuRef = React.useRef(null);
 
     useEffect(() => {
@@ -2103,9 +2607,7 @@ const Header = () => {
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z" clipRule="evenodd" /></svg>
                         Ver Calendário
                     </button>
-                    <button onClick={() => setIsMenuOpen(prev => !prev)} className="p-2 rounded-full hover:bg-slate-200/50 dark:hover:bg-slate-700/50 transition-colors">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-slate-600 dark:text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" /></svg>
-                    </button>
+                    <button onClick={() => setIsMenuOpen(prev => !prev)} className="rounded-full hover:ring-2 hover:ring-indigo-300 dark:hover:ring-indigo-500 transition-all"><Avatar user={user} userData={userData} /></button>
                     {isMenuOpen && (
                         <div className="absolute top-full right-0 mt-2 w-56 bg-white dark:bg-slate-800 rounded-lg shadow-2xl border border-slate-200 dark:border-slate-700 py-2 z-20">
                             <div className="px-4 py-2 border-b border-slate-200 dark:border-slate-700 mb-2">
@@ -2115,6 +2617,10 @@ const Header = () => {
                             <button onClick={() => { document.dispatchEvent(new CustomEvent('openProfile')); setIsMenuOpen(false); }} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-3">
                                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" /></svg>
                                 Perfil
+                            </button>
+                            <button onClick={() => { openBugReport(); setIsMenuOpen(false); }} className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-3">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                Reportar Problema
                             </button>
                             <button onClick={() => auth.signOut()} className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-3">
                                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3 3a1 1 0 00-1 1v12a1 1 0 102 0V4a1 1 0 00-1-1zm10.293 9.293a1 1 0 001.414 1.414l3-3a1 1 0 000-1.414l-3-3a1 1 0 10-1.414 1.414L14.586 9H7a1 1 0 100 2h7.586l-1.293 1.293z" clipRule="evenodd" /></svg>
@@ -2169,13 +2675,80 @@ const UserIDWatermark = ({ overlay = false }) => {
     );
 };
 
+const BugReportContext = createContext({ openBugReport: () => {} });
 
+const BugReportProvider = ({ children }) => {
+    const { user, userData } = useAuth();
+    const [isReporting, setIsReporting] = useState(false);
+    const [screenshot, setScreenshot] = useState(null);
+    const [isCapturing, setIsCapturing] = useState(false);
+
+    const openBugReport = async () => {
+        if (isCapturing) return;
+        setIsCapturing(true);
+        try {
+            const isDarkMode = document.documentElement.classList.contains('dark');
+            const canvas = await html2canvas(document.body, {
+                useCORS: true,
+                backgroundColor: isDarkMode ? '#1e293b' : '#f1f5f9',
+                scrollX: -window.scrollX,
+                scrollY: -window.scrollY,
+                windowWidth: document.documentElement.offsetWidth,
+                windowHeight: document.documentElement.offsetHeight,
+            });
+            setScreenshot(canvas.toDataURL('image/png'));
+            setIsReporting(true);
+        } catch (error) {
+            console.error("Erro ao capturar a tela:", error);
+            alert("Não foi possível capturar a tela. Tente novamente.");
+        } finally {
+            setIsCapturing(false);
+        }
+    };
+
+    const handleSubmitReport = async (description) => {
+        if (!db || !user || !screenshot) {
+            alert("Erro: Serviços de autenticação ou banco de dados não estão disponíveis.");
+            return false;
+        }
+        try {
+            await db.collection('bug_reports').add({
+                userId: user.uid,
+                userEmail: user.email,
+                description: description,
+                screenshotBase64: screenshot,
+                status: 'aberto',
+                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                pageURL: window.location.href,
+                userAgent: navigator.userAgent,
+            });
+
+        } catch (error) {
+            console.error("Erro ao enviar relatório:", error);
+            alert("Ocorreu uma falha ao enviar seu relatório. Por favor, tente novamente.");
+            return false;
+        }
+        
+        alert('Relatório de problema enviado com sucesso! Agradecemos a sua colaboração.');
+        return true;
+    };
+
+    return (
+        <BugReportContext.Provider value={{ openBugReport }}>
+            {children}
+            {isReporting && screenshot && (
+                <BugReportModal screenshot={screenshot} onClose={() => setIsReporting(false)} onSubmit={handleSubmitReport} />
+            )}
+        </BugReportContext.Provider>
+    );
+};
 // --- Componente Principal ---
 const App = () => {
   const { user, userData, isAdmin, loading, refreshUser, currentArea, setCurrentArea } = useAuth();
   const [showCalendario, setShowCalendario] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showChangelog, setShowChangelog] = useState(false);
 
   useEffect(() => {
     // Adiciona o estilo de animação ao head do documento uma única vez.
@@ -2191,6 +2764,23 @@ const App = () => {
         document.removeEventListener('openSettings', openSettingsHandler);
     };
   }, []);
+
+  useEffect(() => {
+    // Lógica para mostrar o changelog
+    if (user && db) {
+        const checkChangelog = async () => {
+            const lastSeenVersion = localStorage.getItem('lastSeenChangelogVersion');
+            const snapshot = await db.collection('changelog').orderBy('date', 'desc').limit(1).get();
+            if (!snapshot.empty) {
+                const latestVersionId = snapshot.docs[0].id;
+                if (latestVersionId !== lastSeenVersion) {
+                    setShowChangelog(true);
+                }
+            }
+        };
+        checkChangelog();
+    }
+  }, [user]);
 
 
 
@@ -2233,7 +2823,9 @@ const App = () => {
                 {currentArea === 'Calculadora' ? (
                     <CalculatorApp />
                 ) : currentArea === 'Admin' ? (
-                    <AdminPage />
+                    <AdminPage setCurrentArea={setCurrentArea} />
+                ) : currentArea === 'Chamados' && isAdmin ? (
+                    <ChamadosAdminPage />
                 ) : (
                     <p>Área desconhecida.</p>
                 )}
@@ -2244,6 +2836,7 @@ const App = () => {
         {showCalendario && <CalendarioModal onClose={() => setShowCalendario(false)} />}
         {showProfile && <ProfileModal user={user} userData={userData} onClose={() => setShowProfile(false)} onUpdate={refreshUser} />} 
         {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
+        {showChangelog && <ChangelogModal onClose={() => setShowChangelog(false)} />}
         <UserIDWatermark />
     </div>
   );
@@ -2253,10 +2846,9 @@ const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(
     <SettingsProvider>
         <AuthProvider>
-            <App />
+            <BugReportProvider>
+                <App />
+            </BugReportProvider>
         </AuthProvider>
     </SettingsProvider>
 );
-
-// Adicionei o SettingsProvider envolvendo o AuthProvider para que o contexto de autenticação
-// possa acessar as configurações, se necessário no futuro.
