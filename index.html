@@ -14,11 +14,16 @@
     <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- React Image Crop -->
+    <link rel="stylesheet" href="https://unpkg.com/react-image-crop/dist/ReactCrop.css" />
+    <script src="https://unpkg.com/react-image-crop/dist/ReactCrop.umd.js"></script>
     
     <!-- SDKs do Firebase -->
     <script src="https://www.gstatic.com/firebasejs/9.15.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.15.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.15.0/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.15.0/firebase-storage-compat.js"></script>
     
     <!-- Chart.js e SheetJS (para gráficos e Excel) -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.9.4/Chart.min.js"></script>
@@ -28,8 +33,10 @@
     <!-- Biblioteca para gerar DOCX -->
     <!-- Bibliotecas de geração de DOCX removidas para usar abordagem de HTML para DOC -->
     <!-- Biblioteca para salvar arquivos (alternativa robusta para download) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
-    
+
 </head>
 <body class="bg-gradient-to-br from-slate-50 to-slate-200 text-slate-800 dark:from-slate-800 dark:to-slate-900 dark:text-slate-200 overflow-hidden">
     <!-- 
