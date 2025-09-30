@@ -61,43 +61,56 @@ const SettingsProvider = ({ children }) => {
         if (db) {
             setSettings(s => ({ ...s, calendarLoading: true }));
             try {
-                // Busca todos os documentos da coleção 'calendario' que você criou.
-                const snapshot = await db.collection('calendario').get();
+                const docRef = db.collection('configuracoes').doc('calendario');
+                const doc = await docRef.get();
 
-                if (snapshot.empty) {
-                    console.warn("A coleção 'calendario' está vazia ou não foi encontrada no Firestore.");
+                if (!doc.exists) {
+                    console.warn("Documento 'calendario' não encontrado na coleção 'configuracoes'.");
                     updateSettings({ feriadosMap: {}, decretosMap: {}, instabilidadeMap: {}, calendarLoading: false });
                     return;
                 }
+
+                const calendarConfig = doc.data();
+                const anoCorrente = "2025"; // Usaremos 2025 para este exemplo, mas pode ser dinâmico
 
                 const feriados = {};
                 const decretos = {};
                 const instabilidades = {};
 
-                // Itera sobre cada documento (cada dia não útil) e organiza nos mapas corretos.
-                snapshot.forEach(doc => {
-                    const item = doc.data();
-                    // O ID do documento é a data no formato 'YYYY-MM-DD'
-                    // O ID do documento é a própria data no formato 'YYYY-MM-DD'
-                    const data = doc.id; 
-                    if (data && item.motivo && item.tipo) {
+                // 1. Processa feriados nacionais recorrentes
+                if (calendarConfig.feriadosNacionaisRecorrentes) {
+                    calendarConfig.feriadosNacionaisRecorrentes.forEach(feriado => {
+                        // Formata a data para YYYY-MM-DD
+                        const dataStr = `${anoCorrente}-${String(feriado.mes).padStart(2, '0')}-${String(feriado.dia).padStart(2, '0')}`;
+                        feriados[dataStr] = feriado.motivo;
+                    });
+                }
+
+                // 2. Processa as exceções anuais (feriados específicos, decretos, instabilidades)
+                // Isso sobrescreverá feriados recorrentes se houver conflito, o que é o esperado.
+                const excecoesDoAno = calendarConfig.excecoesAnuais?.[anoCorrente] || [];
+                excecoesDoAno.forEach(item => {
+                    if (item.data && item.motivo && item.tipo) {
                         switch (item.tipo) {
                             case 'feriado':
-                                feriados[data] = item.motivo;
+                                feriados[item.data] = item.motivo;
                                 break;
                             case 'decreto':
-                                decretos[data] = item.motivo;
+                                decretos[item.data] = item.motivo;
                                 break;
                             case 'instabilidade':
-                                instabilidades[data] = item.motivo;
+                                instabilidades[item.data] = item.motivo;
                                 break;
                         }
                     }
                 });
 
+                // 3. Atualiza o recesso forense
+                const novoRecesso = calendarConfig.recessoForense || settings.recessoForense;
+
                 // Aplica a função exclusiva para os decretos de 19/06 e 20/06.
-                aplicarRegrasEspeciaisDecretos(feriados, decretos);
-                updateSettings({ feriadosMap: feriados, decretosMap: decretos, instabilidadeMap: instabilidades, calendarLoading: false });
+                aplicarRegrasEspeciaisDecretos(feriados, decretos, anoCorrente);
+                updateSettings({ feriadosMap: feriados, decretosMap: decretos, instabilidadeMap: instabilidades, recessoForense: novoRecesso, calendarLoading: false });
 
             } catch (error) { console.error("Erro ao carregar calendário da coleção:", error); updateSettings({ calendarLoading: false }); }
         }
@@ -133,13 +146,13 @@ const SettingsProvider = ({ children }) => {
  * @param {object} feriados - O mapa de feriados carregado.
  * @param {object} decretos - O mapa de decretos carregado.
  */
-const aplicarRegrasEspeciaisDecretos = (feriados, decretos) => {
+const aplicarRegrasEspeciaisDecretos = (feriados, decretos, ano) => {
     // Remove Corpus Christi do mapa de feriados, se existir, para forçá-lo a ser um decreto.
-    delete feriados['2025-06-19'];
+    delete feriados[`${ano}-06-19`];
 
     // Adiciona/sobrescreve as datas no mapa de decretos para garantir que exijam comprovação.
-    decretos['2025-06-19'] = 'Corpus Christi';
-    decretos['2025-06-20'] = 'Suspensão de expediente (pós Corpus Christi)';
+    decretos[`${ano}-06-19`] = 'Corpus Christi';
+    decretos[`${ano}-06-20`] = 'Suspensão de expediente (pós Corpus Christi)';
 };
 
 // --- Contexto de Autenticação ---
@@ -923,7 +936,7 @@ const DiaNaoUtilItem = ({ dia, as = 'li' }) => {
 
     switch (dia.tipo) {
         case 'decreto':
-            labelText = 'Decreto Local TJPR';
+            labelText = 'Decreto TJPR';
             labelClasses = 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300';
             break;
         case 'instabilidade':
@@ -960,10 +973,12 @@ const DiaNaoUtilItem = ({ dia, as = 'li' }) => {
 
     return (
         <Tag className="flex items-center justify-between p-2 bg-slate-100/70 dark:bg-slate-900/50 rounded-md text-slate-700 dark:text-slate-200">
-            {dia.tipo === 'recesso_grouped' 
-                ? <span>{dia.motivo}</span> 
-                : <span><strong className="font-semibold text-slate-900 dark:text-white">{formatarData(dia.data)}:</strong> {dia.motivo}</span>}
-            {labelText && <span className={`ml-2 text-xs font-semibold px-2.5 py-0.5 rounded-full ${labelClasses}`}>{labelText}</span>}
+            <div className="flex-grow">
+                {dia.tipo === 'recesso_grouped' 
+                    ? <span className="text-sm">{dia.motivo}</span> 
+                    : <span className="text-sm"><strong className="font-semibold text-slate-900 dark:text-white">{formatarData(dia.data)}:</strong> {dia.motivo}</span>}
+            </div>
+            {labelText && <span className={`ml-3 flex-shrink-0 text-xs font-semibold px-2.5 py-0.5 rounded-full ${labelClasses}`}>{labelText}</span>}
         </Tag>
     );
 };
@@ -1136,6 +1151,16 @@ const LoginPage = () => {
         }
     };
 
+    const handleToggleMode = (e) => {
+        e.preventDefault();
+        const newIsLogin = !isLogin;
+        setIsLogin(newIsLogin);
+        setError('');
+        if (!newIsLogin) { // Se estiver mudando para a tela de registro
+            fetchSetores();
+        }
+    };
+
     return (
         <div className="flex items-center justify-center h-full">
             <div className="w-full max-w-md p-8 space-y-6 bg-white/60 dark:bg-slate-800/60 backdrop-blur-xl rounded-2xl shadow-lg">
@@ -1198,7 +1223,7 @@ const LoginPage = () => {
                         {error && <p className="text-sm text-center text-red-500 pt-2">{error}</p>}
                         {message && <p className="text-sm text-center text-green-500 pt-2">{message}</p>}
                         <p className="text-center text-sm text-slate-500 dark:text-slate-400 pt-2">
-                            <a href="#" onClick={(e) => { e.preventDefault(); setIsLogin(!isLogin); setError(''); }} className="font-medium text-indigo-600 hover:text-indigo-500">
+                            <a href="#" onClick={handleToggleMode} className="font-medium text-indigo-600 hover:text-indigo-500">
                                 {isLogin ? 'Não tem uma conta? Crie uma aqui.' : 'Já tem uma conta? Faça login.'}
                             </a>
                         </p>
@@ -1329,7 +1354,7 @@ const CalendarioModal = ({ onClose }) => {
                                 <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700">
                                     <table className="w-full text-sm text-left">
                                         <thead className="text-xs text-slate-700 dark:text-slate-200 uppercase bg-slate-100 dark:bg-slate-700/50">
-                                            <tr><th className="px-4 py-3 w-1/4">Data</th><th className="px-4 py-3">Motivo</th><th className="px-4 py-3 w-1/4 text-right">Tipo</th></tr>
+                                            <tr><th className="px-4 py-3 w-[120px]">Data</th><th className="px-4 py-3">Motivo</th><th className="px-4 py-3 w-[180px] text-right">Tipo</th></tr>
                                         </thead>
                                         <tbody>
                                             {dias.map(dia => <DiaNaoUtilItem key={dia.data} dia={{ ...dia, data: new Date(dia.data + 'T00:00:00') }} as="tr" />)}
@@ -1347,67 +1372,123 @@ const CalendarioModal = ({ onClose }) => {
 
 const CalendarioAdminPage = () => {
     const { refreshCalendar } = useContext(SettingsContext);
-    const [entradas, setEntradas] = useState([]);
+    const [config, setConfig] = useState(null);
+    const [allEntries, setAllEntries] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
-    const [editando, setEditando] = useState(null); // Guarda o ID do item sendo editado
+    const [isSaving, setIsSaving] = useState(false);
+    const [editando, setEditando] = useState(null); // Guarda o item sendo editado
     const [novaEntrada, setNovaEntrada] = useState({ data: '', motivo: '', tipo: 'feriado' });
 
-    const fetchEntradas = async () => {
+    const fetchCalendarConfig = useCallback(async () => {
         setLoading(true);
         try {
-            const snapshot = await db.collection('calendario').orderBy(firebase.firestore.FieldPath.documentId()).get();
-            const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            setEntradas(items);
+            const docRef = db.collection('configuracoes').doc('calendario');
+            const doc = await docRef.get();
+            if (!doc.exists) {
+                setError("Documento de configuração do calendário não encontrado.");
+                setLoading(false);
+                return;
+            }
+            const data = doc.data();
+            setConfig(data);
+
+            // Processa os dados para uma lista única para a UI
+            const year = new Date().getFullYear();
+            const entries = [];
+            // Adiciona feriados recorrentes
+            data.feriadosNacionaisRecorrentes?.forEach(f => {
+                const dataStr = `${year}-${String(f.mes).padStart(2, '0')}-${String(f.dia).padStart(2, '0')}`;
+                entries.push({ id: dataStr, data: dataStr, motivo: f.motivo, tipo: 'feriado', isRecurring: true });
+            });
+            // Adiciona exceções anuais
+            Object.keys(data.excecoesAnuais || {}).forEach(yearKey => {
+                data.excecoesAnuais[yearKey].forEach(e => {
+                    entries.push({ id: e.data, data: e.data, motivo: e.motivo, tipo: e.tipo, isRecurring: false });
+                });
+            });
+            
+            entries.sort((a, b) => new Date(a.data) - new Date(b.data));
+            setAllEntries(entries);
+
         } catch (err) {
-            setError('Falha ao carregar o calendário. Verifique as permissões do Firestore.');
+            setError('Falha ao carregar a configuração do calendário.');
             console.error(err);
         } finally {
             setLoading(false);
         }
-    };
+    }, []);
 
     useEffect(() => {
-        fetchEntradas();
-    }, []);
+        fetchCalendarConfig();
+    }, [fetchCalendarConfig]);
 
     const handleSave = async (e) => {
         e.preventDefault();
-        const { data, motivo, tipo } = editando ? editando : novaEntrada;
-        if (!data || !motivo || !tipo) {
+        const item = editando || novaEntrada;
+        if (!item.data || !item.motivo || !item.tipo) {
             setError('Todos os campos são obrigatórios.');
             return;
         }
-        
-        // O ID do documento será a própria data
-        const docId = data;
+
+        setIsSaving(true);
+        setError('');
+        const updatedConfig = JSON.parse(JSON.stringify(config)); // Deep copy
+        const year = item.data.split('-')[0];
+
+        // Remove a entrada antiga se estiver editando
+        if (editando) {
+            const oldYear = editando.id.split('-')[0];
+            if (updatedConfig.excecoesAnuais[oldYear]) {
+                updatedConfig.excecoesAnuais[oldYear] = updatedConfig.excecoesAnuais[oldYear].filter(ex => ex.data !== editando.id);
+            }
+        }
+
+        // Adiciona a nova/atualizada entrada
+        if (!updatedConfig.excecoesAnuais[year]) {
+            updatedConfig.excecoesAnuais[year] = [];
+        }
+        updatedConfig.excecoesAnuais[year].push({ data: item.data, motivo: item.motivo, tipo: item.tipo });
+        updatedConfig.excecoesAnuais[year].sort((a, b) => new Date(a.data) - new Date(b.data));
 
         try {
-            await db.collection('calendario').doc(docId).set({ motivo, tipo });
-            
-            // Limpa os formulários e recarrega os dados
+            await db.collection('configuracoes').doc('calendario').set(updatedConfig);
             setNovaEntrada({ data: '', motivo: '', tipo: 'feriado' });
             setEditando(null);
-            setError('');
-            await fetchEntradas();
-            await refreshCalendar(); // Atualiza o calendário globalmente na aplicação
-
+            await fetchCalendarConfig(); // Recarrega tudo
+            await refreshCalendar();
         } catch (err) {
             setError('Falha ao salvar a entrada.');
             console.error(err);
+        } finally {
+            setIsSaving(false);
         }
     };
 
-    const handleDelete = async (docId) => {
-        if (window.confirm(`Tem certeza que deseja excluir a entrada para ${docId}?`)) {
-            try {
-                await db.collection('calendario').doc(docId).delete();
-                await fetchEntradas();
-                await refreshCalendar(); // Atualiza o calendário globalmente
-            } catch (err) {
-                setError('Falha ao excluir a entrada.');
-                console.error(err);
-            }
+    const handleDelete = async (itemToDelete) => {
+        if (itemToDelete.isRecurring) {
+            alert("Feriados nacionais recorrentes não podem ser excluídos por esta interface.");
+            return;
+        }
+        if (!window.confirm(`Tem certeza que deseja excluir a entrada para ${itemToDelete.data}?`)) return;
+
+        setIsSaving(true);
+        const updatedConfig = JSON.parse(JSON.stringify(config));
+        const year = itemToDelete.data.split('-')[0];
+
+        if (updatedConfig.excecoesAnuais[year]) {
+            updatedConfig.excecoesAnuais[year] = updatedConfig.excecoesAnuais[year].filter(ex => ex.data !== itemToDelete.data);
+        }
+
+        try {
+            await db.collection('configuracoes').doc('calendario').set(updatedConfig);
+            await fetchCalendarConfig();
+            await refreshCalendar();
+        } catch (err) {
+            setError('Falha ao excluir a entrada.');
+            console.error(err);
+        } finally {
+            setIsSaving(false);
         }
     };
 
@@ -1422,7 +1503,7 @@ const CalendarioAdminPage = () => {
 
     const renderForm = () => {
         const item = editando || novaEntrada;
-        return ( 
+        return (
             <form onSubmit={handleSave} className="p-6 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg space-y-4">
                 <h3 className="text-xl font-bold text-slate-800 dark:text-slate-100">{editando ? `Editando ${editando.id}` : 'Adicionar Nova Data'}</h3>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -1431,7 +1512,7 @@ const CalendarioAdminPage = () => {
                         <input type="date" name="data" value={item.data} onChange={handleInputChange} disabled={!!editando} required className="w-full mt-1 p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700 disabled:bg-slate-200 dark:disabled:bg-slate-800"/>
                     </div>
                     <div className="md:col-span-2">
-                        <label className="text-xs font-medium text-slate-500">Motivo (Ex: N° 645/2024 - Feriado)</label>
+                        <label className="text-xs font-medium text-slate-500">Motivo</label>
                         <input type="text" name="motivo" value={item.motivo} onChange={handleInputChange} required className="w-full mt-1 p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700"/>
                     </div>
                     <div>
@@ -1445,7 +1526,9 @@ const CalendarioAdminPage = () => {
                 </div>
                 <div className="flex justify-end gap-3">
                     {editando && <button type="button" onClick={() => setEditando(null)} className="px-4 py-2 text-sm font-semibold bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300">Cancelar</button>}
-                    <button type="submit" className="px-4 py-2 text-sm font-semibold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">Salvar</button>
+                    <button type="submit" disabled={isSaving} className="px-4 py-2 text-sm font-semibold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50">
+                        {isSaving ? 'Salvando...' : 'Salvar'}
+                    </button>
                 </div>
                 {error && <p className="text-sm text-red-500">{error}</p>}
             </form>
@@ -1461,15 +1544,10 @@ const CalendarioAdminPage = () => {
                     <p className="text-center text-slate-500 dark:text-slate-400">Carregando calendário...</p>
                 ) : (
                     ['feriado', 'decreto', 'instabilidade'].map(tipo => {
-                        const itemsFiltrados = entradas.filter(item => item.tipo === tipo);
+                        const itemsFiltrados = allEntries.filter(item => item.tipo === tipo);
                         if (itemsFiltrados.length === 0) return null;
 
-                        const titulos = {
-                            feriado: 'Feriados',
-                            decreto: 'Decretos',
-                            instabilidade: 'Instabilidades'
-                        };
-                        
+                        const titulos = { feriado: 'Feriados', decreto: 'Decretos', instabilidade: 'Instabilidades' };
                         const tituloCores = {
                             feriado: 'text-blue-700 dark:text-blue-400',
                             decreto: 'text-red-700 dark:text-red-400',
@@ -1491,11 +1569,17 @@ const CalendarioAdminPage = () => {
                                         <tbody>
                                             {itemsFiltrados.map(item => (
                                                 <tr key={item.id} className="border-b border-slate-200/50 dark:border-slate-700/50 last:border-b-0">
-                                                    <td className="px-4 py-3 font-medium">{formatarData(new Date(item.id + 'T00:00:00'))}</td>
+                                                    <td className="px-4 py-3 font-medium">{formatarData(new Date(item.data + 'T00:00:00'))}</td>
                                                     <td className="px-4 py-3">{item.motivo}</td>
                                                     <td className="px-4 py-3 text-right space-x-2">
-                                                        <button onClick={() => setEditando({id: item.id, data: item.id, motivo: item.motivo, tipo: item.tipo})} className="font-semibold text-indigo-600 hover:text-indigo-500">Editar</button>
-                                                        <button onClick={() => handleDelete(item.id)} className="font-semibold text-red-600 hover:text-red-500">Excluir</button>
+                                                        {item.isRecurring ? (
+                                                            <span className="text-xs text-slate-400 italic">Fixo</span>
+                                                        ) : (
+                                                            <>
+                                                                <button onClick={() => setEditando(item)} className="font-semibold text-indigo-600 hover:text-indigo-500">Editar</button>
+                                                                <button onClick={() => handleDelete(item)} className="font-semibold text-red-600 hover:text-red-500">Excluir</button>
+                                                            </>
+                                                        )}
                                                     </td>
                                                 </tr>
                                             ))}
