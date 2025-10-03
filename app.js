@@ -27,8 +27,11 @@ const { Bar, HorizontalBar } = window.ReactChartjs2;
 // --- Função Auxiliar de Formatação de Data ---
 const formatarData = (date) => {
     if (!date) return '';
-    // Garante que a data seja tratada como UTC para evitar problemas de fuso horário
-    return new Date(date.getTime() + date.getTimezoneOffset() * 60000).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    // CORREÇÃO: Usa o fuso horário UTC para a formatação.
+    // Isso evita que a data mude para o dia anterior ou posterior dependendo
+    // do fuso horário do navegador do usuário, um problema comum no Brasil.
+    // A data é exibida como se estivesse em UTC, garantindo consistência.
+    return date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'UTC' });
 };
 
 // --- Contexto de Configurações ---
@@ -147,12 +150,12 @@ const SettingsProvider = ({ children }) => {
  * @param {object} decretos - O mapa de decretos carregado.
  */
 const aplicarRegrasEspeciaisDecretos = (feriados, decretos, ano) => {
-    // Remove Corpus Christi do mapa de feriados, se existir, para forçá-lo a ser um decreto.
+    // Remove Corpus Christi do mapa de feriados, se existir, para forçá-lo a ser um "Feriado CNJ".
     delete feriados[`${ano}-06-19`];
 
-    // Adiciona/sobrescreve as datas no mapa de decretos para garantir que exijam comprovação.
-    decretos[`${ano}-06-19`] = 'Corpus Christi';
-    decretos[`${ano}-06-20`] = 'Suspensão de expediente (pós Corpus Christi)';
+    // Adiciona/sobrescreve as datas no mapa de decretos com um tipo especial para garantir que exijam comprovação.
+    decretos[`${ano}-06-19`] = { motivo: 'Corpus Christi', tipo: 'feriado_cnj' };
+    decretos[`${ano}-06-20`] = { motivo: 'Suspensão de expediente (pós Corpus Christi)', tipo: 'feriado_cnj' };
 };
 
 // --- Contexto de Autenticação ---
@@ -314,7 +317,13 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
         if (feriadosMap[dateString]) return { motivo: feriadosMap[dateString], tipo: 'feriado' };
     }
     if (considerarDecretos && (tipo === 'todos' || tipo === 'decreto')) {
-        if (decretosMap[dateString]) return { motivo: decretosMap[dateString], tipo: 'decreto' };
+        if (decretosMap[dateString]) {
+            // Se for um objeto (regra especial CNJ), retorna o objeto. Senão, cria um.
+            if (typeof decretosMap[dateString] === 'object') {
+                return decretosMap[dateString];
+            }
+            return { motivo: decretosMap[dateString], tipo: 'decreto' };
+        }
     }
     // A instabilidade é tratada separadamente, mas pode ser verificada aqui se necessário.
     if (considerarDecretos && (tipo === 'todos' || tipo === 'instabilidade')) {
@@ -344,16 +353,23 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
       const proximoDia = new Date(data.getTime());
       // A publicação deve ser o primeiro dia útil após a disponibilização,
       // ignorando feriados e decretos para a contagem do dia da publicação.
+      // CORREÇÃO: A variável 'motivo' deve ser reavaliada a cada iteração do loop.
+      let motivo;
       do {
           proximoDia.setDate(proximoDia.getDate() + 1);
-          const motivo = getMotivoDiaNaoUtil(proximoDia, true, 'todos');
+          // Instabilidades são ignoradas aqui para não prorrogarem o início do prazo automaticamente.
+          const motivoTemp = getMotivoDiaNaoUtil(proximoDia, true, 'feriado') || getMotivoDiaNaoUtil(proximoDia, true, 'recesso') || getMotivoDiaNaoUtil(proximoDia, true, 'decreto');
+          
+          // CORREÇÃO: Garante que "Feriado CNJ" não prorrogue o início do prazo.
+          // Apenas feriados, recessos e decretos "normais" devem prorrogar.
+          motivo = (motivoTemp && motivoTemp.tipo !== 'feriado_cnj') ? motivoTemp : null;
           // Se o dia for um decreto ou instabilidade, ele é adicionado à lista de comprováveis,
           // e o loop continua para encontrar o próximo dia útil para a publicação.
-          if (motivo && (motivo.tipo === 'decreto' || motivo.tipo === 'instabilidade')) {
+          if (motivo && motivo.tipo === 'decreto') {
               suspensoesEncontradas.push({ data: new Date(proximoDia.getTime()), ...motivo });
           }
-          // O loop continua enquanto for fim de semana, feriado, recesso ou decreto.
-      } while (proximoDia.getDay() === 0 || proximoDia.getDay() === 6 || getMotivoDiaNaoUtil(proximoDia, true, 'todos'));
+      // O loop continua enquanto for fim de semana, feriado, recesso ou decreto.
+      } while (proximoDia.getDay() === 0 || proximoDia.getDay() === 6 || motivo);
       return { proximoDia, suspensoesEncontradas };
   };
 
@@ -363,12 +379,12 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
       return proximoDia;
   };
 
-  const calcularPrazoFinalDiasUteis = (inicioDoPrazo, prazo, comprovados = new Set(), considerarDecretos = true) => {
+  const calcularPrazoFinalDiasUteis = (inicioDoPrazo, prazo, comprovados = new Set(), considerarDecretos = true, considerarInstabilidades = false) => {
     let diasUteisContados = 0;
     const diasNaoUteisEncontrados = [];
     // A dataCorrente começa no mesmo dia do início do prazo.
     // O loop avançará para o dia seguinte antes de contar, iniciando a contagem corretamente.
-    const dataCorrente = new Date(inicioDoPrazo);
+    const dataCorrente = new Date(inicioDoPrazo.getTime());
 
     while (diasUteisContados < prazo - 1) { // Ajuste: conta até o penúltimo dia
         const diaDaSemana = dataCorrente.getDay();
@@ -379,12 +395,17 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
         let infoDiaNaoUtil = null;
 
         const eFeriadoOuRecesso = getMotivoDiaNaoUtil(dataCorrente, true, 'feriado') || getMotivoDiaNaoUtil(dataCorrente, true, 'recesso');
-        const eDecretoOuInstabilidade = getMotivoDiaNaoUtil(dataCorrente, true, 'decreto') || getMotivoDiaNaoUtil(dataCorrente, true, 'instabilidade');
+        const eDecreto = getMotivoDiaNaoUtil(dataCorrente, true, 'decreto');
+        const eInstabilidade = getMotivoDiaNaoUtil(dataCorrente, true, 'instabilidade');
 
         if (eFeriadoOuRecesso && !infoDiaNaoUtil) { // Só aplica se a regra especial acima não foi usada
             infoDiaNaoUtil = eFeriadoOuRecesso;
-        } else if (considerarDecretos && eDecretoOuInstabilidade && comprovados.has(dataCorrenteStr) && !infoDiaNaoUtil) {
-            infoDiaNaoUtil = eDecretoOuInstabilidade;
+        // CORREÇÃO: Permite que 'feriado_cnj' seja contado como dia não útil se estiver comprovado.
+        // A regra de não contar no loop principal se aplica apenas quando não está comprovado.
+        } else if (considerarDecretos && eDecreto && comprovados.has(dataCorrenteStr) && !infoDiaNaoUtil) {
+            infoDiaNaoUtil = eDecreto;
+        } else if (considerarInstabilidades && eInstabilidade && comprovados.has(dataCorrenteStr) && !infoDiaNaoUtil) {
+            infoDiaNaoUtil = eInstabilidade;
         }
         if (diaDaSemana === 0 || diaDaSemana === 6 || infoDiaNaoUtil) {
             // CORREÇÃO: No cálculo "com decreto", só adicionamos à lista de dias não úteis
@@ -402,12 +423,20 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
     let prazoFinalAjustado = dataCorrente;
     let infoDiaFinalNaoUtil;
 
+    // REGRA ESPECIAL: Se o prazo final cair em 19 ou 20 de junho, trata como feriado e prorroga.
+    const prazoFinalStr = prazoFinalAjustado.toISOString().split('T')[0];
+    if (prazoFinalStr === '2025-06-19' || prazoFinalStr === '2025-06-20') {
+        // Pula para o próximo dia útil, que será 23/06/2025
+        prazoFinalAjustado.setDate(23);
+    }
+
     // Loop simplificado para prorrogar o prazo final se ele cair em um dia não útil.
     // Isso garante que o prazo final seja sempre um dia útil.
     while (
         (infoDiaFinalNaoUtil = getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'feriado') || 
                                getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'recesso') || 
-                               (considerarDecretos && (getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'decreto') || getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'instabilidade')) && comprovados.has(prazoFinalAjustado.toISOString().split('T')[0]))
+                               (considerarDecretos && getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'decreto') && comprovados.has(prazoFinalAjustado.toISOString().split('T')[0])) ||
+                               (considerarInstabilidades && getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'instabilidade') && comprovados.has(prazoFinalAjustado.toISOString().split('T')[0]))
         ) ||
         prazoFinalAjustado.getDay() === 0 || prazoFinalAjustado.getDay() === 6
     ) {
@@ -441,15 +470,20 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
         return;
     }
     try {
-        const dataLimite = new Date('2025-05-16T00:00:00');
-        const dataInserida = new Date(dataDisponibilizacao + 'T00:00:00');
+        // CORREÇÃO: Constrói a data de forma mais robusta para evitar problemas de fuso horário e parsing.
+        // O formato 'YYYY-MM-DD' do input[type=date] pode ser interpretado como UTC por alguns navegadores,
+        // causando erros de data inválida ou cálculos incorretos.
+        const [year, month, day] = dataDisponibilizacao.split('-').map(Number);
+        if (!year || !month || !day) throw new Error("Formato de data incompleto.");
+        const inicioDisponibilizacao = new Date(year, month - 1, day);
 
-        if (dataInserida < dataLimite) {
+        const dataLimite = new Date('2025-05-16T00:00:00');
+
+        if (inicioDisponibilizacao < dataLimite) {
             setError('Para datas anteriores a 16/05/2025, a consulta de intimação e a contagem do respectivo prazo devem ser realizadas diretamente no sistema Projudi.');
             return;
         }
 
-        const inicioDisponibilizacao = new Date(dataDisponibilizacao + 'T00:00:00');
         const prazoNumerico = prazoSelecionado;
         
         if (tipoPrazo === 'civel') {
@@ -463,14 +497,6 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
             const { proximoDia: inicioDoPrazo, suspensoesEncontradas: suspensoesInicio } = getProximoDiaUtilParaPublicacao(dataPublicacao);
             diasNaoUteisDoInicio.push(...suspensoesInicio);
 
-            // Prorroga o início do prazo se cair em dia de instabilidade (regra específica)
-            let infoInstabilidade;
-            while(infoInstabilidade = getMotivoDiaNaoUtil(inicioDoPrazo, true, 'instabilidade')) {
-                diasNaoUteisDoInicio.push({ data: new Date(inicioDoPrazo.getTime()), ...infoInstabilidade });
-                // Após encontrar instabilidade, o início do prazo deve ser o próximo dia útil
-                const proximoDiaUtil = getProximoDiaUtil(inicioDoPrazo);
-                inicioDoPrazo.setTime(proximoDiaUtil.getTime());
-            }
             calcularPrazoCivelComInicioDefinido(dataPublicacao, inicioDoPrazo, prazoNumerico, diasNaoUteisDoInicio);
         } else { // Lógica para Crime (dias corridos)
             // CORREÇÃO: Unifica a lógica de Crime com a de Cível para permitir a comprovação de decretos.
@@ -512,24 +538,56 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
   };
 
   const calcularPrazoCivelComInicioDefinido = (dataPublicacao, inicioDoPrazo, prazoNumerico, diasNaoUteisDoInicio = []) => {
-        // Cenário 1: Calcula o prazo sem considerar decretos ou instabilidades para o resultado base.
-        const resultadoSemDecreto = calcularPrazoFinalDiasUteis(inicioDoPrazo, prazoNumerico, new Set(), false);
+        // Cenário 1: Calcula o prazo sem considerar decretos ou instabilidades.
+        const resultadoSemDecreto = calcularPrazoFinalDiasUteis(inicioDoPrazo, prazoNumerico, new Set(), false, false);
 
         // O estado inicial do Cenário 2 (com decreto) deve ser igual ao Cenário 1.
         const resultadoComDecretoInicial = resultadoSemDecreto;
 
-        // Calcula o prazo considerando TODOS os decretos para encontrar os que são relevantes.
-        const todasSuspensoesPossiveis = new Set(Object.keys(decretosMap).concat(Object.keys(instabilidadeMap)));
-        const resultadoComTodasSuspensoes = calcularPrazoFinalDiasUteis(inicioDoPrazo, prazoNumerico, todasSuspensoesPossiveis, true);
+        // Calcula o prazo considerando TODOS os decretos (mas não instabilidades) para encontrar os que são relevantes.
+        const todosDecretosPossiveis = new Set(Object.keys(decretosMap));
+        const resultadoComTodosDecretos = calcularPrazoFinalDiasUteis(inicioDoPrazo, prazoNumerico, todosDecretosPossiveis, true, false);
         
-        // Unifica as suspensões encontradas, evitando duplicatas.
-        const todasAsSuspensoesParaUI = [...diasNaoUteisDoInicio, ...resultadoComTodasSuspensoes.diasNaoUteis.filter(d => d.tipo === 'decreto' || d.tipo === 'instabilidade')];
+        // Unifica os decretos encontrados (no início e durante o prazo), evitando duplicatas.
+        const todosDecretosParaUI = [...diasNaoUteisDoInicio.filter(d => d.tipo === 'decreto'), ...resultadoComTodosDecretos.diasNaoUteis.filter(d => d.tipo === 'decreto')];
         const suspensoesRelevantesMap = new Map();
-        todasAsSuspensoesParaUI.forEach(suspensao => {
+        todosDecretosParaUI.forEach(suspensao => {
             suspensoesRelevantesMap.set(suspensao.data.toISOString().split('T')[0], suspensao);
         });
-        const suspensoesRelevantes = Array.from(suspensoesRelevantesMap.values());
+        // CORREÇÃO: Adiciona os feriados CNJ à lista de comprováveis, APENAS se eles ocorrerem durante o prazo.
+        Object.entries(decretosMap)
+            .filter(([, val]) => typeof val === 'object' && val.tipo === 'feriado_cnj')
+            .forEach(([data, val]) => {
+                const dataFeriadoCnj = new Date(data + 'T00:00:00');
+                // CORREÇÃO: Adiciona para comprovação apenas se estiver no MEIO do prazo.
+                // Se o prazo final cair nele, a prorrogação é automática e não precisa comprovar.
+                // A verificação usa `<` para não incluir o dia em que o prazo termina.
+                if (dataFeriadoCnj >= inicioDoPrazo && dataFeriadoCnj < resultadoSemDecreto.prazoFinal) {
+                    suspensoesRelevantesMap.set(data, { data: dataFeriadoCnj, ...val });
+                }
+            });
+
+        // NOVA LÓGICA PARA INSTABILIDADES:
+        // 1. Verifica se o início do prazo caiu em uma instabilidade.
+        const instabilidadeNoInicio = getMotivoDiaNaoUtil(inicioDoPrazo, true, 'instabilidade');
+        if (instabilidadeNoInicio) {
+            suspensoesRelevantesMap.set(inicioDoPrazo.toISOString().split('T')[0], { data: new Date(inicioDoPrazo.getTime()), ...instabilidadeNoInicio });
+        }
+        // 2. Verifica se o prazo final (sem considerar nada) caiu em uma instabilidade.
+        const instabilidadeNoFim = getMotivoDiaNaoUtil(resultadoSemDecreto.prazoFinal, true, 'instabilidade');
+        if (instabilidadeNoFim) {
+            suspensoesRelevantesMap.set(resultadoSemDecreto.prazoFinal.toISOString().split('T')[0], { data: new Date(resultadoSemDecreto.prazoFinal.getTime()), ...instabilidadeNoFim });
+        }
+
+        const suspensoesRelevantes = Array.from(suspensoesRelevantesMap.values()).sort((a, b) => a.data - b.data);
         
+        // Se a prorrogação automática do Feriado CNJ ocorreu, não há necessidade de mostrar dois cenários.
+        // Forçamos a lista de comprováveis a ficar vazia para exibir apenas um resultado.
+        const prazoFinalOriginalStr = resultadoSemDecreto.prazoFinal.toISOString().split('T')[0];
+        if (prazoFinalOriginalStr === '2025-06-19' || prazoFinalOriginalStr === '2025-06-20') {
+            suspensoesRelevantes.length = 0;
+        }
+
         setResultado({ 
             dataPublicacao, 
             inicioPrazo: inicioDoPrazo, 
@@ -561,7 +619,30 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
 
     // Recalcula o prazo com base nos dias agora comprovados
     const { inicioPrazo, prazo } = resultado;
-    const novoResultado = calcularPrazoFinalDiasUteis(inicioPrazo, prazo, novosComprovados, true);
+    let novoResultado;
+
+    // REGRA ESPECIAL: Se o Feriado CNJ for comprovado, adiciona 2 dias corridos ao prazo final base.
+    if (novosComprovados.has('2025-06-19') || novosComprovados.has('2025-06-20')) {
+        // Calcula o prazo com todos os outros decretos/instabilidades comprovados
+        const outrosComprovados = new Set([...novosComprovados].filter(d => d !== '2025-06-19' && d !== '2025-06-20'));
+        const resultadoBase = calcularPrazoFinalDiasUteis(inicioPrazo, prazo, outrosComprovados, true, true);
+        
+        // Adiciona 2 dias corridos ao resultado
+        // CORREÇÃO: Adiciona 2 dias úteis, não corridos.
+        let prazoFinalComBonus = new Date(resultadoBase.prazoFinal.getTime());
+        let diasUteisAdicionados = 0;
+        while (diasUteisAdicionados < 2) {
+            prazoFinalComBonus.setDate(prazoFinalComBonus.getDate() + 1);
+            // Conta como dia útil se não for fim de semana e não for feriado/recesso.
+            if (prazoFinalComBonus.getDay() !== 0 && prazoFinalComBonus.getDay() !== 6 && !getMotivoDiaNaoUtil(prazoFinalComBonus, false, 'feriado') && !getMotivoDiaNaoUtil(prazoFinalComBonus, false, 'recesso')) {
+                diasUteisAdicionados++;
+            }
+        }
+        novoResultado = { ...resultadoBase, prazoFinal: prazoFinalComBonus };
+    } else {
+        // Lógica padrão para todos os outros decretos e instabilidades
+        novoResultado = calcularPrazoFinalDiasUteis(inicioPrazo, prazo, novosComprovados, true, true);
+    }
     setResultado(prev => ({ ...prev, comDecreto: novoResultado }));
   };
 
@@ -574,7 +655,7 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
 
             // Prazo final mais benéfico possível (considerando TODAS as suspensões comprováveis).
             const todasSuspensoesComprovaveis = new Set(resultado.suspensoesComprovaveis.map(d => d.data.toISOString().split('T')[0]));
-            const prazoFinalMaximo = calcularPrazoFinalDiasUteis(resultado.inicioPrazo, resultado.prazo, todasSuspensoesComprovaveis, true).prazoFinal;
+            const prazoFinalMaximo = calcularPrazoFinalDiasUteis(resultado.inicioPrazo, resultado.prazo, todasSuspensoesComprovaveis, true, true).prazoFinal;
             prazoFinalMaximo.setUTCHours(23, 59, 59, 999);
             
             // Prazo final considerando apenas as suspensões que o usuário marcou como comprovadas.
@@ -604,134 +685,6 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
         setTempestividade(null);
     }
   }, [dataInterposicao, resultado, diasComprovados]);
-
-
-  // Template para o documento Word, movido para fora para evitar injeção de script do live-server.
-  const getDocTemplate = (bodyHtml, pStyle, pCenterStyle) => `
-      <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
-      <head><meta charset='utf-8'><title>Minuta Despacho</title></head>
-      <body>
-          <div style="font-family: Arial, sans-serif; font-size: 16pt; line-height: 1.5;">
-              ${bodyHtml}
-              <p style="${pStyle}">Intime-se. Diligências necessárias.</p>
-              <br>
-              <p style="${pCenterStyle}">Curitiba, data da assinatura digital.</p>
-              <br><br>
-              <p style="${pCenterStyle}"><b>Desembargador HAYTON LEE SWAIN FILHO</b></p>
-              <p style="${pCenterStyle}">1º Vice-Presidente do Tribunal de Justiça do Estado do Paraná</p>
-          </div>
-      </body>
-      </html>
-  `;
-
-  // Função para gerar um arquivo .doc a partir de um conteúdo HTML
-  const generateDocFromHtml = (bodyHtml, outputFileName) => {
-    try {
-        // Estilos comuns para os parágrafos
-        const pStyle = "text-align: justify; text-indent: 50px; margin-bottom: 1em;";
-        const pCenterStyle = "text-align: center; margin: 0;";
-        const sourceHTML = getDocTemplate(bodyHtml, pStyle, pCenterStyle);
-
-        const blob = new Blob([sourceHTML], { type: 'application/msword' });
-        saveAs(blob, outputFileName);
-    } catch (err) {
-        console.error("Erro ao gerar documento:", err);
-        setError(`Ocorreu um erro ao gerar o arquivo. Verifique o console ou tente em outro navegador.`);
-    }
-  };
-
-  const fetchTemplate = async (templateType) => {
-    if (!db) return null;
-    const userSetorId = userData?.setorId;
-    
-    try {
-        // 1. Tenta buscar o template específico para o setor do usuário
-        if (userSetorId) {
-            const setorDocRef = db.collection('minutas').doc(`${templateType}_${userSetorId}`);
-            const setorDoc = await setorDocRef.get();
-            if (setorDoc.exists) {
-                return setorDoc.data().conteudo;
-            }
-        }
-        // 2. Se não encontrar (ou se o usuário não tiver setor), busca o template padrão (sem setorId no nome do doc)
-        const defaultDocRef = db.collection('minutas').doc(templateType);
-        const defaultDoc = await defaultDocRef.get();
-        if (defaultDoc.exists) {
-            return defaultDoc.data().conteudo;
-        }
-        return null; // Retorna nulo se nenhum template for encontrado
-    } catch (error) {
-        console.error(`Erro ao buscar template '${templateType}':`, error);
-        return null;
-    }
-  };
-
-  const gerarMinutaIntempestividade = async () => {
-    const { dataPublicacao, inicioPrazo, prazo, suspensoesComprovaveis } = resultado;
-    const todasSuspensoes = new Set(suspensoesComprovaveis.map(d => d.data.toISOString().split('T')[0]));
-    const prazoFinalMaximo = calcularPrazoFinalDiasUteis(inicioPrazo, prazo, todasSuspensoes, true).prazoFinal;
-    
-    const dataDispStr = formatarData(new Date(dataDisponibilizacao + 'T00:00:00'));
-    const dataPubStr = formatarData(dataPublicacao);
-    const inicioPrazoStr = formatarData(inicioPrazo);
-    const dataInterposicaoStr = formatarData(new Date(dataInterposicao + 'T00:00:00'));
-    const prazoFinalStr = formatarData(prazoFinalMaximo);
-
-    let corpoMinuta = await fetchTemplate('intempestivo_com_decreto'); // Passa o TIPO do template
-    if (!corpoMinuta) {
-        setError("Não foi possível carregar o modelo da minuta de intempestividade. O modelo padrão será usado.");
-        corpoMinuta = `<p style="text-align: justify; text-indent: 50px; margin-bottom: 1em;">O recurso especial não pode ser admitido, pois foi interposto sem observância do prazo previsto no artigo 1.003, § 5º, c/c artigo 219, ambos do Código de Processo Civil.</p><p style="text-align: justify; text-indent: 50px; margin-bottom: 1em;">Isto porque se verifica que a intimação do acórdão recorrido se deu pela disponibilização no DJEN na data de {{DATA_DISPONIBILIZACAO}} e, considerada como data da publicação o primeiro dia útil seguinte, {{DATA_PUBLICACAO}}, iniciou-se a contagem do prazo no primeiro dia útil seguinte ao da publicação, isto é em {{INICIO_PRAZO}}.</p><p style="text-align: justify; text-indent: 50px; margin-bottom: 1em;">Portanto, a petição recursal apresentada em {{DATA_INTERPOSICAO}} está intempestiva, já que protocolado além do prazo legal de {{PRAZO_DIAS}} dias.</p><p style="text-align: justify; text-indent: 50px; margin-bottom: 1em;">Diante do exposto, inadmito o recurso especial interposto.</p>`;
-    }
-
-    corpoMinuta = corpoMinuta
-        .replace(/{{NUMERO_PROCESSO}}/g, numeroProcesso || 'xxxxxx')
-        .replace(/{{DATA_DISPONIBILIZACAO}}/g, dataDispStr)
-        .replace(/{{DATA_PUBLICACAO}}/g, dataPubStr)
-        .replace(/{{INICIO_PRAZO}}/g, inicioPrazoStr)
-        .replace(/{{DATA_INTERPOSICAO}}/g, dataInterposicaoStr)
-        .replace(/{{PRAZO_DIAS}}/g, prazoSelecionado);
-
-    generateDocFromHtml(
-        corpoMinuta,
-        `Minuta_Intempestividade_${numeroProcesso || 'processo'}.doc`
-    );
-  };
-
-  const gerarMinutaIntimacaoDecreto = async () => {
-    let corpoMinuta = await fetchTemplate('intimacao_decreto');
-    if (!corpoMinuta) {
-        setError("Não foi possível carregar o modelo da minuta de intimação. O modelo padrão será usado.");
-        corpoMinuta = `<p style="text-align: justify; text-indent: 50px; margin-bottom: 1em;">Intime-se a parte Recorrente, nos termos dos artigos 1.003, § 6º c/c 224, §1, ambos do Código de Processo Civil, sob pena de ser reconhecida a intempestividade do recurso, para, no prazo de 5 (cinco) dias, comprovar a ocorrência do feriado local ou a determinação de suspensão do expediente ou do prazo recursal neste Tribunal de Justiça, por meio de documento idôneo.</p>`;
-    }
-
-    generateDocFromHtml(
-        corpoMinuta,
-        `Minuta_Intimacao_Decreto_${numeroProcesso || 'processo'}.doc`
-    );
-  };
-
-  const gerarMinutaFaltaDecreto = async () => {
-    const { inicioPrazo, semDecreto } = resultado;
-    const dataLeituraStr = formatarData(new Date(dataDisponibilizacao + 'T00:00:00'));
-    const inicioPrazoStr = formatarData(inicioPrazo);
-    const prazoFinalStr = formatarData(semDecreto.prazoFinal);
-
-    let corpoMinuta = await fetchTemplate('falta_decreto');
-    if (!corpoMinuta) {
-        setError("Não foi possível carregar o modelo da minuta de falta de decreto. O modelo padrão será usado.");
-        corpoMinuta = `<p style="text-align: justify; text-indent: 50px; margin-bottom: 1em;">A leitura da intimação do acórdão recorrido foi confirmada em {{DATA_DISPONIBILIZACAO}}, de modo que o prazo de 15 (quinze) dias úteis para interposição de recursos aos Tribunais Superiores passou a fluir no dia {{INICIO_PRAZO}} e findou em {{PRAZO_FINAL_SEM_DECRETO}}.</p><p style="text-align: justify; text-indent: 50px; margin-bottom: 1em;">Instada a comprovar o feriado local ou a determinação de suspensão do prazo neste Tribunal de Justiça, nos termos do artigo 1.003, § 6º, do Código de Processo Civil, a parte recorrente permaneceu inerte.</p><p style="text-align: justify; text-indent: 50px; margin-bottom: 1em;">Desse modo, é forçoso reconhecer a intempestividade do recurso especial, o que faço.</p>`;
-    }
-
-    corpoMinuta = corpoMinuta
-        .replace(/{{DATA_DISPONIBILIZACAO}}/g, dataLeituraStr)
-        .replace(/{{INICIO_PRAZO}}/g, inicioPrazoStr)
-        .replace(/{{PRAZO_FINAL_SEM_DECRETO}}/g, prazoFinalStr);
-
-    generateDocFromHtml(
-        corpoMinuta,
-        `Minuta_Intempestivo_Falta_Decreto_${numeroProcesso || 'processo'}.doc`
-    );
-  };
 
   return (
     <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-xl p-8 rounded-2xl shadow-lg border border-slate-200/50 dark:border-slate-700/50">
@@ -848,17 +801,10 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
                                 </div>
                             </div>
                         )}
-                        {tempestividade === 'puramente_intempestivo' && (
-                            <div className="mt-4"><button onClick={gerarMinutaIntempestividade} className="w-full md:w-auto flex justify-center items-center bg-gradient-to-br from-red-500 to-red-600 text-white font-semibold py-2 px-5 rounded-lg hover:from-red-600 hover:to-red-700 transition-all duration-300 shadow-md">Baixar Minuta (Intempestivo)</button></div>
-                        )} 
                         {tempestividade === 'intempestivo_falta_decreto' && resultado.suspensoesComprovaveis.length > 0 && (
                             <div className="mt-4 space-y-2 md:space-y-0 md:flex md:items-center md:gap-3">
                                 <div className="p-3 text-sm text-amber-800 rounded-lg bg-amber-50 dark:bg-gray-800 dark:text-amber-400" role="alert">
                                     <span className="font-medium">Atenção:</span> O recurso está intempestivo, a menos que as suspensões de prazo sejam comprovadas.
-                                </div>
-                                <p className="text-sm text-slate-600 dark:text-slate-300 font-medium">Gerar outras minutas:</p>
-                                <div className="flex gap-3">
-                                    <button onClick={gerarMinutaIntimacaoDecreto} className="flex-1 md:flex-auto justify-center flex items-center bg-gradient-to-br from-sky-500 to-sky-600 text-white font-semibold py-2 px-4 rounded-lg hover:from-sky-600 hover:to-sky-700 transition-all duration-300 shadow-md text-sm">Intimação Decreto</button><button onClick={gerarMinutaFaltaDecreto} className="flex-1 md:flex-auto justify-center flex items-center bg-gradient-to-br from-red-500 to-red-600 text-white font-semibold py-2 px-4 rounded-lg hover:from-red-600 hover:to-red-700 transition-all duration-300 shadow-md text-sm">Intempestivo Falta Decreto</button>
                                 </div>
                             </div>
                         )}
@@ -938,6 +884,10 @@ const DiaNaoUtilItem = ({ dia, as = 'li' }) => {
         case 'decreto':
             labelText = 'Decreto TJPR';
             labelClasses = 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300';
+            break;
+        case 'feriado_cnj':
+            labelText = 'Feriado CNJ';
+            labelClasses = 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-300';
             break;
         case 'instabilidade':
             labelText = 'Instabilidade';
@@ -1306,12 +1256,22 @@ const CalendarioModal = ({ onClose }) => {
     const { settings } = useContext(SettingsContext);
     const { feriadosMap, decretosMap, instabilidadeMap, calendarLoading } = settings;
 
-    const formatData = (map, tipo) => Object.entries(map).map(([data, motivo]) => ({ data, motivo, tipo }));
+    // CORREÇÃO: A função formatData agora lida com o fato de que o 'motivo' pode ser uma string ou um objeto.
+    const formatData = (map, defaultTipo) => {
+        return Object.entries(map).map(([data, value]) => {
+            if (typeof value === 'object' && value.motivo && value.tipo) {
+                // Se for um objeto (como o Feriado CNJ), usa os dados do objeto.
+                return { data, motivo: value.motivo, tipo: value.tipo };
+            }
+            // Caso contrário, trata como uma string simples.
+            return { data, motivo: value, tipo: defaultTipo };
+        });
+    };
 
     const todosDiasNaoUteis = [
         ...formatData(feriadosMap, 'feriado'),
         ...formatData(decretosMap, 'decreto'),
-        ...formatData(instabilidadeMap, 'instabilidade')
+        ...formatData(instabilidadeMap, 'instabilidade'),
     ].sort((a, b) => new Date(a.data) - new Date(b.data));
 
     const diasAgrupadosPorMes = todosDiasNaoUteis.reduce((acc, dia) => {
@@ -1594,233 +1554,6 @@ const CalendarioAdminPage = () => {
         </div>
     );
 }
-
-// CORREÇÃO: Componente isolado para o editor TinyMCE.
-// Isso garante que a inicialização só ocorra quando o componente for renderizado,
-// resolvendo o problema de "race condition" de forma mais robusta.
-const TinyMCEEditor = ({ initialValue, onEditorChange }) => {
-    const editorRef = useRef(null);
-
-    useEffect(() => {
-        // Garante que o seletor seja único para evitar conflitos
-        const editorId = `minuta-editor-${Date.now()}`;
-
-        tinymce.init({
-            selector: `#${editorId}`,
-            plugins: 'anchor autolink charmap codesample emoticons image link lists media searchreplace table visualblocks wordcount',
-            toolbar: 'undo redo | blocks fontfamily fontsize | bold italic underline strikethrough | link image media table | align lineheight | numlist bullist indent outdent | emoticons charmap | removeformat',
-            height: 500,
-            setup: (editor) => {
-                editor.on('init', () => {
-                    editor.setContent(initialValue || '');
-                });
-                const updateContent = () => {
-                    if (editor.isDirty()) { // Apenas atualiza se houver mudança
-                        onEditorChange(editor.getContent());
-                    }
-                };
-                editor.on('input', updateContent);
-                editor.on('change', updateContent);
-            },
-            extended_valid_elements: 'span[style]',
-        });
-
-        return () => {
-            tinymce.get(editorId)?.remove();
-        };
-    }, []); // O array de dependências vazio garante que ele só inicialize uma vez.
-
-    return <textarea id={`minuta-editor-${Date.now()}`} ref={editorRef}></textarea>;
-};
-
-const MinutasAdminPage = () => {
-    const [minutas, setMinutas] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState('');
-    const [editingMinuta, setEditingMinuta] = useState(null); // Guarda a minuta inteira para edição
-    const [isCreating, setIsCreating] = useState(false);
-    const [setores, setSetores] = useState([]);
-
-    const fetchMinutasAndSetores = async () => {
-        if (!db) return;
-        setLoading(true);
-        try {
-            const minutasSnapshot = await db.collection('minutas').get();
-            const minutasList = minutasSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            setMinutas(minutasList);
-
-            const setoresSnapshot = await db.collection('setores').orderBy('nome').get();
-            const setoresList = setoresSnapshot.docs.map(doc => ({ id: doc.id, nome: doc.data().nome }));
-            setSetores(setoresList);
-
-        } catch (err) {
-            setError('Falha ao carregar dados.');
-            console.error(err);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    useEffect(() => {
-        fetchMinutasAndSetores();
-    }, []);
-
-    const handleSave = async () => {
-        if (!editingMinuta) return;
-        // CORREÇÃO: O 'id' no estado `editingMinuta` pode ser apenas a base (ex: 'sumula_7').
-        // O 'originalId' garante que estamos atualizando o documento correto (ex: 'sumula_7_SETOR123').
-        const { id: baseId, originalId, titulo, conteudo, descricao, setorId } = editingMinuta;
-        if (!baseId || !titulo) {
-            setError("O 'ID único' e o 'Título' são obrigatórios.");
-            return;
-        }
-
-        // Constrói o ID do documento final
-        // Se for uma criação, monta o ID. Se for edição, usa o ID original para garantir a atualização correta.
-        const finalDocId = isCreating ? (setorId ? `${baseId}_${setorId}` : baseId) : originalId;
-
-        setLoading(true);
-        try {
-            await db.collection('minutas').doc(finalDocId).set({
-                titulo,
-                conteudo,
-                descricao: descricao || '',
-                setorId: setorId || ''
-            });
-
-            // Se o ID do documento foi alterado (ex: mudou de setor), exclui o antigo.
-            if (!isCreating && originalId !== finalDocId) {
-                await db.collection('minutas').doc(originalId).delete();
-            }
-
-            setEditingMinuta(null);
-            setIsCreating(false);
-            fetchMinutasAndSetores(); // Recarrega tudo
-        } catch (err) {
-            setError('Falha ao salvar o modelo.');
-            console.error(err);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const handleDelete = async (docId) => {
-        if (window.confirm(`Tem certeza que deseja excluir a minuta "${docId}"?`)) {
-            try {
-                await db.collection('minutas').doc(docId).delete();
-                fetchMinutasAndSetores();
-            } catch (err) {
-                setError('Falha ao excluir o modelo.');
-                console.error(err);
-            }
-        }
-    };
-
-    const handleOpenCreate = () => {
-        setEditingMinuta({ id: '', originalId: '', titulo: '', conteudo: '<p>Escreva sua minuta aqui...</p>', descricao: '', setorId: '' });
-        setIsCreating(true);
-    };
-
-    const handleInputChange = (e) => {
-        const { name, value } = e.target;
-        setEditingMinuta(prev => ({ ...prev, [name]: value }));
-    };
-
-    if (editingMinuta) {
-        return (
-            <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-xl p-6 sm:p-8 rounded-2xl shadow-lg border border-slate-200/50 dark:border-slate-700/50 space-y-6">
-                <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100">{isCreating ? 'Criar Nova Minuta' : `Editando: ${editingMinuta.titulo}`}</h2>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                        <label className="block text-sm font-medium">ID único (ex: `sumula_7`)</label>
-                        <input type="text" name="id" value={editingMinuta.id} onChange={handleInputChange} disabled={!isCreating} className="w-full p-2 mt-1 bg-white/50 dark:bg-slate-900/50 border rounded-md disabled:bg-slate-200 dark:disabled:bg-slate-800" />
-                    </div>
-                    <div>
-                        <label className="block text-sm font-medium">Título</label>
-                        <input type="text" name="titulo" value={editingMinuta.titulo} onChange={handleInputChange} className="w-full p-2 mt-1 bg-white/50 dark:bg-slate-900/50 border rounded-md" />
-                    </div>
-                    <div className="md:col-span-2">
-                        <label className="block text-sm font-medium">Descrição</label>
-                        <input type="text" name="descricao" value={editingMinuta.descricao} onChange={handleInputChange} className="w-full p-2 mt-1 bg-white/50 dark:bg-slate-900/50 border rounded-md" />
-                    </div>
-                    <div>
-                        <label className="block text-sm font-medium">Setor (Opcional)</label>
-                        <select name="setorId" value={editingMinuta.setorId} onChange={handleInputChange} className="w-full p-2 mt-1 bg-white/50 dark:bg-slate-900/50 border rounded-md">
-                            <option value="">Padrão (para todos)</option>
-                            {setores.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
-                        </select>
-                    </div>
-                </div>
-                <div className="p-2 bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300 rounded-lg text-sm">
-                    <p><strong>Variáveis disponíveis:</strong> Use as variáveis abaixo no seu texto. Elas serão substituídas automaticamente ao gerar o documento.</p>
-                    <ul className="list-disc list-inside columns-2">
-                        <li>`{{NUMERO_PROCESSO}}`</li>
-                        <li>`{{DATA_DISPONIBILIZACAO}}`</li>
-                        <li>`{{DATA_PUBLICACAO}}`</li>
-                        <li>`{{INICIO_PRAZO}}`</li>
-                        <li>`{{PRAZO_DIAS}}`</li>
-                        <li>`{{DATA_INTERPOSICAO}}`</li>
-                        <li>`{{PRAZO_FINAL_SEM_DECRETO}}`</li>
-                    </ul>
-                </div>
-                {/* Substitui o textarea antigo pelo novo componente do editor */}
-                <TinyMCEEditor
-                    key={editingMinuta.originalId || 'new'} // Força a recriação do componente ao editar minutas diferentes
-                    initialValue={editingMinuta.conteudo}
-                    onEditorChange={(content) => setEditingMinuta(prev => ({ ...prev, conteudo: content }))}
-                />
-                <div className="flex justify-end gap-4">
-                    <button onClick={() => { setEditingMinuta(null); setIsCreating(false); }} className="px-4 py-2 text-sm font-semibold bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300">Cancelar</button>
-                    <button onClick={handleSave} disabled={loading} className="px-4 py-2 text-sm font-semibold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50">
-                        {loading ? 'Salvando...' : 'Salvar Minuta'}
-                    </button>
-                </div>
-                {error && <p className="text-red-500 text-sm">{error}</p>}
-            </div>
-        );
-    }
-
-    return (
-        <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-xl p-6 sm:p-8 rounded-2xl shadow-lg border border-slate-200/50 dark:border-slate-700/50 space-y-6">
-            <div className="flex justify-between items-center">
-                <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Gerenciamento de Minutas</h2>
-                <button onClick={handleOpenCreate} className="px-4 py-2 text-sm font-semibold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">Criar Nova Minuta</button>
-            </div>
-            {loading && <p className="text-center py-4">Carregando...</p>}
-            {error && <p className="text-red-500">{error}</p>}
-            {!loading && (
-                <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700">
-                    <table className="w-full text-sm text-left">
-                        <thead className="text-xs text-slate-700 dark:text-slate-300 uppercase bg-slate-200/50 dark:bg-slate-800/50">
-                            <tr>
-                                <th className="px-4 py-3">Título</th>
-                                <th className="px-4 py-3">Setor</th>
-                                <th className="px-4 py-3">ID do Documento</th>
-                                <th className="px-4 py-3 text-right">Ações</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {minutas.map(minuta => {
-                                const setor = setores.find(s => s.id === minuta.setorId);
-                                return (
-                                    <tr key={minuta.id} className="border-b border-slate-200/50 dark:border-slate-700/50 last:border-b-0">
-                                        <td className="px-4 py-3 font-medium">{minuta.titulo}</td>
-                                        <td className="px-4 py-3">{setor ? <span className="px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300">{setor.nome}</span> : 'Padrão'}</td>
-                                        <td className="px-4 py-3 font-mono text-xs">{minuta.id}</td>
-                                        <td className="px-4 py-3 text-right space-x-2">
-                                            <button onClick={() => { setEditingMinuta({ ...minuta, originalId: minuta.id, id: minuta.id.split('_')[0] }); setIsCreating(false); }} className="font-semibold text-indigo-600 hover:text-indigo-500">Editar</button>
-                                            <button onClick={() => handleDelete(minuta.id)} className="font-semibold text-red-600 hover:text-red-500">Excluir</button>
-                                        </td>
-                                    </tr>
-                                );
-                            })}
-                        </tbody>
-                    </table>
-                </div>
-            )}
-        </div>
-    );
-};
 
 const Avatar = ({ user, userData, size = 'h-8 w-8' }) => {
     if (!user || !userData) return null;
@@ -2111,7 +1844,6 @@ const AdminPage = ({ setCurrentArea }) => {
                     <button onClick={() => setAdminSection('stats')} className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors ${adminSection === 'stats' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>Estatísticas de Uso</button>
                     <button onClick={() => setAdminSection('calendar')} className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors ${adminSection === 'calendar' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>Gerir Calendário</button>
                     <button onClick={() => setAdminSection('users')} className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors ${adminSection === 'users' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>Usuários e Setores</button>
-                    <button onClick={() => setAdminSection('minutas')} className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors ${adminSection === 'minutas' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>Gerir Minutas</button>
                     <button onClick={() => setCurrentArea('Chamados')} className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors bg-amber-500 text-white hover:bg-amber-600`}>Chamados</button>
                 </div>
             </div>
@@ -2227,96 +1959,76 @@ const AdminPage = ({ setCurrentArea }) => {
         {adminSection === 'calendar' && (
             <CalendarioAdminPage />
         )}
-        {adminSection === 'users' && (
-            <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-xl p-6 sm:p-8 rounded-2xl shadow-lg border border-slate-200/50 dark:border-slate-700/50 space-y-6">
-                <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Gerenciamento de Usuários e Setores</h2>
-                <div className="p-3 text-sm text-blue-800 rounded-lg bg-blue-50 dark:bg-gray-800 dark:text-blue-400" role="alert">
-                    <span className="font-medium">Dica:</span> Para gerenciar as minutas, utilize a aba "Gerir Minutas".
+        {adminSection === 'users' && (<div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-xl p-6 sm:p-8 rounded-2xl shadow-lg border border-slate-200/50 dark:border-slate-700/50 space-y-6">
+    <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Gerenciamento de Usuários e Setores</h2>
+    <div className="relative">
+        <input type="text" placeholder="Pesquisar por nome ou email..." value={userSearchTerm} onChange={e => setUserSearchTerm(e.target.value)} className="w-full p-3 pl-10 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700" />
+        <svg className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" /></svg>
+    </div>
+    {/* Gerenciamento de Setores */}
+    <div className="p-4 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg space-y-4">
+        <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Setores</h3>
+        <form onSubmit={handleAddSector} className="flex items-center gap-2">
+            <input type="text" placeholder="Nome do novo setor" value={newSectorName} onChange={e => setNewSectorName(e.target.value)} className="flex-grow p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700" />
+            <button type="submit" className="px-4 py-2 text-sm font-semibold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">Adicionar</button>
+        </form>
+        <div className="flex flex-wrap gap-2">
+            {setores.map(setor => (
+                <div key={setor.id} className="flex items-center gap-2 bg-slate-200 dark:bg-slate-700 rounded-full px-3 py-1 text-sm text-slate-800 dark:text-slate-200">
+                    <span>{setor.nome}</span>
+                    <button onClick={() => handleDeleteSector(setor.id)} className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300">
+                        &times;
+                    </button>
                 </div>
-                <div className="relative">
-                    <input 
-                        type="text" 
-                        placeholder="Pesquisar por nome ou email..." 
-                        value={userSearchTerm}
-                        onChange={e => setUserSearchTerm(e.target.value)}
-                        className="w-full p-3 pl-10 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700"
-                    />
-                    <svg className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" /></svg>
-                </div>
-                {/* Gerenciamento de Setores */}
-                <div className="p-4 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg space-y-4">
-                    <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Setores</h3>
-                    <form onSubmit={handleAddSector} className="flex items-center gap-2">
-                        <input 
-                            type="text"
-                            placeholder="Nome do novo setor"
-                            value={newSectorName}
-                            onChange={e => setNewSectorName(e.target.value)}
-                            className="flex-grow p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700"
-                        />
-                        <button type="submit" className="px-4 py-2 text-sm font-semibold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">Adicionar</button>
-                    </form>
-                    <div className="flex flex-wrap gap-2">
-                        {setores.map(setor => (
-                            <div key={setor.id} className="flex items-center gap-2 bg-slate-200 dark:bg-slate-700 rounded-full px-3 py-1 text-sm text-slate-800 dark:text-slate-200">
-                                <span>{setor.nome}</span>
-                                <button onClick={() => handleDeleteSector(setor.id)} className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300">
-                                    &times;
-                                </button>
-                            </div>
-                        ))}
-                    </div>
-                </div>
+            ))}
+        </div>
+    </div>
 
-                {/* Tabela de Usuários */}
-                {userManagementLoading ? (
-                    <p className="text-center text-slate-500 dark:text-slate-400">Carregando usuários...</p>
-                ) : (
-                    <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700">
-                        <table className="w-full text-sm text-left">
-                            <thead className="text-xs text-slate-700 dark:text-slate-300 uppercase bg-slate-200/50 dark:bg-slate-800/50">
-                                <tr>
-                                    <th className="px-4 py-3 w-1/4">Nome</th>
-                                    <th className="px-4 py-3 w-1/4">Setor</th>
-                                    <th className="px-4 py-3 w-1/4 text-center">Permissão</th>
-                                    <th className="px-4 py-3 w-1/4 text-right">Ações de Permissão</th>
+    {/* Tabela de Usuários */}
+    {userManagementLoading ? (
+        <p className="text-center text-slate-500 dark:text-slate-400">Carregando usuários...</p>
+    ) : (
+        <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700">
+            <table className="w-full text-sm text-left">
+                <thead className="text-xs text-slate-700 dark:text-slate-300 uppercase bg-slate-200/50 dark:bg-slate-800/50">
+                    <tr>
+                        <th className="px-4 py-3 w-1/4">Nome</th>
+                        <th className="px-4 py-3 w-1/4">Setor</th>
+                        <th className="px-4 py-3 w-1/4 text-center">Permissão</th>
+                        <th className="px-4 py-3 w-1/4 text-right">Ações de Permissão</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {allUsersForManagement && allUsersForManagement
+                        .filter(u => 
+                            u.displayName?.toLowerCase().includes(userSearchTerm.toLowerCase()) || 
+                            u.email?.toLowerCase().includes(userSearchTerm.toLowerCase())
+                        )
+                        .map(u => {
+                            const setorDoUsuario = setores.find(s => s.id === u.setorId);
+                            return (
+                                <tr key={u.id} className="border-b border-slate-200/50 dark:border-slate-700/50 last:border-b-0">
+                                    <td className="px-4 py-3 font-medium">{u.displayName || 'Não definido'}<br/><span className="text-xs text-slate-500">{u.email}</span></td>
+                                    <td className="px-4 py-3">
+                                        <select value={u.setorId || ''} onChange={(e) => handleSectorChange(u.id, e.target.value)} className="w-full p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700">
+                                            <option value="">Nenhum</option>
+                                            {setores.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
+                                        </select>
+                                    </td>
+                                    <td className="px-4 py-3 text-center capitalize font-semibold">{u.role}</td>
+                                    <td className="px-4 py-3 text-right space-x-2">
+                                        {u.role !== 'admin' && <button onClick={() => handleRoleChange(u.id, 'admin')} className="font-semibold text-red-600 hover:text-red-500">Tornar Admin</button>}
+                                        {u.role !== 'intermediate' && <button onClick={() => handleRoleChange(u.id, 'intermediate')} className="font-semibold text-sky-600 hover:text-sky-500">Tornar Intermediário</button>}
+                                        {u.role !== 'basic' && <button onClick={() => handleRoleChange(u.id, 'basic')} className="font-semibold text-amber-600 hover:text-amber-500">Tornar Básico</button>}
+                                    </td>
                                 </tr>
-                            </thead>
-                            <tbody>
-                                {allUsersForManagement && allUsersForManagement
-                                    .filter(u => 
-                                        u.displayName?.toLowerCase().includes(userSearchTerm.toLowerCase()) || 
-                                        u.email?.toLowerCase().includes(userSearchTerm.toLowerCase())
-                                    )
-                                    .map(u => {
-                                        const setorDoUsuario = setores.find(s => s.id === u.setorId);
-                                        return (
-                                            <tr key={u.id} className="border-b border-slate-200/50 dark:border-slate-700/50 last:border-b-0">
-                                                <td className="px-4 py-3 font-medium">{u.displayName || 'Não definido'}<br/><span className="text-xs text-slate-500">{u.email}</span></td>
-                                                <td className="px-4 py-3">
-                                                    <select value={u.setorId || ''} onChange={(e) => handleSectorChange(u.id, e.target.value)} className="w-full p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700">
-                                                        <option value="">Nenhum</option>
-                                                        {setores.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
-                                                    </select>
-                                                </td>
-                                                <td className="px-4 py-3 text-center capitalize font-semibold">{u.role}</td>
-                                                <td className="px-4 py-3 text-right space-x-2">
-                                                    {u.role !== 'admin' && <button onClick={() => handleRoleChange(u.id, 'admin')} className="font-semibold text-red-600 hover:text-red-500">Tornar Admin</button>}
-                                                    {u.role !== 'intermediate' && <button onClick={() => handleRoleChange(u.id, 'intermediate')} className="font-semibold text-sky-600 hover:text-sky-500">Tornar Intermediário</button>}
-                                                    {u.role !== 'basic' && <button onClick={() => handleRoleChange(u.id, 'basic')} className="font-semibold text-amber-600 hover:text-amber-500">Tornar Básico</button>}
-                                                </td>
-                                            </tr>
-                                        );
-                                    })}
-                            </tbody>
-                        </table>
-                    </div>
-                )}
-            </div>
-        )}
-        {adminSection === 'minutas' && (
-            <MinutasAdminPage />
-        )}
+                            );
+                        })}
+                </tbody>
+            </table>
+        </div>
+    )}
+</div>)}
         </div>
      );
 };
