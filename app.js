@@ -562,7 +562,7 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
                 // CORREÇÃO: Adiciona para comprovação apenas se estiver no MEIO do prazo.
                 // Se o prazo final cair nele, a prorrogação é automática e não precisa comprovar.
                 // A verificação usa `<` para não incluir o dia em que o prazo termina.
-                if (dataFeriadoCnj >= inicioDoPrazo && dataFeriadoCnj < resultadoSemDecreto.prazoFinal) {
+                if (dataFeriadoCnj >= inicioDoPrazo && dataFeriadoCnj <= resultadoSemDecreto.prazoFinal) {
                     suspensoesRelevantesMap.set(data, { data: dataFeriadoCnj, ...val });
                 }
             });
@@ -584,7 +584,10 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
         // Se a prorrogação automática do Feriado CNJ ocorreu, não há necessidade de mostrar dois cenários.
         // Forçamos a lista de comprováveis a ficar vazia para exibir apenas um resultado.
         const prazoFinalOriginalStr = resultadoSemDecreto.prazoFinal.toISOString().split('T')[0];
-        if (prazoFinalOriginalStr === '2025-06-19' || prazoFinalOriginalStr === '2025-06-20') {
+        const prorrogacaoAutomaticaCnj = prazoFinalOriginalStr === '2025-06-19' || prazoFinalOriginalStr === '2025-06-20';
+
+        if (prorrogacaoAutomaticaCnj) {
+            // Remove os feriados CNJ da lista de comprováveis, pois a prorrogação é automática.
             suspensoesRelevantes.length = 0;
         }
 
@@ -665,11 +668,11 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
             // 1. Puramente intempestivo: A data de interposição é posterior ao prazo máximo possível.
             if (dataInterposicaoObj > prazoFinalMaximo) {
                 setTempestividade('puramente_intempestivo');
-            // 2. Intempestivo por falta de decreto: A data de interposição é posterior ao prazo com os decretos comprovados,
-            // mas ainda seria tempestivo se todos os decretos possíveis fossem comprovados.
+            // 2. Intempestivo por falta de decreto: A data de interposição é posterior ao prazo com os decretos atualmente comprovados,
+            // mas ainda poderia ser tempestivo se todos os decretos possíveis fossem comprovados.
             } else if (dataInterposicaoObj > prazoFinalComprovado) {
                 setTempestividade('intempestivo_falta_decreto');
-            // 3. Tempestivo: A data de interposição está dentro do prazo com os decretos comprovados.
+            // 3. Tempestivo: A data de interposição é igual ou anterior ao prazo com os decretos comprovados.
             } else {
                 setTempestividade('tempestivo');
             }
@@ -685,6 +688,107 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
         setTempestividade(null);
     }
   }, [dataInterposicao, resultado, diasComprovados]);
+
+  // --- Funções de Geração de Minutas (conforme o código fornecido) ---
+
+  // Template para o documento Word
+  const getDocTemplate = (bodyHtml, pStyle, pCenterStyle) => `
+      <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+      <head><meta charset='utf-8'><title>Minuta Despacho</title></head>
+      <body>
+          <div style="font-family: Arial, sans-serif; font-size: 16pt; line-height: 1.5;">
+              ${bodyHtml}
+              <p style="${pStyle}">Intime-se. Diligências necessárias.</p>
+              <br>
+              <p style="${pCenterStyle}">Curitiba, data da assinatura digital.</p>
+              <br><br>
+              <p style="${pCenterStyle}"><b>Desembargador HAYTON LEE SWAIN FILHO</b></p>
+              <p style="${pCenterStyle}">1º Vice-Presidente do Tribunal de Justiça do Estado do Paraná</p>
+          </div>
+      </body>
+      </html>
+  `;
+
+  // Função para gerar um arquivo .doc a partir de um conteúdo HTML
+  const generateDocFromHtml = (bodyHtml, outputFileName) => {
+    try {
+        // Estilos comuns para os parágrafos
+        const pStyle = "text-align: justify; text-indent: 50px; margin-bottom: 1em;";
+        const pCenterStyle = "text-align: center; margin: 0;";
+        const sourceHTML = getDocTemplate(bodyHtml, pStyle, pCenterStyle);
+
+        const blob = new Blob([sourceHTML], { type: 'application/msword' });
+        saveAs(blob, outputFileName);
+    } catch (err) {
+        console.error("Erro ao gerar documento:", err);
+        setError(`Ocorreu um erro ao gerar o arquivo. Verifique o console ou tente em outro navegador.`);
+    }
+  };
+
+  const gerarMinutaIntempestividade = async () => {
+    const { dataPublicacao, inicioPrazo, prazo, suspensoesComprovaveis } = resultado;
+    const todasSuspensoes = new Set(suspensoesComprovaveis.map(d => d.data.toISOString().split('T')[0]));
+    const prazoFinalMaximo = calcularPrazoFinalDiasUteis(inicioPrazo, prazo, todasSuspensoes, true, true).prazoFinal;
+    
+    const dataDispStr = formatarData(new Date(dataDisponibilizacao + 'T00:00:00'));
+    const dataPubStr = formatarData(dataPublicacao);
+    const inicioPrazoStr = formatarData(inicioPrazo);
+    const dataInterposicaoStr = formatarData(new Date(dataInterposicao + 'T00:00:00'));
+
+    const pStyle = "text-align: justify; text-indent: 50px; margin-bottom: 1em;";
+    const corpoMinuta = `
+        <p style="${pStyle}">O recurso especial não pode ser admitido, pois foi interposto sem observância do prazo previsto no artigo 1.003, § 5º, c/c artigo 219, ambos do Código de Processo Civil.</p>
+        <p style="${pStyle}">Isto porque se verifica que a intimação do acórdão recorrido (<span style="color: red;">mov. x.x</span>, dos autos sob nº <span style="color: red;">${numeroProcesso || 'xxxxxx'}</span>) se deu pela disponibilização no DJEN na data de ${dataDispStr} e, considerada como data da publicação o primeiro dia útil seguinte ao da disponibilização da informação (artigos 4º, §3º, da Lei 11.419/2006, e 224, do Código de Processo Civil), ${dataPubStr}, iniciou-se a contagem do prazo no primeiro dia útil seguinte ao da publicação, isto é em ${inicioPrazoStr}.</p>
+        <p style="${pStyle}">Portanto, a petição recursal apresentada em ${dataInterposicaoStr} está intempestiva, já que protocolado além do prazo legal de ${prazoSelecionado} dias.</p>
+        <p style="${pStyle}">Neste sentido:</p>
+        <p style="${pStyle}">"PROCESSUAL CIVIL. AGRAVO INTERNO NO AGRAVO EM RECURSO ESPECIAL. RECURSO MANEJADO SOB A ÉGIDE DO NCPC. RECURSO INTEMPESTIVO. RECURSO ESPECIAL INTERPOSTO NA VIGÊNCIA DO NCPC. RECURSO ESPECIAL APRESENTADO FORA DO PRAZO LEGAL. INTEMPESTIVIDADE. APLICAÇÃO DOS ARTS. 219 E 1.003, § 5º, AMBOS DO NCPC. ADMISSIBILIDADE DO APELO NOBRE. JUÍZO BIFÁSICO. AUSÊNCIA DE VINCULAÇÃO DO STJ. AGRAVO INTERNO NÃO PROVIDO.</p>
+        <p style="${pStyle}">1. Aplica-se o NCPC a este julgamento ante os termos do Enunciado Administrativo nº 3, aprovado pelo Plenário do STJ na sessão de 9/3/2016: Aos recursos interpostos com fundamento no CPC/2015 (relativos a decisões publicadas a partir de 18 de março de 2016) serão exigidos os requisitos de admissibilidade recursal na forma do novo CPC.</p>
+        <p style="${pStyle}">2. A interposição de recurso especial após o prazo legal implica o seu não conhecimento, por intempestividade, nos termos dos arts. 219 e 1.003, § 5º, ambos do NCPC.</p>
+        <p style="${pStyle}">3. O juízo de admissibilidade do apelo nobre é bifásico, não ficando o STJ vinculado à decisão proferida pela Corte estadual.</p>
+        <p style="${pStyle}">4. Agravo interno não provido."</p>
+        <p style="${pStyle}">(AgInt no AREsp n. 2.039.729/RS, relator Ministro Moura Ribeiro, Terceira Turma, julgado em 9/5/2022, DJe de 11/5/2022.)</p>
+        <p style="${pStyle}">Diante do exposto, inadmito o recurso especial interposto.</p>
+    `;
+
+    generateDocFromHtml(
+        corpoMinuta,
+        `Minuta_Intempestividade_${numeroProcesso.replace(/\D/g, '') || 'processo'}.doc`
+    );
+  };
+
+  const gerarMinutaIntimacaoDecreto = async () => {
+    const pStyle = "text-align: justify; text-indent: 50px; margin-bottom: 1em;";
+    const corpoMinuta = `
+        <p style="${pStyle}">Intime-se a parte Recorrente, nos termos dos artigos 1.003, § 6º c/c 224, §1, ambos do Código de Processo Civil, sob pena de ser reconhecida a intempestividade do recurso, para, no prazo de 5 (cinco) dias, comprovar a ocorrência do feriado local ou a determinação de suspensão do expediente ou do prazo recursal neste Tribunal de Justiça, por meio de documento idôneo, conforme publicado no Diário da Justiça Eletrônico (AgInt no AREsp n. 2.734.555/RJ, relator Ministro Humberto Martins, Terceira Turma, julgado em 16/12/2024, DJEN de 19/12/2024.).</p>
+    `;
+    generateDocFromHtml(
+        corpoMinuta,
+        `Minuta_Intimacao_Decreto_${numeroProcesso.replace(/\D/g, '') || 'processo'}.doc`
+    );
+  };
+
+  const gerarMinutaFaltaDecreto = async () => {
+    const { inicioPrazo, semDecreto } = resultado;
+    const dataLeituraStr = formatarData(new Date(dataDisponibilizacao + 'T00:00:00'));
+    const inicioPrazoStr = formatarData(inicioPrazo);
+    const prazoFinalStr = formatarData(semDecreto.prazoFinal);
+
+    const pStyle = "text-align: justify; text-indent: 50px; margin-bottom: 1em;";
+    const corpoMinuta = `
+        <p style="${pStyle}">Trata-se de recurso especial interposto em face do acórdão proferido pela <span style="color: red;">xxª Câmara Cível</span> deste Tribunal de Justiça, que negou provimento ao recurso de <span style="color: red;">xxx (mov. xx.1 - xxxx)</span>.</p>
+        <p style="${pStyle}">A leitura da intimação do acórdão recorrido foi confirmada em ${dataLeituraStr} (<span style="color: red;">xxx - mov. xx</span>), de modo que o prazo de 15 (quinze) dias úteis para interposição de recursos aos Tribunais Superiores passou a fluir no dia ${inicioPrazoStr} e findou em ${prazoFinalStr}.</p>
+        <p style="${pStyle}">Instada a comprovar o feriado local ou a determinação de suspensão do prazo neste Tribunal de Justiça, nos termos do artigo 1.003, § 6º, do Código de Processo Civil (despacho de <span style="color: red;">mov. xx.1</span>), a parte recorrente permaneceu inerte (certidão de decurso de prazo de <span style="color: red;">mov. xx.1</span>).</p>
+        <p style="${pStyle}">Desse modo, é forçoso reconhecer a intempestividade do recurso especial, o que faço.</p>
+        <p style="${pStyle}">Nesse sentido é o entendimento vigente no âmbito do Superior Tribunal de Justiça:</p>
+        <p style="${pStyle}">"PROCESSUAL CIVIL. AGRAVO INTERNO NO AGRAVO EM RECURSO ESPECIAL. INTEMPESTIVIDADE DO RECURSO ESPECIAL. INCIDÊNCIA DO CPC DE 2015. FERIADO LOCAL E/OU SUSPENSÃO DE EXPEDIENTE FORENSE. QUESTÃO DE ORDEM NO ARESP 2.638.376/MG. ART. 1.003, § 6º, DO CPC/2015. INTIMAÇÃO PARA COMPROVAÇÃO POSTERIOR. DECURSO DO PRAZO. AGRAVO INTERNO DESPROVIDO. 1. A agravante foi intimada, nos termos da Questão de Ordem lavrada pela Corte Especial do Superior Tribunal de Justiça, no AREsp 2.638.376/MG, para comprovar, no prazo de 5 (cinco) dias úteis, a ocorrência de feriado local ou a suspensão de expediente forense, em consonância com a nova redação conferida pela Lei 14.939 /2024, ao art. 1.003, § 6º, do CPC, tendo deixado, contudo transcorrer in albis o prazo assinalado, conforme certidão de fl. 765. 2. Na hipótese dos autos, portanto, como não houve a juntada de documento comprobatório durante o iter processual, não é possível superar a intempestividade do apelo nobre. 3. Agravo interno a que se nega provimento." (AgInt no AREsp n. 2.710.026/MT, relator Ministro Raul Araújo, Quarta Turma, julgado em 14/4/2025, DJEN de 25/4/2025.)</p>
+        <p style="${pStyle}">Diante do exposto, inadmito o recurso especial interposto.</p>
+    `;
+
+    generateDocFromHtml(
+        corpoMinuta,
+        `Minuta_Intempestivo_Falta_Decreto_${numeroProcesso.replace(/\D/g, '') || 'processo'}.doc`
+    );
+  };
 
   return (
     <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-xl p-8 rounded-2xl shadow-lg border border-slate-200/50 dark:border-slate-700/50">
@@ -754,18 +858,29 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
                                     {resultado.suspensoesComprovaveis.length > 0 && (
                                         <div className="mt-4 text-left border-t border-slate-300 dark:border-slate-600 pt-2">
                                             <h4 className="text-xs font-semibold text-orange-600 dark:text-orange-400 mb-2">Decretos que influenciaram na dilação do prazo:</h4>
-                                        <div className="space-y-1">
-                                            {resultado.suspensoesComprovaveis.map(dia => {
-                                                const dataString = dia.data.toISOString().split('T')[0];
-                                                 const isCorpusChristiRelated = dataString === '2025-06-19' || dataString === '2025-06-20';
-                                                 const isChecked = isCorpusChristiRelated 
-                                                     ? diasComprovados.has('2025-06-19') || diasComprovados.has('2025-06-20')
-                                                     : diasComprovados.has(dataString);
-                                                return (
-                                                    <label key={dataString} className="flex items-center p-2 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg cursor-pointer hover:bg-slate-200/70 dark:hover:bg-slate-700/50 transition-colors"><input type="checkbox" checked={isChecked} onChange={() => handleComprovacaoChange(dataString)} className="h-4 w-4 rounded border-slate-400 text-indigo-600 focus:ring-indigo-500" /><span className="ml-2 text-xs text-slate-700 dark:text-slate-200"><strong className="font-semibold">{formatarData(dia.data)}:</strong> {dia.motivo}</span></label>
-                                                );
-                                            })}
-                                        </div>
+                                             <div className="space-y-1">
+                                                 {/* Lógica para agrupar o Feriado CNJ em uma única checkbox */}
+                                                 {resultado.suspensoesComprovaveis.some(d => d.tipo === 'feriado_cnj') && (
+                                                     <label className="flex items-center p-2 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg cursor-pointer hover:bg-slate-200/70 dark:hover:bg-slate-700/50 transition-colors">
+                                                         <input 
+                                                             type="checkbox" 
+                                                             checked={diasComprovados.has('2025-06-19') || diasComprovados.has('2025-06-20')} 
+                                                             onChange={() => handleComprovacaoChange('2025-06-19')} 
+                                                             className="h-4 w-4 rounded border-slate-400 text-indigo-600 focus:ring-indigo-500" 
+                                                         />
+                                                         <span className="ml-2 text-xs text-slate-700 dark:text-slate-200">
+                                                             <strong className="font-semibold">19/06 e 20/06/2025:</strong> Corpus Christi e Suspensão
+                                                         </span>
+                                                     </label>
+                                                 )}
+                                                 {/* Renderiza as outras suspensões normalmente */}
+                                                 {resultado.suspensoesComprovaveis.filter(d => d.tipo !== 'feriado_cnj').map(dia => {
+                                                     const dataString = dia.data.toISOString().split('T')[0];
+                                                     return (
+                                                         <label key={dataString} className="flex items-center p-2 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg cursor-pointer hover:bg-slate-200/70 dark:hover:bg-slate-700/50 transition-colors"><input type="checkbox" checked={diasComprovados.has(dataString)} onChange={() => handleComprovacaoChange(dataString)} className="h-4 w-4 rounded border-slate-400 text-indigo-600 focus:ring-indigo-500" /><span className="ml-2 text-xs text-slate-700 dark:text-slate-200"><strong className="font-semibold">{formatarData(dia.data)}:</strong> {dia.motivo}</span></label>
+                                                     );
+                                                 })}
+                                             </div>
                                     </div>
                                     )}
                                 </div>
@@ -778,6 +893,7 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
                                 <p className="mt-2 text-3xl font-bold text-indigo-600 dark:text-indigo-400">{formatarData(resultado.semDecreto.prazoFinal)}</p>
                                 {resultado.semDecreto.diasNaoUteis.length > 0 && <div className="mt-6 text-left border-t border-slate-300 dark:border-slate-600 pt-4"><p className="text-sm font-semibold text-slate-600 dark:text-slate-300 mb-2">Dias não úteis considerados no cálculo:</p><ul className="text-xs space-y-1"><GroupedDiasNaoUteis dias={resultado.semDecreto.diasNaoUteis} /></ul></div>}
                             </div>
+                            
                         )}
                     </>
                 )}
@@ -801,10 +917,20 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
                                 </div>
                             </div>
                         )}
+                        {tempestividade === 'puramente_intempestivo' && (
+                            <div className="mt-4"><button onClick={gerarMinutaIntempestividade} className="w-full md:w-auto flex justify-center items-center bg-gradient-to-br from-red-500 to-red-600 text-white font-semibold py-2 px-5 rounded-lg hover:from-red-600 hover:to-red-700 transition-all duration-300 shadow-md">Baixar Minuta (Intempestivo)</button></div>
+                        )} 
                         {tempestividade === 'intempestivo_falta_decreto' && resultado.suspensoesComprovaveis.length > 0 && (
-                            <div className="mt-4 space-y-2 md:space-y-0 md:flex md:items-center md:gap-3">
+                            <div className="mt-4 space-y-4">
                                 <div className="p-3 text-sm text-amber-800 rounded-lg bg-amber-50 dark:bg-gray-800 dark:text-amber-400" role="alert">
                                     <span className="font-medium">Atenção:</span> O recurso está intempestivo, a menos que as suspensões de prazo sejam comprovadas.
+                                </div>
+                                <div className="flex items-center gap-4 flex-wrap">
+                                    <p className="text-sm text-slate-600 dark:text-slate-300 font-medium">Gerar outras minutas:</p>
+                                    <div className="flex gap-3">
+                                        <button onClick={gerarMinutaIntimacaoDecreto} className="flex-1 md:flex-auto justify-center flex items-center bg-gradient-to-br from-sky-500 to-sky-600 text-white font-semibold py-2 px-4 rounded-lg hover:from-sky-600 hover:to-sky-700 transition-all duration-300 shadow-md text-sm">Intimação Decreto</button>
+                                        <button onClick={gerarMinutaFaltaDecreto} className="flex-1 md:flex-auto justify-center flex items-center bg-gradient-to-br from-orange-500 to-orange-600 text-white font-semibold py-2 px-4 rounded-lg hover:from-orange-600 hover:to-orange-700 transition-all duration-300 shadow-md text-sm">Intempestivo Falta Decreto</button>
+                                    </div>
                                 </div>
                             </div>
                         )}
@@ -834,6 +960,7 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
                         </div>
                     </>
                 )}
+
             </div>
         )}
     </div>
