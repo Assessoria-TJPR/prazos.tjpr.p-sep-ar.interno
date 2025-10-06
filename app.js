@@ -218,14 +218,21 @@ const AuthProvider = ({ children }) => {
     const isIntermediate = userData?.role === 'intermediate'; // Usado na UI
 
     // A função de atualização é exposta para que componentes filhos possam forçar a atualização do usuário.
+    const refreshUser = async () => {
+        if (auth.currentUser) {
+            await auth.currentUser.reload();
+            // O onAuthStateChanged listener já deve pegar a mudança, mas chamamos para garantir.
+            updateUserAndAdminStatus(auth.currentUser);
+        }
+    };
     const value = { 
         user, 
         userData,
         isAdmin,
         isSetorAdmin,
         isIntermediate,
-        loading, 
-        refreshUser: () => auth.currentUser && updateUserAndAdminStatus(auth.currentUser),
+        loading,
+        refreshUser,
         currentArea,
         setCurrentArea,
         openCalendario: () => document.dispatchEvent(new CustomEvent('openCalendario'))
@@ -348,6 +355,10 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
       return proximoDia;
   };
 
+  /**
+   * Encontra o próximo dia útil para a publicação, prorrogando-o caso caia em fins de semana,
+   * feriados, recessos ou decretos de suspensão.
+   */
   const getProximoDiaUtilParaPublicacao = (data) => {
       const suspensoesEncontradas = [];
       const proximoDia = new Date(data.getTime());
@@ -373,9 +384,9 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
       return { proximoDia, suspensoesEncontradas };
   };
 
-  const getProximoDiaUtilSemFeriado = (data) => {
+  const getProximoDiaUtilSemDecreto = (data) => {
       const proximoDia = new Date(data.getTime());
-      do { proximoDia.setDate(proximoDia.getDate() + 1); } while (proximoDia.getDay() === 0 || proximoDia.getDay() === 6 || getMotivoDiaNaoUtil(proximoDia, false));
+      do { proximoDia.setDate(proximoDia.getDate() + 1); } while (proximoDia.getDay() === 0 || proximoDia.getDay() === 6 || getMotivoDiaNaoUtil(proximoDia, false, 'feriado') || getMotivoDiaNaoUtil(proximoDia, false, 'recesso'));
       return proximoDia;
   };
 
@@ -538,11 +549,14 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
   };
 
   const calcularPrazoCivelComInicioDefinido = (dataPublicacao, inicioDoPrazo, prazoNumerico, diasNaoUteisDoInicio = []) => {
-        // Cenário 1: Calcula o prazo sem considerar decretos ou instabilidades.
-        const resultadoSemDecreto = calcularPrazoFinalDiasUteis(inicioDoPrazo, prazoNumerico, new Set(), false, false);
+        // Cenário 1: Calcula o prazo sem considerar decretos ou instabilidades. Usa uma função que ignora decretos para o início.
+        const dataPublicacaoSemDecreto = getProximoDiaUtilSemDecreto(new Date(dataDisponibilizacao + 'T00:00:00'));
+        const inicioDoPrazoSemDecreto = getProximoDiaUtilSemDecreto(dataPublicacaoSemDecreto);
+        const resultadoSemDecreto = calcularPrazoFinalDiasUteis(inicioDoPrazoSemDecreto, prazoNumerico, new Set(), false, false);
 
         // O estado inicial do Cenário 2 (com decreto) deve ser igual ao Cenário 1.
-        const resultadoComDecretoInicial = resultadoSemDecreto;
+        // CORREÇÃO: O cenário 2 inicial deve ser o mesmo que o cenário 1.
+        const resultadoComDecretoInicial = { ...resultadoSemDecreto };
 
         // Calcula o prazo considerando TODOS os decretos (mas não instabilidades) para encontrar os que são relevantes.
         const todosDecretosPossiveis = new Set(Object.keys(decretosMap));
@@ -594,6 +608,7 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
         setResultado({ 
             dataPublicacao, 
             inicioPrazo: inicioDoPrazo, 
+            inicioPrazoOriginal: inicioDoPrazo, // Guarda o início de prazo original para recálculo
             semDecreto: resultadoSemDecreto,
             comDecreto: resultadoComDecretoInicial, // Inicialmente igual ao 'semDecreto'
             suspensoesComprovaveis: suspensoesRelevantes,
@@ -621,31 +636,24 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
     setDiasComprovados(novosComprovados);
 
     // Recalcula o prazo com base nos dias agora comprovados
-    const { inicioPrazo, prazo } = resultado;
-    let novoResultado;
+    const { prazo, tipo } = resultado;
 
-    // REGRA ESPECIAL: Se o Feriado CNJ for comprovado, adiciona 2 dias corridos ao prazo final base.
-    if (novosComprovados.has('2025-06-19') || novosComprovados.has('2025-06-20')) {
-        // Calcula o prazo com todos os outros decretos/instabilidades comprovados
-        const outrosComprovados = new Set([...novosComprovados].filter(d => d !== '2025-06-19' && d !== '2025-06-20'));
-        const resultadoBase = calcularPrazoFinalDiasUteis(inicioPrazo, prazo, outrosComprovados, true, true);
-        
-        // Adiciona 2 dias corridos ao resultado
-        // CORREÇÃO: Adiciona 2 dias úteis, não corridos.
-        let prazoFinalComBonus = new Date(resultadoBase.prazoFinal.getTime());
-        let diasUteisAdicionados = 0;
-        while (diasUteisAdicionados < 2) {
-            prazoFinalComBonus.setDate(prazoFinalComBonus.getDate() + 1);
-            // Conta como dia útil se não for fim de semana e não for feriado/recesso.
-            if (prazoFinalComBonus.getDay() !== 0 && prazoFinalComBonus.getDay() !== 6 && !getMotivoDiaNaoUtil(prazoFinalComBonus, false, 'feriado') && !getMotivoDiaNaoUtil(prazoFinalComBonus, false, 'recesso')) {
-                diasUteisAdicionados++;
-            }
-        }
-        novoResultado = { ...resultadoBase, prazoFinal: prazoFinalComBonus };
-    } else {
-        // Lógica padrão para todos os outros decretos e instabilidades
-        novoResultado = calcularPrazoFinalDiasUteis(inicioPrazo, prazo, novosComprovados, true, true);
-    }
+    // CORREÇÃO: Recalcula o início do prazo e o prazo final do zero,
+    // considerando os decretos atualmente comprovados.
+    const getProximoDiaUtilComprovado = (data) => {
+        const proximoDia = new Date(data.getTime());
+        let motivo;
+        do {
+            proximoDia.setDate(proximoDia.getDate() + 1);
+            const dataStr = proximoDia.toISOString().split('T')[0];
+            motivo = getMotivoDiaNaoUtil(proximoDia, true, 'feriado') || getMotivoDiaNaoUtil(proximoDia, true, 'recesso') || (novosComprovados.has(dataStr) && getMotivoDiaNaoUtil(proximoDia, true));
+        } while (proximoDia.getDay() === 0 || proximoDia.getDay() === 6 || motivo);
+        return proximoDia;
+    };
+    const novaDataPublicacao = getProximoDiaUtilComprovado(new Date(dataDisponibilizacao + 'T00:00:00'));
+    const novoInicioPrazo = getProximoDiaUtilComprovado(novaDataPublicacao);
+    const novoResultado = calcularPrazoFinalDiasUteis(novoInicioPrazo, prazo, novosComprovados, true, true);
+
     setResultado(prev => ({ ...prev, comDecreto: novoResultado }));
   };
 
@@ -1102,7 +1110,7 @@ const LoginPage = () => {
         const finalEmail = email.includes('@') ? email : `${email}@tjpr.jus.br`;
         try {
             await auth.sendPasswordResetEmail(finalEmail);
-            setMessage('Link para redefinição de palavra-passe enviado para o seu e-mail. Verifique a sua caixa de entrada.');
+            setMessage('Link para redefinição de senha enviado. Verifique sua caixa de entrada e a pasta de Lixo Eletrônico/Spam.');
             setIsResettingPassword(false);
         } catch (err) {
              setError('Falha ao enviar e-mail. Verifique se o e-mail está correto e tente novamente.');
@@ -1314,7 +1322,8 @@ const LoginPage = () => {
 const VerifyEmailPage = () => {
     const { user } = useAuth();
     const [message, setMessage] = useState('');
-    const [error, setError] = useState('');
+    const [error, setError] = useState(''); // Corrigido: 'refreshUser' vem do contexto
+    const { refreshUser } = useAuth();
     const [isResending, setIsResending] = useState(false);
     const [cooldown, setCooldown] = useState(0);
     const [initialCooldown, setInitialCooldown] = useState(60);
@@ -1353,20 +1362,29 @@ const VerifyEmailPage = () => {
         }
     };
     
+    const handleCheckVerification = async () => {
+        setMessage('Verificando status...');
+        await refreshUser();
+        // O listener onAuthStateChanged vai redirecionar se o email estiver verificado.
+        // Se não, mostramos uma mensagem.
+        setTimeout(() => {
+            if (!auth.currentUser?.emailVerified) {
+                setMessage('A sua conta ainda não foi verificada. Por favor, clique no link enviado para o seu e-mail.');
+            }
+        }, 2000);
+    };
+
     return (
          <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-200 dark:from-slate-800 dark:to-slate-900 relative">
             <div className="w-full max-w-md p-8 space-y-6 bg-white/60 dark:bg-slate-800/60 backdrop-blur-xl rounded-2xl shadow-lg text-center">
                 <h2 className="text-3xl font-bold text-slate-800 dark:text-slate-100">Verifique o seu E-mail</h2>
                 <p className="text-slate-600 dark:text-slate-300">
-                    Enviámos um link de verificação para <strong>{user?.email}</strong>. Por favor, clique no link para ativar a sua conta.
+                    Enviamos um link de verificação para <strong>{user?.email}</strong>. Por favor, clique no link para ativar a sua conta.
                 </p>
-                <p className="text-xs text-slate-500 dark:text-slate-400">(Se não encontrar na sua caixa de entrada, verifique a pasta de Lixo Eletrônico/Spam)</p>
+                <p className="text-sm text-slate-500 dark:text-slate-400 p-3 bg-amber-100/50 dark:bg-amber-900/30 rounded-lg">Se não encontrar na sua caixa de entrada, <strong>verifique a pasta de Lixo Eletrônico/Spam</strong>. O e-mail pode demorar alguns minutos para chegar.</p>
                 <div className="space-y-4">
-                    <button onClick={handleResend} disabled={isResending || cooldown > 0 || initialCooldown > 0} className="w-full bg-gradient-to-br from-indigo-500 to-indigo-600 text-white font-semibold py-3 rounded-lg hover:from-indigo-600 hover:to-indigo-700 transition-all duration-300 shadow-md disabled:opacity-50 disabled:cursor-not-allowed">
-                        {isResending ? 'A enviar...' : 
-                         initialCooldown > 0 ? `Aguarde ${initialCooldown}s para reenviar` : 
-                         (cooldown > 0 ? `Aguarde ${cooldown}s` : 'Reenviar E-mail')}
-                    </button>
+                    <button onClick={handleCheckVerification} className="w-full bg-gradient-to-br from-green-500 to-green-600 text-white font-semibold py-3 rounded-lg hover:from-green-600 hover:to-green-700 transition-all duration-300 shadow-md">Já verifiquei, atualizar status</button>
+                    <button onClick={handleResend} disabled={isResending || cooldown > 0 || initialCooldown > 0} className="w-full bg-slate-500 text-white font-semibold py-3 rounded-lg hover:bg-slate-600 transition-all duration-300 shadow-md disabled:opacity-50 disabled:cursor-not-allowed">{isResending ? 'A enviar...' : initialCooldown > 0 ? `Aguarde ${initialCooldown}s para reenviar` : (cooldown > 0 ? `Aguarde ${cooldown}s` : 'Reenviar E-mail de Verificação')}</button>
                     <button onClick={() => auth.signOut()} className="w-full bg-slate-200 text-slate-700 font-semibold py-3 rounded-lg hover:bg-slate-300 transition-all duration-300">
                         Voltar para o Login
                     </button>
@@ -1719,12 +1737,13 @@ const AdminPage = ({ setCurrentArea }) => {
      const [allUsers, setAllUsers] = useState([]);
      const [hasSearched, setHasSearched] = useState(false);
      const [currentPage, setCurrentPage] = useState(1);
-     const [selectedUser, setSelectedUser] = useState(null);
+     const [selectedUserForStats, setSelectedUserForStats] = useState(null);
      // Estados para gerenciamento de usuários
      const [allUsersForManagement, setAllUsersForManagement] = useState([]);
      const [userManagementLoading, setUserManagementLoading] = useState(false);
      const [userSearchTerm, setUserSearchTerm] = useState('');
-     // Estados para gerenciamento de setores (CORREÇÃO)
+     const [editingUser, setEditingUser] = useState(null); // Para o modal de permissões
+     const { userData: adminUserData } = useAuth(); // Dados do admin logado
      const [setores, setSetoresAdmin] = useState([]); // This was a typo, corrected in a previous step but good to double check.
      const [newSectorName, setNewSectorName] = useState('');
 
@@ -1761,11 +1780,21 @@ const AdminPage = ({ setCurrentArea }) => {
      const fetchAllUsersForManagement = async () => {
         setUserManagementLoading(true);
         try {
-            const snapshot = await db.collection('users').orderBy('displayName').get();
+            let query = db.collection('users').orderBy('displayName');
+            
+            // Se o usuário for um 'setor_admin', filtra para ver apenas usuários do seu setor.
+            if (adminUserData.role === 'setor_admin' && adminUserData.setorId) {
+                query = query.where('setorId', '==', adminUserData.setorId);
+            }
+
+            const snapshot = await query.get();
             const usersList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             setAllUsersForManagement(usersList);
         } catch (err) {
             console.error("Erro ao buscar usuários para gerenciamento:", err);
+            if (err.code === 'permission-denied') {
+                alert("Você não tem permissão para visualizar todos os usuários.");
+            }
         } finally {
             setUserManagementLoading(false);
         }
@@ -1781,25 +1810,11 @@ const AdminPage = ({ setCurrentArea }) => {
             console.error("Erro ao buscar setores:", err);
         }
     };
-    const handleRoleChange = async (userId, newRole) => {
-        if (window.confirm(`Tem certeza que deseja alterar a permissão deste usuário para '${newRole}'?`)) {
-            try {
-                await db.collection('users').doc(userId).update({ role: newRole });
-                fetchAllUsersForManagement(); // Recarrega a lista
-            } catch (err) {
-                console.error("Erro ao alterar a permissão:", err);
-                alert("Falha ao alterar a permissão. Verifique o console para mais detalhes.");
-            }
-        }
-    };
 
-    const handleSectorChange = async (userId, newSectorId) => {
-        try {
-            await db.collection('users').doc(userId).update({ setorId: newSectorId });
-            fetchAllUsersForManagement(); // Recarrega a lista para refletir a mudança
-        } catch (err) {
-            console.error("Erro ao alterar o setor:", err);
-            alert("Falha ao alterar o setor. Verifique o console para mais detalhes.");
+    const handleDeleteSector = async (sectorId) => {
+        if (window.confirm("Tem certeza que deseja excluir este setor? Esta ação não pode ser desfeita.")) {
+            await db.collection('setores').doc(sectorId).delete();
+            fetchSetores(); // Recarrega a lista
         }
     };
 
@@ -1816,18 +1831,152 @@ const AdminPage = ({ setCurrentArea }) => {
         }
     };
 
-    const handleDeleteSector = async (sectorId) => {
-        if (window.confirm("Tem certeza que deseja excluir este setor? Esta ação não pode ser desfeita.")) {
-            await db.collection('setores').doc(sectorId).delete();
-            fetchSetores(); // Recarrega a lista
+    const UserManagementModal = ({ user, setores, adminUser, onClose, onSave }) => {
+        const [role, setRole] = useState(user.role);
+        const [setorId, setSetorId] = useState(user.setorId || '');
+        const [isSaving, setIsSaving] = useState(false);
+
+        const handleSave = async () => {
+            setIsSaving(true);
+            try {
+                await onSave(user.id, { role, setorId });
+                onClose();
+            } catch (err) {
+                console.error("Erro ao salvar permissões:", err);
+                alert("Falha ao salvar. Verifique o console.");
+            } finally {
+                setIsSaving(false);
+            }
+        };
+
+        const canChangeToAdmin = adminUser.role === 'admin';
+
+        return (
+            <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
+                <div className="bg-white dark:bg-slate-800 w-full max-w-md rounded-2xl shadow-2xl flex flex-col" onClick={e => e.stopPropagation()}>
+                    <div className="flex justify-between items-center p-6 border-b border-slate-200 dark:border-slate-700">
+                        <div>
+                            <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">Gerenciar Usuário</h2>
+                            <p className="text-sm text-slate-500 dark:text-slate-400">{user.displayName || user.email}</p>
+                        </div>
+                        <button onClick={onClose} className="text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 transition">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                        </button>
+                    </div>
+                    <div className="p-6 space-y-4">
+                        <div>
+                            <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Permissão</label>
+                            <select value={role} onChange={e => setRole(e.target.value)} className="w-full p-2 text-sm rounded-md bg-white/50 dark:bg-slate-900/50 border border-slate-300 dark:border-slate-700">
+                                <option value="basic">Básico</option>
+                                <option value="intermediate">Intermediário</option>
+                                <option value="setor_admin">Admin de Setor</option>
+                                {canChangeToAdmin && <option value="admin">Admin Global</option>}
+                            </select>
+                            {!canChangeToAdmin && role === 'admin' && <p className="text-xs text-amber-600 mt-1">Você não pode rebaixar um Admin Global.</p>}
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Setor</label>
+                            <select value={setorId} onChange={e => setSetorId(e.target.value)} className="w-full p-2 text-sm rounded-md bg-white/50 dark:bg-slate-900/50 border border-slate-300 dark:border-slate-700">
+                                <option value="">Nenhum</option>
+                                {setores.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
+                            </select>
+                        </div>
+                    </div>
+                    <div className="p-6 border-t border-slate-200 dark:border-slate-700 flex justify-end gap-3">
+                        <button onClick={onClose} className="px-4 py-2 text-sm font-semibold bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300 dark:bg-slate-600 dark:text-slate-200 dark:hover:bg-slate-500">
+                            Cancelar
+                        </button>
+                        <button onClick={handleSave} disabled={isSaving} className="px-4 py-2 text-sm font-semibold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50">
+                            {isSaving ? 'Salvando...' : 'Salvar'}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
+    const handleDeleteUser = async (userToDelete) => {
+        const confirmationMessage = `Você tem certeza que deseja excluir o usuário ${userToDelete.displayName || userToDelete.email}? \n\nTodos os dados deste usuário serão apagados permanentemente e a ação não pode ser desfeita.`;
+        if (window.confirm(confirmationMessage)) {
+            if (!db) {
+                alert("Serviço de banco de dados não disponível.");
+                return;
+            }
+            try {
+                // Exclui o documento do usuário da coleção 'users'.
+                // Nota: Isso NÃO exclui o usuário do Firebase Authentication. Para isso,
+                // seria necessária uma Cloud Function com o Admin SDK.
+                await db.collection('users').doc(userToDelete.id).delete();
+                alert("Usuário excluído com sucesso.");
+                fetchAllUsersForManagement(); // Recarrega a lista de usuários
+            } catch (err) {
+                console.error("Erro ao excluir usuário:", err);
+                alert("Falha ao excluir o usuário. Verifique o console para mais detalhes.");
+            }
         }
     };
+
+    const handleOpenUserManagementModal = (user) => {
+        // Apenas admins globais podem editar outros admins globais
+        if (user.role === 'admin' && adminUserData.role !== 'admin') {
+            alert("Você não tem permissão para gerenciar um Administrador Global.");
+            return;
+        }
+        setEditingUser(user);
+    };
+
+    const handleSaveUserPermissions = async (userId, data) => {
+        if (!db) {
+            alert("Serviço de banco de dados não disponível.");
+            return;
+        }
+        // Atualiza o documento do usuário com a nova role e setorId
+        await db.collection('users').doc(userId).update(data);
+    };
+
+    const handleCloseUserManagementModal = () => {
+        setEditingUser(null);
+        fetchAllUsersForManagement(); // Sempre recarrega a lista ao fechar o modal
+    };
+
+    const handleSectorChange = async (userId, newSectorId) => {
+        if (!db) return;
+        try {
+            await db.collection('users').doc(userId).update({ setorId: newSectorId });
+            fetchAllUsersForManagement(); // Recarrega para mostrar a mudança
+        } catch (err) {
+            console.error("Erro ao alterar setor:", err);
+            alert("Falha ao alterar o setor do usuário.");
+        }
+    };
+
+    const handleManualVerification = async (userId) => {
+        if (window.confirm("Tem certeza que deseja verificar manualmente o e-mail deste usuário?")) {
+            if (!db) return;
+            try {
+                await db.collection('users').doc(userId).update({ emailVerified: true });
+                alert("Usuário verificado com sucesso.");
+                fetchAllUsersForManagement();
+            } catch (err) {
+                console.error("Erro na verificação manual:", err);
+                alert("Falha ao verificar o usuário.");
+            }
+        }
+    };
+
+    const handleManualPasswordReset = async (user) => {
+        if (window.confirm(`Deseja enviar um link de redefinição de senha para ${user.email}?`)) {
+            await auth.sendPasswordResetEmail(user.email);
+            alert("E-mail de redefinição de senha enviado.");
+        }
+    };
+
      useEffect(() => {
         if (adminSection === 'users') {
             fetchAllUsersForManagement();
             fetchSetores();
         }
-     }, [adminSection]);
+     }, [adminSection, adminUserData]); // Adiciona adminUserData como dependência
      
     useEffect(() => {
         // Filtra os dados brutos com base na visualização selecionada (Calculadora ou Consulta)
@@ -1858,7 +2007,7 @@ const AdminPage = ({ setCurrentArea }) => {
             return true;
         });
         setCurrentPage(1);
-        setSelectedUser(null);
+        setSelectedUserForStats(null);
         setFilteredData(usageData);
         setHasSearched(true); // Marca que uma busca foi feita
 
@@ -1885,7 +2034,7 @@ const AdminPage = ({ setCurrentArea }) => {
     const handleUserClick = (userEmail) => {
         const userData = allData.filter(item => item.userEmail === userEmail);
         const userName = userData.length > 0 ? (userData[0].userName || userEmail) : userEmail;
-        setSelectedUser({ email: userEmail, name: userName, data: userData }); // 'name' aqui é o userName ou email
+        setSelectedUserForStats({ email: userEmail, name: userName, data: userData }); // 'name' aqui é o userName ou email
     };
 
     const handleFilterChange = (e) => {
@@ -1893,7 +2042,7 @@ const AdminPage = ({ setCurrentArea }) => {
     };
     
     const handleExport = () => {
-        const dataToExport = (selectedUser ? selectedUser.data : filteredData).map(item => ({
+        const dataToExport = (selectedUserForStats ? selectedUserForStats.data : filteredData).map(item => ({
             'ID Utilizador': item.userId,
             'Utilizador': item.userName || item.userEmail,
             'Matéria': item.materia,
@@ -1925,16 +2074,16 @@ const AdminPage = ({ setCurrentArea }) => {
 
     if(loading && adminSection === 'stats') return <div className="text-center p-8"><p>A carregar dados...</p></div>
 
-    if (selectedUser) {
+    if (selectedUserForStats) {
         return (
             <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-xl p-6 sm:p-8 rounded-2xl shadow-lg border border-slate-200/50 dark:border-slate-700/50 space-y-6">
                 <div className="flex justify-between items-start">
                     <div>
                         <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Perfil do Utilizador</h2>
-                        <p className="text-slate-500 dark:text-slate-400">{selectedUser.name}</p>
-                        <p className="text-xs text-slate-400 dark:text-slate-500">ID: {selectedUser.data[0]?.userId}</p>
+                        <p className="text-slate-500 dark:text-slate-400">{selectedUserForStats.name}</p>
+                        <p className="text-xs text-slate-400 dark:text-slate-500">ID: {selectedUserForStats.data[0]?.userId}</p>
                     </div>
-                    <button onClick={() => setSelectedUser(null)} className="text-sm font-semibold text-indigo-600 hover:text-indigo-500">&larr; Voltar ao Painel</button>
+                    <button onClick={() => setSelectedUserForStats(null)} className="text-sm font-semibold text-indigo-600 hover:text-indigo-500">&larr; Voltar ao Painel</button>
                 </div>
                 <div className="flex justify-end gap-2">
                     <button onClick={handleExport} className="px-4 py-2 text-sm font-semibold bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2">
@@ -1948,7 +2097,7 @@ const AdminPage = ({ setCurrentArea }) => {
                             <tr><th className="px-6 py-3">Data</th><th className="px-6 py-3">Nº Processo</th><th className="px-6 py-3">Matéria</th><th className="px-6 py-3">Prazo</th></tr>
                         </thead>
                         <tbody>
-                        {selectedUser.data.map(item => (
+                        {selectedUserForStats.data.map(item => (
                             <tr key={item.id} className="border-b border-slate-200/50 dark:border-slate-700/50"> 
                                 <td className="px-6 py-4">{item.timestamp ? formatarData(item.timestamp.toDate()) : ''}</td>
                                 <td className="px-6 py-4">{item.numeroProcesso}</td>
@@ -1968,7 +2117,7 @@ const AdminPage = ({ setCurrentArea }) => {
             <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-xl p-6 sm:p-8 rounded-2xl shadow-lg border border-slate-200/50 dark:border-slate-700/50">
                 <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Painel Administrativo</h2>
                 <div className="flex items-center gap-2 mt-4 border-b border-slate-200 dark:border-slate-700 pb-4">
-                    <button onClick={() => setAdminSection('stats')} className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors ${adminSection === 'stats' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>Estatísticas de Uso</button>
+                    {adminUserData.role === 'admin' && <button onClick={() => setAdminSection('stats')} className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors ${adminSection === 'stats' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>Estatísticas de Uso</button>}
                     <button onClick={() => setAdminSection('calendar')} className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors ${adminSection === 'calendar' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>Gerir Calendário</button>
                     <button onClick={() => setAdminSection('users')} className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors ${adminSection === 'users' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>Usuários e Setores</button>
                     <button onClick={() => setCurrentArea('Chamados')} className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors bg-amber-500 text-white hover:bg-amber-600`}>Chamados</button>
@@ -2093,14 +2242,14 @@ const AdminPage = ({ setCurrentArea }) => {
         <svg className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" /></svg>
     </div>
     {/* Gerenciamento de Setores */}
-    <div className="p-4 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg space-y-4">
+    {adminUserData.role === 'admin' && <div className="p-4 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg space-y-4">
         <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Setores</h3>
         <form onSubmit={handleAddSector} className="flex items-center gap-2">
             <input type="text" placeholder="Nome do novo setor" value={newSectorName} onChange={e => setNewSectorName(e.target.value)} className="flex-grow p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700" />
             <button type="submit" className="px-4 py-2 text-sm font-semibold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">Adicionar</button>
         </form>
         <div className="flex flex-wrap gap-2">
-            {setores.map(setor => (
+            {adminUserData.role === 'admin' && setores.map(setor => (
                 <div key={setor.id} className="flex items-center gap-2 bg-slate-200 dark:bg-slate-700 rounded-full px-3 py-1 text-sm text-slate-800 dark:text-slate-200">
                     <span>{setor.nome}</span>
                     <button onClick={() => handleDeleteSector(setor.id)} className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300">
@@ -2109,7 +2258,7 @@ const AdminPage = ({ setCurrentArea }) => {
                 </div>
             ))}
         </div>
-    </div>
+    </div>}
 
     {/* Tabela de Usuários */}
     {userManagementLoading ? (
@@ -2119,10 +2268,10 @@ const AdminPage = ({ setCurrentArea }) => {
             <table className="w-full text-sm text-left">
                 <thead className="text-xs text-slate-700 dark:text-slate-300 uppercase bg-slate-200/50 dark:bg-slate-800/50">
                     <tr>
-                        <th className="px-4 py-3 w-1/4">Nome</th>
-                        <th className="px-4 py-3 w-1/4">Setor</th>
-                        <th className="px-4 py-3 w-1/4 text-center">Permissão</th>
-                        <th className="px-4 py-3 w-1/4 text-right">Ações de Permissão</th>
+                        <th className="px-4 py-3">Usuário</th>
+                        <th className="px-4 py-3">Setor</th>
+                        <th className="px-4 py-3 text-center">Permissão</th>
+                        <th className="px-4 py-3 text-right">Ações</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -2136,17 +2285,32 @@ const AdminPage = ({ setCurrentArea }) => {
                             return (
                                 <tr key={u.id} className="border-b border-slate-200/50 dark:border-slate-700/50 last:border-b-0">
                                     <td className="px-4 py-3 font-medium">{u.displayName || 'Não definido'}<br/><span className="text-xs text-slate-500">{u.email}</span></td>
-                                    <td className="px-4 py-3">
+                                    <td className="px-4 py-3" style={{ minWidth: '200px' }}>
                                         <select value={u.setorId || ''} onChange={(e) => handleSectorChange(u.id, e.target.value)} className="w-full p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700">
                                             <option value="">Nenhum</option>
                                             {setores.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
-                                        </select>
+                                        </select><br/>
+                                        <span className={`mt-1 inline-block px-2 py-0.5 text-xs font-semibold rounded-full ${u.emailVerified ? 'bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300' : 'bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300'}`}>
+                                            {u.emailVerified ? 'Verificado' : 'Não Verificado'}
+                                        </span>
                                     </td>
-                                    <td className="px-4 py-3 text-center capitalize font-semibold">{u.role}</td>
-                                    <td className="px-4 py-3 text-right space-x-2">
-                                        {u.role !== 'admin' && <button onClick={() => handleRoleChange(u.id, 'admin')} className="font-semibold text-red-600 hover:text-red-500">Tornar Admin</button>}
-                                        {u.role !== 'intermediate' && <button onClick={() => handleRoleChange(u.id, 'intermediate')} className="font-semibold text-sky-600 hover:text-sky-500">Tornar Intermediário</button>}
-                                        {u.role !== 'basic' && <button onClick={() => handleRoleChange(u.id, 'basic')} className="font-semibold text-amber-600 hover:text-amber-500">Tornar Básico</button>}
+                                    <td className="px-4 py-3 text-center">
+                                        {!u.emailVerified && (
+                                            <button onClick={() => handleManualVerification(u.id)} className="px-2 py-1 text-xs font-semibold bg-green-600 text-white rounded-lg hover:bg-green-700">
+                                                Verificar Manualmente
+                                            </button>
+                                        )}
+                                        {u.emailVerified && (
+                                            <button onClick={() => handleManualPasswordReset(u)} className="mt-1 px-2 py-1 text-xs font-semibold bg-blue-600 text-white rounded-lg hover:bg-blue-700">Resetar Senha</button>
+                                        )}
+                                    </td>
+                                    <td className="px-4 py-3 text-right">
+                                        <button onClick={() => handleOpenUserManagementModal(u)} className="font-semibold text-indigo-600 hover:text-indigo-500">
+                                            Gerenciar
+                                        </button>
+                                    </td>
+                                    <td className="px-4 py-3 text-right">
+                                        <button onClick={() => handleDeleteUser(u)} className="font-semibold text-red-600 hover:text-red-500">Excluir</button>
                                     </td>
                                 </tr>
                             );
@@ -2154,6 +2318,15 @@ const AdminPage = ({ setCurrentArea }) => {
                 </tbody>
             </table>
         </div>
+    )}
+    {editingUser && (
+        <UserManagementModal 
+            user={editingUser}
+            setores={setores}
+            adminUser={adminUserData}
+            onClose={handleCloseUserManagementModal}
+            onSave={handleSaveUserPermissions}
+        />
     )}
 </div>)}
         </div>
@@ -2977,7 +3150,10 @@ const App = () => {
   }
 
   // Se o e-mail não for verificado, exibe a página de verificação.
-  if (!user.emailVerified) {
+  // CORREÇÃO: Verifica tanto o status do Firebase Auth quanto o campo manual no Firestore.
+  // A verificação do Firestore (userData.emailVerified) é a que o admin pode alterar.
+  const isVerified = user.emailVerified || userData?.emailVerified;
+  if (!isVerified) {
     return <VerifyEmailPage />;
   }
 
@@ -3000,7 +3176,7 @@ const App = () => {
                  <button onClick={() => setShowCalendario(true)} className="sm:hidden px-4 py-2 text-sm font-semibold rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700">
                     Calendário
                  </button>
-                 {isAdmin && <button onClick={() => setCurrentArea('Admin')} className={`px-4 py-2 text-sm font-semibold rounded-lg transition-all duration-200 ${currentArea === 'Admin' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'}`}>Admin</button>}
+                 {(isAdmin || userData?.role === 'setor_admin') && <button onClick={() => setCurrentArea('Admin')} className={`px-4 py-2 text-sm font-semibold rounded-lg transition-all duration-200 ${currentArea === 'Admin' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'}`}>Admin</button>}
               </div>
             </div>
         </nav>
@@ -3008,7 +3184,7 @@ const App = () => {
             <main className="container mx-auto px-4 py-8 sm:py-12">
                 {currentArea === 'Calculadora' ? (
                     <CalculatorApp />
-                ) : currentArea === 'Admin' ? (
+                ) : currentArea === 'Admin' && (isAdmin || userData?.role === 'setor_admin') ? (
                     <AdminPage setCurrentArea={setCurrentArea} />
                 ) : currentArea === 'Chamados' && isAdmin ? (
                     <ChamadosAdminPage />
