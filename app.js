@@ -305,8 +305,8 @@ const ConsultaAssistidaPJE = ({ numeroProcesso, setNumeroProcesso }) => {
 
 const CalculadoraDePrazo = ({ numeroProcesso }) => {
   const { settings, updateSettings } = useContext(SettingsContext);
-  const [dataDisponibilizacao, setDataDisponibilizacao] = useState('');
   const [prazoSelecionado, setPrazoSelecionado] = useState(settings.defaultPrazo || 15);
+  const [dataDisponibilizacao, setDataDisponibilizacao] = useState('');
   const [tipoPrazo, setTipoPrazo] = useState(settings.defaultMateria || 'civel');
   const [resultado, setResultado] = useState(null);
 
@@ -421,7 +421,9 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
         if (diaDaSemana === 0 || diaDaSemana === 6 || infoDiaNaoUtil) {
             // CORREÇÃO: No cálculo "com decreto", só adicionamos à lista de dias não úteis
             // os decretos e instabilidades, para não poluir o Cenário 2 com feriados.
-            if (infoDiaNaoUtil && (!considerarDecretos || (infoDiaNaoUtil.tipo !== 'feriado' && infoDiaNaoUtil.tipo !== 'recesso'))) {
+            // CORREÇÃO 2: A lógica anterior estava invertida. Agora, se `considerarDecretos` for true,
+            // adicionamos os decretos/instabilidades comprovados à lista para exibição.
+            if (infoDiaNaoUtil && considerarDecretos && (infoDiaNaoUtil.tipo === 'decreto' || infoDiaNaoUtil.tipo === 'instabilidade' || infoDiaNaoUtil.tipo === 'feriado_cnj')) {
                 diasNaoUteisEncontrados.push({ data: new Date(dataCorrente.getTime()), ...infoDiaNaoUtil });
             }
         } else {
@@ -654,7 +656,14 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
     const novoInicioPrazo = getProximoDiaUtilComprovado(novaDataPublicacao);
     const novoResultado = calcularPrazoFinalDiasUteis(novoInicioPrazo, prazo, novosComprovados, true, true);
 
-    setResultado(prev => ({ ...prev, comDecreto: novoResultado }));
+    // CORREÇÃO: Atualiza não apenas o prazo final, mas também a data de publicação,
+    // o início do prazo e a lista de dias não úteis para o Cenário 2.
+    setResultado(prev => ({ 
+        ...prev, 
+        dataPublicacao: novaDataPublicacao,
+        inicioPrazo: novoInicioPrazo,
+        comDecreto: novoResultado 
+    }));
   };
 
   useEffect(() => {
@@ -841,7 +850,6 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
         )}
         {resultado && (
             <div className="relative mt-6 p-4 border-t border-slate-200 dark:border-slate-700/50 animate-fade-in">
-                <UserIDWatermark overlay={true} />
                 {resultado.tipo === 'civel' && (
                     <>
                         {resultado.suspensoesComprovaveis.length > 0 ? (
@@ -859,8 +867,7 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
                                 <div className="border-t md:border-t-0 md:border-l border-slate-200 dark:border-slate-700 md:pl-4 pt-4 md:pt-0">
                                     <h3 className="text-lg font-bold text-slate-700 dark:text-slate-200 text-center mb-2">Cenário 2: Com Decreto</h3> 
                                     <p className="text-center text-slate-600 dark:text-slate-300">O prazo final, <strong>comprovando as suspensões</strong>, é:</p> 
-                                    <p className="text-center mt-2 text-2xl font-bold text-green-600 dark:text-green-400">{formatarData(resultado.comDecreto.prazoFinal)}</p>                                    
-                                    {resultado.comDecreto.diasNaoUteis.length > 0 && <div className="mt-4 text-left"><p className="text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">Dias não úteis considerados:</p><ul className="text-xs space-y-1"><GroupedDiasNaoUteis dias={resultado.comDecreto.diasNaoUteis} /></ul></div>}
+                                    <p className="text-center mt-2 text-2xl font-bold text-green-600 dark:text-green-400">{formatarData(resultado.comDecreto.prazoFinal)}</p>
                                     
                                     {/* Mostra a seção de comprovação apenas se houver decretos comprováveis */}
                                     {resultado.suspensoesComprovaveis.length > 0 && (
@@ -2472,7 +2479,7 @@ const BugReportButton = () => {
                 id="bug-report-button"
                 onClick={handleReportClick}
                 disabled={isCapturing}
-                className="fixed bottom-4 right-4 z-[90] bg-red-600 text-white rounded-full h-14 w-14 flex items-center justify-center shadow-lg hover:bg-red-700 transition-transform transform hover:scale-110"
+                className="fixed bottom-4 left-4 z-[90] bg-red-600 text-white rounded-full h-14 w-14 flex items-center justify-center shadow-lg hover:bg-red-700 transition-transform transform hover:scale-110"
                 title="Reportar um problema"
             >
                 {isCapturing ? (
@@ -3010,7 +3017,7 @@ const CreditsWatermark = () => (
         <p>Assessoria de Recursos aos Tribunais Superiores (STF e STJ) da Secretaria Especial da Presidência</p>
         <p>Alif Pietrobelli Azevedo</p>
         <p>Elvertoni Martelli Coimbra</p>
-        <p><strong>Luís Gustavo Arruda Lançoni</strong></p>
+        <p><strong className="font-extrabold text-slate-500 dark:text-slate-400">Luís Gustavo Arruda Lançoni</strong></p>
         <p>Narley Almeida de Sousa</p>
         <p>Rodrigo Louzano</p>
     </div>
@@ -3023,7 +3030,7 @@ const UserIDWatermark = ({ overlay = false }) => {
         return <div className="watermark-overlay">{user.uid}</div>
      }
      return (
-        <div className="fixed bottom-2 left-2 text-xs text-slate-400 dark:text-slate-600 z-50 pointer-events-none">
+        <div className="fixed top-[125px] left-2 text-xs text-slate-400 dark:text-slate-600 z-40 pointer-events-none">
             <p>Logado como:</p>
             <p>{userData?.displayName || user.email}</p>
             ID do Utilizador: {user.uid}
@@ -3166,10 +3173,7 @@ const App = () => {
             evitando que o `body` crie uma barra de rolagem.
         */}
         <Header />
-        <div className="bg-yellow-400 dark:bg-yellow-600 text-black dark:text-white text-center p-2 font-semibold text-sm sticky top-[81px] z-20">
-            Atenção: o aplicativo está com instabilidade, não deixe de confirmar manualmente as datas até o problema ser resolvido.
-        </div>
-        <nav className="bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm border-b border-slate-200/50 dark:border-slate-700/50 sticky top-[117px] z-20">
+        <nav className="bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm border-b border-slate-200/50 dark:border-slate-700/50 sticky top-[81px] z-20">
             <div className="container mx-auto px-4">
               <div className="flex justify-center items-center space-x-2 p-2"> 
                  <button onClick={() => setCurrentArea('Calculadora')} className={`px-4 py-2 text-sm font-semibold rounded-lg transition-all duration-200 ${currentArea === 'Calculadora' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'}`}>Calculadora</button>
@@ -3200,6 +3204,7 @@ const App = () => {
         {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
         {/* {showChangelog && <ChangelogModal onClose={() => setShowChangelog(false)} />} */}
         <UserIDWatermark />
+        <BugReportButton />
     </div>
   );
 };
