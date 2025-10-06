@@ -1725,57 +1725,62 @@ const AdminPage = ({ setCurrentArea }) => {
         if (!db) { setLoading(false); return; }
         setLoading(true);
 
-        // Função para buscar e processar os dados de uso
-        const fetchData = async () => {
+        // CORREÇÃO: A lógica de busca foi reestruturada para ser mais segura e evitar erros de permissão.
+        const loadAdminData = async () => {
             try {
-                const [usageSnapshot, usersSnapshot] = await Promise.all([
-                    db.collection('usageStats').orderBy('timestamp', 'desc').get(),
-                    db.collection('users').get()
-                ]);
+                // 1. Busca os usuários que o admin atual tem permissão para ver.
+                const usersList = await fetchAllUsersForManagement();
+                if (!isMounted) return;
 
-                const usersList = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                const usersMap = usersSnapshot.docs.reduce((acc, doc) => {
-                    acc[doc.id] = doc.data();
-                    return acc;
-                }, {});
+                // 2. Busca os setores que o admin pode ver.
+                await fetchSetores();
+                if (!isMounted) return;
+
+                // 3. Busca as estatísticas de uso.
+                const usageSnapshot = await db.collection('usageStats').orderBy('timestamp', 'desc').get();
+                if (!isMounted) return;
 
                 let usageData = usageSnapshot.docs.map(doc => ({id: doc.id, ...doc.data()}));
+                const usersMap = usersList.reduce((acc, user) => { acc[user.id] = user; return acc; }, {});
 
-                // Se o usuário for um admin de setor, filtra os dados de uso para seu setor.
+                // 4. Filtra as estatísticas para o Chefe de Gabinete.
                 if (adminUserData.role === 'setor_admin' && adminUserData.setorId) {
-                    const userIdsInSector = usersList
-                        .filter(u => u.setorId === adminUserData.setorId)
-                        .map(u => u.id);
+                    const userIdsInSector = usersList.map(u => u.id);
                     usageData = usageData.filter(d => userIdsInSector.includes(d.userId));
                 }
 
                 const enrichedData = usageData.map(d => ({...d, userName: usersMap[d.userId]?.displayName || usersMap[d.userId]?.email || d.userEmail }));
+                
+                setAllData(enrichedData);
+                setAllUsers([...new Set(enrichedData.map(item => item.userName))].filter(Boolean).sort());
+                setLoading(false);
 
-                if (isMounted) {
-                    setAllData(enrichedData);
-                    setAllUsers([...new Set(enrichedData.map(item => item.userName))].filter(Boolean).sort());
-                    setLoading(false);
-                }
             } catch (err) { console.error("Firebase query error:", err); if(isMounted) setLoading(false); }
         };
-        fetchData();
+
+        loadAdminData();
         return () => { isMounted = false; };
-     }, []); // Executa apenas uma vez
+     }, [adminUserData]); // Re-executa se o usuário admin mudar
 
      const fetchAllUsersForManagement = async () => {
         setUserManagementLoading(true);
         try {
-            let query = db.collection('users').orderBy('displayName');
-            
+            let query = db.collection('users');
+
             // Se o usuário for um 'setor_admin', filtra para ver apenas usuários do seu setor.
             if (adminUserData.role === 'setor_admin' && adminUserData.setorId) {
+                // Firestore exige que o primeiro orderBy seja no campo do where para consultas compostas.
+                // CORREÇÃO: Removido o orderBy para evitar a necessidade de um índice composto e resolver o erro de permissão.
                 query = query.where('setorId', '==', adminUserData.setorId);
+            } else {
+                query = query.orderBy('displayName');
             }
 
             const snapshot = await query.get();
             const usersList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             setAllUsersForManagement(usersList);
-        } catch (err) {
+            return usersList; // Retorna a lista para ser usada em outras funções.
+        } catch (err) { // Esta linha corresponde ao erro reportado
             console.error("Erro ao buscar usuários para gerenciamento:", err);
             if (err.code === 'permission-denied') {
                 alert("Você não tem permissão para visualizar todos os usuários.");
@@ -1783,14 +1788,27 @@ const AdminPage = ({ setCurrentArea }) => {
         } finally {
             setUserManagementLoading(false);
         }
+        return []; // Retorna um array vazio em caso de erro.
     };
+
 
     const fetchSetores = async () => {
         if (!db) return;
         try {
-            const snapshot = await db.collection('setores').orderBy('nome').get();
-            const setoresList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            setSetoresAdmin(setoresList);
+            let setoresQuery = db.collection('setores');
+            // Se for chefe de gabinete, busca apenas o seu próprio setor.
+            if (adminUserData.role === 'setor_admin' && adminUserData.setorId) {
+                const setorDoc = await setoresQuery.doc(adminUserData.setorId).get();
+                if (setorDoc.exists) {
+                    setSetoresAdmin([{ id: setorDoc.id, ...setorDoc.data() }]);
+                } else {
+                    setSetoresAdmin([]);
+                }
+            } else { // Admin Global busca todos os setores.
+                const snapshot = await setoresQuery.orderBy('nome').get();
+                const setoresList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                setSetoresAdmin(setoresList);
+            }
         } catch (err) {
             console.error("Erro ao buscar setores:", err);
         }
@@ -1964,13 +1982,6 @@ const AdminPage = ({ setCurrentArea }) => {
         });
     };
 
-     useEffect(() => {
-        if (adminSection === 'users') {
-            fetchAllUsersForManagement();
-            fetchSetores();
-        }
-     }, [adminSection, adminUserData]); // Adiciona adminUserData como dependência
-     
     useEffect(() => {
         // Filtra os dados brutos com base na visualização selecionada (Calculadora ou Consulta)
         const dataForView = allData.filter(item => (item.type || 'calculadora') === statsView);
@@ -2111,7 +2122,9 @@ const AdminPage = ({ setCurrentArea }) => {
                 <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Painel Administrativo</h2>
                 <div className="flex items-center gap-2 mt-4 border-b border-slate-200 dark:border-slate-700 pb-4">
                     <button onClick={() => setAdminSection('stats')} className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors ${adminSection === 'stats' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>Estatísticas de Uso</button>
-                    <button onClick={() => setAdminSection('users')} className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors ${adminSection === 'users' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>Usuários e Setores</button>
+                    <button onClick={() => setAdminSection('users')} className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors ${adminSection === 'users' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>
+                        {adminUserData.role === 'setor_admin' ? 'Usuários' : 'Usuários e Setores'}
+                    </button>
                     {adminUserData.role === 'admin' && <button onClick={() => setAdminSection('calendar')} className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors ${adminSection === 'calendar' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>Gerir Calendário</button>}
                     {adminUserData.role === 'admin' && <button onClick={() => setCurrentArea('Chamados')} className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors bg-amber-500 text-white hover:bg-amber-600`}>Chamados</button>}
                 </div>
@@ -2235,8 +2248,8 @@ const AdminPage = ({ setCurrentArea }) => {
         <svg className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" /></svg>
     </div>
     {/* Gerenciamento de Setores */}
-    {(adminUserData.role === 'admin' || adminUserData.role === 'setor_admin') && <div className="p-4 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg space-y-4">
-        {adminUserData.role === 'admin' && (
+    {adminUserData.role === 'admin' ? (
+        <div className="p-4 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg space-y-4">
             <div className="bg-white/50 dark:bg-slate-800/50 p-4 rounded-lg border border-slate-200 dark:border-slate-700">
                 <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-2">Criar Novo Setor</h3>
                 <form onSubmit={handleAddSector} className="flex items-center gap-2">
@@ -2244,44 +2257,50 @@ const AdminPage = ({ setCurrentArea }) => {
                     <button type="submit" className="px-4 py-2 text-sm font-semibold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">Adicionar</button>
                 </form>
             </div>
-        )}
-        <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100 pt-2">Setores Cadastrados</h3>
-        <div className="space-y-2">
-            {setores.map(setor => {
-                const isExpanded = expandedSector === setor.id;
-                const members = allUsersForManagement.filter(u => u.setorId === setor.id);
-                return (
-                    <div key={setor.id} className="bg-slate-200/70 dark:bg-slate-700/50 rounded-lg p-2">
-                        <div className="flex items-center justify-between cursor-pointer" onClick={() => setExpandedSector(isExpanded ? null : setor.id)}>
-                            <div className="flex items-center gap-3">
-                                <svg xmlns="http://www.w3.org/2000/svg" className={`h-4 w-4 text-slate-500 transition-transform ${isExpanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                                </svg>
-                                <span className="font-semibold text-slate-800 dark:text-slate-200">{setor.nome}</span>
+            <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100 pt-2">Setores Cadastrados</h3>
+            <div className="space-y-2">
+                {setores.map(setor => {
+                    const isExpanded = expandedSector === setor.id;
+                    // CORREÇÃO: Para o Chefe de Gabinete, a lista `allUsersForManagement` já contém apenas os membros do seu setor.
+                    // Para o Admin Global, filtramos normalmente.
+                    const members = adminUserData.role === 'setor_admin' ? allUsersForManagement : allUsersForManagement.filter(u => u.setorId === setor.id);
+                    return (
+                        <div key={setor.id} className="bg-slate-200/70 dark:bg-slate-700/50 rounded-lg p-2">
+                            <div className="flex items-center justify-between cursor-pointer" onClick={() => setExpandedSector(isExpanded ? null : setor.id)}>
+                                <div className="flex items-center gap-3">
+                                    <svg xmlns="http://www.w3.org/2000/svg" className={`h-4 w-4 text-slate-500 transition-transform ${isExpanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                    </svg>
+                                    <span className="font-semibold text-slate-800 dark:text-slate-200">{setor.nome}</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <span className="text-xs bg-slate-300 dark:bg-slate-600 text-slate-600 dark:text-slate-300 rounded-full px-2 py-0.5">{members.length} membros</span>
+                                    <button onClick={(e) => { e.stopPropagation(); handleDeleteSector(setor.id); }} className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 px-2">&times;</button>
+                                </div>
                             </div>
-                            <div className="flex items-center gap-2">
-                                <span className="text-xs bg-slate-300 dark:bg-slate-600 text-slate-600 dark:text-slate-300 rounded-full px-2 py-0.5">{members.length} membros</span>
-                            {adminUserData.role === 'admin' && (
-                                <button onClick={(e) => { e.stopPropagation(); handleDeleteSector(setor.id); }} className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 px-2">&times;</button>
+                            {isExpanded && (
+                                <div className="mt-2 pl-4 border-l-2 border-slate-300 dark:border-slate-600">
+                                    {members.length > 0 ? (
+                                        <ul className="text-xs space-y-1 text-slate-600 dark:text-slate-300">
+                                            {members.map(m => <li key={m.id}>{m.displayName || m.email}</li>)}
+                                        </ul>
+                                    ) : (
+                                        <p className="text-xs text-slate-500">Nenhum membro neste setor.</p>
+                                    )}
+                                </div>
                             )}
-                            </div>
                         </div>
-                        {isExpanded && (
-                            <div className="mt-2 pl-4 border-l-2 border-slate-300 dark:border-slate-600">
-                                {members.length > 0 ? (
-                                    <ul className="text-xs space-y-1 text-slate-600 dark:text-slate-300">
-                                        {members.map(m => <li key={m.id}>{m.displayName || m.email}</li>)}
-                                    </ul>
-                                ) : (
-                                    <p className="text-xs text-slate-500">Nenhum membro neste setor.</p>
-                                )}
-                            </div>
-                        )}
-                    </div>
-                );
-            })}
+                    );
+                })}
+            </div>
         </div>
-    </div>}
+    ) : (
+        <div className="p-4 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg">
+            <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100">
+                Membros do Setor: {setores.find(s => s.id === adminUserData.setorId)?.nome || 'Setor não identificado'}
+            </h3>
+        </div>
+    )}
 
     {/* Tabela de Usuários */}
     {userManagementLoading ? (
