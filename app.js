@@ -1088,7 +1088,6 @@ const LoginPage = () => {
     const [rememberedUser, setRememberedUser] = useState(null);
     const [setores, setSetores] = useState([]); // Novo estado para a lista de setores
     const [isCreatingNewSector, setIsCreatingNewSector] = useState(false);
-    const [newCustomSector, setNewCustomSector] = useState('');
 
     // Busca os setores do Firestore quando o modo de registro é ativado
     useEffect(() => {
@@ -1142,11 +1141,6 @@ const LoginPage = () => {
             setError("Por favor, insira o seu nome de utilizador.");
             return;
         }
-        // Validação do setor
-        if (!isLogin && !setorId && !isCreatingNewSector) {
-            setError("Por favor, selecione um setor.");
-            return;
-        }
         if (!auth) {
             setError("Serviço de autenticação não disponível.");
             return;
@@ -1158,22 +1152,10 @@ const LoginPage = () => {
                 await auth.signInWithEmailAndPassword(finalEmail, password);
                 localStorage.setItem('lastUserEmail', finalEmail);
             } else {
-                // CORREÇÃO: Garante que temos o ID do setor antes de continuar.
-                const getFinalSetorId = async () => {
-                    if (isCreatingNewSector) {
-                        if (!newCustomSector.trim()) {
-                            setError("Por favor, digite o nome do novo setor.");
-                            return null; // Retorna nulo para indicar falha
-                        }
-                        const newSectorDoc = await db.collection('setores').add({ nome: newCustomSector.trim() });
-                        return newSectorDoc.id;
-                    }
-                    return setorId;
-                };
-
-                const finalSetorId = await getFinalSetorId();
-                if (!finalSetorId) {
-                    return; // Interrompe a execução se o ID do setor não foi obtido
+                // Validação do setor na tela de registro
+                if (!setorId) {
+                    setError("Por favor, selecione um setor.");
+                    return;
                 }
 
                 const userCredential = await auth.createUserWithEmailAndPassword(finalEmail, password);
@@ -1181,7 +1163,7 @@ const LoginPage = () => {
                     email: finalEmail, 
                     role: 'basic', 
                     displayName: displayName.trim(),
-                    setorId: finalSetorId // Adiciona o setor selecionado ou o novo
+                    setorId: setorId // Adiciona o setor selecionado
                 });
 
                 // 3. Executa outras tarefas (atualizar perfil e enviar e-mail)
@@ -1232,17 +1214,6 @@ const LoginPage = () => {
         localStorage.removeItem('lastUserEmail');
     };
 
-    const handleSectorSelectionChange = (e) => {
-        const value = e.target.value;
-        if (value === '__outros__') {
-            setIsCreatingNewSector(true);
-            setSetorId(''); // Limpa o ID do setor selecionado
-        } else {
-            setIsCreatingNewSector(false);
-            setSetorId(value);
-        }
-    };
-
     const handleToggleMode = (e) => {
         e.preventDefault();
         const newIsLogin = !isLogin;
@@ -1283,20 +1254,11 @@ const LoginPage = () => {
                             {!isLogin && <input type="text" placeholder="Nome Completo" value={displayName} onChange={e => setDisplayName(e.target.value)} required className="w-full px-4 py-3 bg-white/50 dark:bg-slate-900/50 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition" />}
                             {!isLogin && 
                                 <>
-                                    <select value={isCreatingNewSector ? '__outros__' : setorId} onChange={handleSectorSelectionChange} required className="w-full px-4 py-3 bg-white/50 dark:bg-slate-900/50 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition">
+                                    <select value={setorId} onChange={e => setSetorId(e.target.value)} required className="w-full px-4 py-3 bg-white/50 dark:bg-slate-900/50 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition">
                                         <option value="" disabled>Selecione um Setor</option>
                                         {setores.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
-                                        <option value="__outros__">Outro / Não encontrei meu setor</option>
                                     </select>
-                                    {isCreatingNewSector && (
-                                        <input 
-                                            type="text" 
-                                            placeholder="Digite o nome do seu setor" 
-                                            value={newCustomSector} 
-                                            onChange={e => setNewCustomSector(e.target.value)} 
-                                            required 
-                                            className="w-full px-4 py-3 bg-white/50 dark:bg-slate-900/50 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition animate-fade-in" />
-                                    )}
+                                    <p className="text-xs text-center text-slate-500 dark:text-slate-400">Se o seu setor não estiver na lista, peça para um administrador cadastrá-lo.</p>
                                 </>
                             }
                             <div className="flex items-center border border-slate-300 dark:border-slate-600 rounded-lg focus-within:ring-2 focus-within:ring-indigo-500 focus-within:border-indigo-500 transition">
@@ -1751,6 +1713,8 @@ const AdminPage = ({ setCurrentArea }) => {
      const [userSearchTerm, setUserSearchTerm] = useState('');
      const [editingUser, setEditingUser] = useState(null); // Para o modal de permissões
      const { userData: adminUserData } = useAuth(); // Dados do admin logado
+     const [expandedSector, setExpandedSector] = useState(null);
+     const [expandedUserSectors, setExpandedUserSectors] = useState(new Set());
      const [setores, setSetoresAdmin] = useState([]); // This was a typo, corrected in a previous step but good to double check.
      const [newSectorName, setNewSectorName] = useState('');
 
@@ -1761,18 +1725,32 @@ const AdminPage = ({ setCurrentArea }) => {
         if (!db) { setLoading(false); return; }
         setLoading(true);
 
+        // Função para buscar e processar os dados de uso
         const fetchData = async () => {
             try {
                 const [usageSnapshot, usersSnapshot] = await Promise.all([
                     db.collection('usageStats').orderBy('timestamp', 'desc').get(),
                     db.collection('users').get()
                 ]);
+
+                const usersList = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 const usersMap = usersSnapshot.docs.reduce((acc, doc) => {
-                    acc[doc.id] = doc.data().displayName || doc.data().email;
+                    acc[doc.id] = doc.data();
                     return acc;
                 }, {});
-                const usageData = usageSnapshot.docs.map(doc => ({id: doc.id, ...doc.data()}));
-                const enrichedData = usageData.map(d => ({...d, userName: usersMap[d.userId] || d.userEmail }));
+
+                let usageData = usageSnapshot.docs.map(doc => ({id: doc.id, ...doc.data()}));
+
+                // Se o usuário for um admin de setor, filtra os dados de uso para seu setor.
+                if (adminUserData.role === 'setor_admin' && adminUserData.setorId) {
+                    const userIdsInSector = usersList
+                        .filter(u => u.setorId === adminUserData.setorId)
+                        .map(u => u.id);
+                    usageData = usageData.filter(d => userIdsInSector.includes(d.userId));
+                }
+
+                const enrichedData = usageData.map(d => ({...d, userName: usersMap[d.userId]?.displayName || usersMap[d.userId]?.email || d.userEmail }));
+
                 if (isMounted) {
                     setAllData(enrichedData);
                     setAllUsers([...new Set(enrichedData.map(item => item.userName))].filter(Boolean).sort());
@@ -1876,7 +1854,7 @@ const AdminPage = ({ setCurrentArea }) => {
                             <select value={role} onChange={e => setRole(e.target.value)} className="w-full p-2 text-sm rounded-md bg-white/50 dark:bg-slate-900/50 border border-slate-300 dark:border-slate-700">
                                 <option value="basic">Básico</option>
                                 <option value="intermediate">Intermediário</option>
-                                <option value="setor_admin">Admin de Setor</option>
+                                <option value="setor_admin">Chefe de Gabinete</option>
                                 {canChangeToAdmin && <option value="admin">Admin Global</option>}
                             </select>
                             {!canChangeToAdmin && role === 'admin' && <p className="text-xs text-amber-600 mt-1">Você não pode rebaixar um Admin Global.</p>}
@@ -1976,6 +1954,14 @@ const AdminPage = ({ setCurrentArea }) => {
             await auth.sendPasswordResetEmail(user.email);
             alert("E-mail de redefinição de senha enviado.");
         }
+    };
+
+    const toggleUserSectorExpansion = (sectorId) => {
+        setExpandedUserSectors(prev => {
+            const newSet = new Set(prev);
+            newSet.has(sectorId) ? newSet.delete(sectorId) : newSet.add(sectorId);
+            return newSet;
+        });
     };
 
      useEffect(() => {
@@ -2249,21 +2235,51 @@ const AdminPage = ({ setCurrentArea }) => {
         <svg className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" /></svg>
     </div>
     {/* Gerenciamento de Setores */}
-    {adminUserData.role === 'admin' && <div className="p-4 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg space-y-4">
-        <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Setores</h3>
-        <form onSubmit={handleAddSector} className="flex items-center gap-2">
-            <input type="text" placeholder="Nome do novo setor" value={newSectorName} onChange={e => setNewSectorName(e.target.value)} className="flex-grow p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700" />
-            <button type="submit" className="px-4 py-2 text-sm font-semibold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">Adicionar</button>
-        </form>
-        <div className="flex flex-wrap gap-2">
-            {adminUserData.role === 'admin' && setores.map(setor => (
-                <div key={setor.id} className="flex items-center gap-2 bg-slate-200 dark:bg-slate-700 rounded-full px-3 py-1 text-sm text-slate-800 dark:text-slate-200">
-                    <span>{setor.nome}</span>
-                    <button onClick={() => handleDeleteSector(setor.id)} className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300">
-                        &times;
-                    </button>
-                </div>
-            ))}
+    {(adminUserData.role === 'admin' || adminUserData.role === 'setor_admin') && <div className="p-4 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg space-y-4">
+        {adminUserData.role === 'admin' && (
+            <div className="bg-white/50 dark:bg-slate-800/50 p-4 rounded-lg border border-slate-200 dark:border-slate-700">
+                <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-2">Criar Novo Setor</h3>
+                <form onSubmit={handleAddSector} className="flex items-center gap-2">
+                    <input type="text" placeholder="Nome do novo setor" value={newSectorName} onChange={e => setNewSectorName(e.target.value)} className="flex-grow p-2 text-sm rounded-md bg-white/50 dark:bg-slate-900/50 border border-slate-300 dark:border-slate-700" />
+                    <button type="submit" className="px-4 py-2 text-sm font-semibold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">Adicionar</button>
+                </form>
+            </div>
+        )}
+        <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100 pt-2">Setores Cadastrados</h3>
+        <div className="space-y-2">
+            {setores.map(setor => {
+                const isExpanded = expandedSector === setor.id;
+                const members = allUsersForManagement.filter(u => u.setorId === setor.id);
+                return (
+                    <div key={setor.id} className="bg-slate-200/70 dark:bg-slate-700/50 rounded-lg p-2">
+                        <div className="flex items-center justify-between cursor-pointer" onClick={() => setExpandedSector(isExpanded ? null : setor.id)}>
+                            <div className="flex items-center gap-3">
+                                <svg xmlns="http://www.w3.org/2000/svg" className={`h-4 w-4 text-slate-500 transition-transform ${isExpanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                </svg>
+                                <span className="font-semibold text-slate-800 dark:text-slate-200">{setor.nome}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <span className="text-xs bg-slate-300 dark:bg-slate-600 text-slate-600 dark:text-slate-300 rounded-full px-2 py-0.5">{members.length} membros</span>
+                            {adminUserData.role === 'admin' && (
+                                <button onClick={(e) => { e.stopPropagation(); handleDeleteSector(setor.id); }} className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 px-2">&times;</button>
+                            )}
+                            </div>
+                        </div>
+                        {isExpanded && (
+                            <div className="mt-2 pl-4 border-l-2 border-slate-300 dark:border-slate-600">
+                                {members.length > 0 ? (
+                                    <ul className="text-xs space-y-1 text-slate-600 dark:text-slate-300">
+                                        {members.map(m => <li key={m.id}>{m.displayName || m.email}</li>)}
+                                    </ul>
+                                ) : (
+                                    <p className="text-xs text-slate-500">Nenhum membro neste setor.</p>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                );
+            })}
         </div>
     </div>}
 
@@ -2282,46 +2298,58 @@ const AdminPage = ({ setCurrentArea }) => {
                     </tr>
                 </thead>
                 <tbody>
-                    {allUsersForManagement && allUsersForManagement
-                        .filter(u => 
-                            u.displayName?.toLowerCase().includes(userSearchTerm.toLowerCase()) || 
-                            u.email?.toLowerCase().includes(userSearchTerm.toLowerCase())
-                        )
-                        .map(u => {
-                            const setorDoUsuario = setores.find(s => s.id === u.setorId);
-                            return (
-                                <tr key={u.id} className="border-b border-slate-200/50 dark:border-slate-700/50 last:border-b-0">
-                                    <td className="px-4 py-3 font-medium">{u.displayName || 'Não definido'}<br/><span className="text-xs text-slate-500">{u.email}</span></td>
-                                    <td className="px-4 py-3" style={{ minWidth: '200px' }}>
-                                        <select value={u.setorId || ''} onChange={(e) => handleSectorChange(u.id, e.target.value)} className="w-full p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700">
-                                            <option value="">Nenhum</option>
-                                            {setores.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
-                                        </select><br/>
-                                        <span className={`mt-1 inline-block px-2 py-0.5 text-xs font-semibold rounded-full ${u.emailVerified ? 'bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300' : 'bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300'}`}>
-                                            {u.emailVerified ? 'Verificado' : 'Não Verificado'}
-                                        </span>
-                                    </td>
-                                    <td className="px-4 py-3 text-center">
-                                        {!u.emailVerified && (
-                                            <button onClick={() => handleManualVerification(u.id)} className="px-2 py-1 text-xs font-semibold bg-green-600 text-white rounded-lg hover:bg-green-700">
-                                                Verificar Manualmente
-                                            </button>
-                                        )}
-                                        {u.emailVerified && (
-                                            <button onClick={() => handleManualPasswordReset(u)} className="mt-1 px-2 py-1 text-xs font-semibold bg-blue-600 text-white rounded-lg hover:bg-blue-700">Resetar Senha</button>
-                                        )}
-                                    </td>
-                                    <td className="px-4 py-3 text-right">
-                                        <button onClick={() => handleOpenUserManagementModal(u)} className="font-semibold text-indigo-600 hover:text-indigo-500">
-                                            Gerenciar
-                                        </button>
-                                    </td>
-                                    <td className="px-4 py-3 text-right">
-                                        <button onClick={() => handleDeleteUser(u)} className="font-semibold text-red-600 hover:text-red-500">Excluir</button>
+                    {Object.entries(
+                        allUsersForManagement
+                            .filter(u => u.displayName?.toLowerCase().includes(userSearchTerm.toLowerCase()) || u.email?.toLowerCase().includes(userSearchTerm.toLowerCase()))
+                            .reduce((acc, user) => {
+                                const sectorId = user.setorId || 'sem-setor';
+                                if (!acc[sectorId]) acc[sectorId] = [];
+                                acc[sectorId].push(user);
+                                return acc;
+                            }, {})
+                    ).sort(([sectorIdA], [sectorIdB]) => {
+                        if (sectorIdA === 'sem-setor') return 1;
+                        if (sectorIdB === 'sem-setor') return -1;
+                        const setorA = setores.find(s => s.id === sectorIdA)?.nome || '';
+                        const setorB = setores.find(s => s.id === sectorIdB)?.nome || '';
+                        return setorA.localeCompare(setorB);
+                    }).map(([sectorId, users]) => {
+                        const sector = setores.find(s => s.id === sectorId);
+                        const sectorName = sector ? sector.nome : "Usuários Sem Setor";
+                        const isExpanded = expandedUserSectors.has(sectorId);
+                        return (
+                            <React.Fragment key={sectorId}>
+                                <tr className="bg-slate-100/70 dark:bg-slate-900/50 border-b border-slate-200/50 dark:border-slate-700/50 cursor-pointer" onClick={() => toggleUserSectorExpansion(sectorId)}>
+                                    <td colSpan="4" className="px-4 py-2 font-bold text-slate-700 dark:text-slate-200 flex items-center gap-2">
+                                        <svg xmlns="http://www.w3.org/2000/svg" className={`h-4 w-4 text-slate-500 transition-transform ${isExpanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                                        {sectorName} ({users.length})
                                     </td>
                                 </tr>
-                            );
-                        })}
+                                {isExpanded && users.map(u => (
+                                    <tr key={u.id} className="border-b border-slate-200/50 dark:border-slate-700/50 last:border-b-0 animate-fade-in">
+                                        <td className="px-4 py-3 font-medium">{u.displayName || 'Não definido'}<br/><span className="text-xs text-slate-500">{u.email}</span></td>
+                                        <td className="px-4 py-3" style={{ minWidth: '200px' }}>
+                                            <select value={u.setorId || ''} onChange={(e) => handleSectorChange(u.id, e.target.value)} className="w-full p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700">
+                                                <option value="">Nenhum</option>
+                                                {setores.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
+                                            </select><br/>
+                                            <span className={`mt-1 inline-block px-2 py-0.5 text-xs font-semibold rounded-full ${u.emailVerified ? 'bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300' : 'bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300'}`}>
+                                                {u.emailVerified ? 'Verificado' : 'Não Verificado'}
+                                            </span>
+                                        </td>
+                                        <td className="px-4 py-3 text-center">
+                                            {!u.emailVerified && <button onClick={() => handleManualVerification(u.id)} className="px-2 py-1 text-xs font-semibold bg-green-600 text-white rounded-lg hover:bg-green-700">Verificar Manualmente</button>}
+                                            {u.emailVerified && <button onClick={() => handleManualPasswordReset(u)} className="mt-1 px-2 py-1 text-xs font-semibold bg-blue-600 text-white rounded-lg hover:bg-blue-700">Resetar Senha</button>}
+                                        </td>
+                                        <td className="px-4 py-3 text-right">
+                                            <button onClick={() => handleOpenUserManagementModal(u)} className="font-semibold text-indigo-600 hover:text-indigo-500">Gerenciar</button>
+                                            <button onClick={() => handleDeleteUser(u)} className="font-semibold text-red-600 hover:text-red-500 ml-4">Excluir</button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </React.Fragment>
+                        );
+                    })}
                 </tbody>
             </table>
         </div>
