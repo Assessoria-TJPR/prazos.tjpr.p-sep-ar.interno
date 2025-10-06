@@ -3030,7 +3030,7 @@ const UserIDWatermark = ({ overlay = false }) => {
         return <div className="watermark-overlay">{user.uid}</div>
      }
      return (
-        <div className="fixed top-[125px] left-2 text-xs text-slate-400 dark:text-slate-600 z-40 pointer-events-none">
+        <div className="fixed top-[80px] left-4 text-xs text-slate-400 dark:text-slate-600 z-40 pointer-events-none">
             <p>Logado como:</p>
             <p>{userData?.displayName || user.email}</p>
             ID do Utilizador: {user.uid}
