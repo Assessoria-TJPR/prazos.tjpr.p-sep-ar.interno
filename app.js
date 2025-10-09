@@ -402,10 +402,22 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
 
         if (eFeriadoOuRecesso) {
             infoDiaNaoUtil = eFeriadoOuRecesso;
-        } else if (considerarDecretos && eDecreto && comprovados.has(dataCorrenteStr)) {
-            infoDiaNaoUtil = eDecreto;
+        // NOVA REGRA: No meio do prazo, decretos e instabilidades são contados automaticamente, sem precisar de comprovação.
+        // A comprovação é exigida apenas para prorrogar o início ou o fim do prazo.
+        } else if (considerarDecretos && eDecreto) { // Trata decretos
+            // REGRA FERIADO CNJ: Se for um feriado CNJ no meio do prazo, ele só conta se for comprovado.
+            if (eDecreto.tipo === 'feriado_cnj') {
+                if (comprovados.has(dataCorrenteStr)) {
+                    infoDiaNaoUtil = eDecreto;
+                }
+            } else { // Decretos normais são automáticos no meio do prazo.
+                infoDiaNaoUtil = eDecreto;
+            }
+        // NOVA REGRA: Instabilidades no meio do prazo não devem ser contadas.
+        // Elas só são relevantes se ocorrerem no início ou no fim do prazo, e nesses casos,
+        // a comprovação é tratada nas funções `getProximoDiaUtilParaPublicacao` e no loop de prorrogação final.
         } else if (considerarInstabilidades && eInstabilidade && comprovados.has(dataCorrenteStr)) {
-            infoDiaNaoUtil = eInstabilidade;
+             infoDiaNaoUtil = eInstabilidade;
         }
 
         if (dataCorrente.getDay() === 0 || dataCorrente.getDay() === 6 || infoDiaNaoUtil) {
@@ -440,9 +452,8 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
         (infoDiaFinalNaoUtil = getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'feriado') || 
                                getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'recesso') ||
                                // CORREÇÃO: A prorrogação do prazo final deve considerar os decretos e instabilidades
-                               // que foram comprovados pelo usuário no checkbox.
-                               (considerarDecretos && comprovados.has(prazoFinalAjustado.toISOString().split('T')[0]) && getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'decreto')) ||
-                               (considerarInstabilidades && comprovados.has(prazoFinalAjustado.toISOString().split('T')[0]) && getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'instabilidade'))
+                               // que foram comprovados pelo usuário no checkbox. A instabilidade agora é tratada como um decreto.
+                               (considerarDecretos && comprovados.has(prazoFinalAjustado.toISOString().split('T')[0]) && (getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'decreto') || getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'instabilidade')))
 
         ) ||
         prazoFinalAjustado.getDay() === 0 || prazoFinalAjustado.getDay() === 6
@@ -568,9 +579,20 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
         // Calcula o prazo considerando TODOS os decretos (mas não instabilidades) para encontrar os que são relevantes.
         const todosDecretosPossiveis = new Set(Object.keys(decretosMap));
         const resultadoComTodosDecretos = calcularPrazoFinalDiasUteis(inicioDoPrazo, prazoNumerico, todosDecretosPossiveis, true, false);
+
+        // NOVA REGRA: Para instabilidades, só consideramos as que ocorrem no início ou no fim do prazo.
+        const todasInstabilidadesPossiveis = new Set();
+        const instabilidadeNoInicio = getMotivoDiaNaoUtil(inicioDoPrazo, true, 'instabilidade');
+        if (instabilidadeNoInicio) todasInstabilidadesPossiveis.add(inicioDoPrazo.toISOString().split('T')[0]);
+        const instabilidadeNoFim = getMotivoDiaNaoUtil(resultadoSemDecreto.prazoFinal, true, 'instabilidade');
+        if (instabilidadeNoFim) todasInstabilidadesPossiveis.add(resultadoSemDecreto.prazoFinal.toISOString().split('T')[0]);
+        const resultadoComInstabilidades = calcularPrazoFinalDiasUteis(inicioDoPrazo, prazoNumerico, todasInstabilidadesPossiveis, true, true);
         
         // Unifica os decretos encontrados (no início e durante o prazo), evitando duplicatas.
-        const todosDecretosParaUI = [...diasNaoUteisDoInicio.filter(d => d.tipo === 'decreto'), ...resultadoComTodosDecretos.diasNaoUteis.filter(d => d.tipo === 'decreto')];
+        // CORREÇÃO: Unifica decretos E instabilidades em uma única lista de comprováveis.
+        const decretosParaUI = [...diasNaoUteisDoInicio.filter(d => d.tipo === 'decreto'), ...resultadoComTodosDecretos.diasNaoUteis.filter(d => d.tipo === 'decreto')];
+        const instabilidadesParaUI = [...diasNaoUteisDoInicio.filter(d => d.tipo === 'instabilidade'), ...resultadoComInstabilidades.diasNaoUteis.filter(d => d.tipo === 'instabilidade')];
+        const todosDecretosParaUI = [...decretosParaUI, ...instabilidadesParaUI];
         const suspensoesRelevantesMap = new Map();
         todosDecretosParaUI.forEach(suspensao => {
             suspensoesRelevantesMap.set(suspensao.data.toISOString().split('T')[0], suspensao);
@@ -579,26 +601,9 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
         Object.entries(decretosMap)
             .filter(([, val]) => typeof val === 'object' && val.tipo === 'feriado_cnj')
             .forEach(([data, val]) => {
-                const dataFeriadoCnj = new Date(data + 'T00:00:00');
-                // CORREÇÃO: Adiciona para comprovação apenas se estiver no MEIO do prazo.
-                // Se o prazo final cair nele, a prorrogação é automática e não precisa comprovar.
-                // A verificação usa `<` para não incluir o dia em que o prazo termina.
-                if (dataFeriadoCnj >= inicioDoPrazo && dataFeriadoCnj <= resultadoSemDecreto.prazoFinal) {
-                    suspensoesRelevantesMap.set(data, { data: dataFeriadoCnj, ...val });
-                }
+                // REGRA FERIADO CNJ: Adiciona para comprovação se ocorrer no início ou no meio do prazo.
+                suspensoesRelevantesMap.set(data, { data: new Date(data + 'T00:00:00'), ...val });
             });
-
-        // NOVA LÓGICA PARA INSTABILIDADES:
-        // 1. Verifica se o início do prazo caiu em uma instabilidade.
-        const instabilidadeNoInicio = getMotivoDiaNaoUtil(inicioDoPrazo, true, 'instabilidade');
-        if (instabilidadeNoInicio) {
-            suspensoesRelevantesMap.set(inicioDoPrazo.toISOString().split('T')[0], { data: new Date(inicioDoPrazo.getTime()), ...instabilidadeNoInicio });
-        }
-        // 2. Verifica se o prazo final (sem considerar nada) caiu em uma instabilidade.
-        const instabilidadeNoFim = getMotivoDiaNaoUtil(resultadoSemDecreto.prazoFinal, true, 'instabilidade');
-        if (instabilidadeNoFim) {
-            suspensoesRelevantesMap.set(resultadoSemDecreto.prazoFinal.toISOString().split('T')[0], { data: new Date(resultadoSemDecreto.prazoFinal.getTime()), ...instabilidadeNoFim });
-        }
 
         const suspensoesRelevantes = Array.from(suspensoesRelevantesMap.values()).sort((a, b) => a.data - b.data);
         
