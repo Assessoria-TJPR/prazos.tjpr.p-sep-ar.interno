@@ -363,23 +363,16 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
       const suspensoesEncontradas = [];
       const proximoDia = new Date(data.getTime());
       // A publicação deve ser o primeiro dia útil após a disponibilização,
-      // ignorando feriados e decretos para a contagem do dia da publicação.
-      // CORREÇÃO: A variável 'motivo' deve ser reavaliada a cada iteração do loop.
+      // prorrogando caso caia em fim de semana, feriado, recesso ou decreto.
       let motivo;
       do {
           proximoDia.setDate(proximoDia.getDate() + 1);
-          // Instabilidades são ignoradas aqui para não prorrogarem o início do prazo automaticamente.
-          const motivoTemp = getMotivoDiaNaoUtil(proximoDia, true, 'feriado') || getMotivoDiaNaoUtil(proximoDia, true, 'recesso') || getMotivoDiaNaoUtil(proximoDia, true, 'decreto');
-          
-          // CORREÇÃO: Garante que "Feriado CNJ" não prorrogue o início do prazo.
-          // Apenas feriados, recessos e decretos "normais" devem prorrogar.
-          motivo = (motivoTemp && motivoTemp.tipo !== 'feriado_cnj') ? motivoTemp : null;
-          // Se o dia for um decreto ou instabilidade, ele é adicionado à lista de comprováveis,
-          // e o loop continua para encontrar o próximo dia útil para a publicação.
-          if (motivo && motivo.tipo === 'decreto') {
+          // CORREÇÃO: Decretos no início do prazo também devem prorrogá-lo para que a comprovação funcione.
+          // A função `getMotivoDiaNaoUtil` já lida com todos os tipos de suspensão.
+          motivo = getMotivoDiaNaoUtil(proximoDia, true, 'todos');
+          if (motivo) {
               suspensoesEncontradas.push({ data: new Date(proximoDia.getTime()), ...motivo });
           }
-      // O loop continua enquanto for fim de semana, feriado, recesso ou decreto.
       } while (proximoDia.getDay() === 0 || proximoDia.getDay() === 6 || motivo);
       return { proximoDia, suspensoesEncontradas };
   };
@@ -393,14 +386,12 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
   const calcularPrazoFinalDiasUteis = (inicioDoPrazo, prazo, comprovados = new Set(), considerarDecretos = true, considerarInstabilidades = false) => {
     let diasUteisContados = 0;
     const diasNaoUteisEncontrados = [];
-    // A dataCorrente começa no mesmo dia do início do prazo.
-    // O loop avançará para o dia seguinte antes de contar, iniciando a contagem corretamente.
     const dataCorrente = new Date(inicioDoPrazo.getTime());
 
-    while (diasUteisContados < prazo - 1) { // Ajuste: conta até o penúltimo dia
-        const diaDaSemana = dataCorrente.getDay();
+    while (diasUteisContados < prazo) {
+        // 1. Verifica se o dia atual é útil ANTES de avançar.
         const dataCorrenteStr = dataCorrente.toISOString().split('T')[0];
-
+ 
         // A lógica de `considerarDecretos` é aplicada aqui. Se for `false`, os decretos não são considerados dias não úteis.
         // A comprovação (`comprovados`) é usada para estender o prazo final em caso de instabilidade.
         let infoDiaNaoUtil = null;
@@ -409,32 +400,32 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
         const eDecreto = getMotivoDiaNaoUtil(dataCorrente, true, 'decreto');
         const eInstabilidade = getMotivoDiaNaoUtil(dataCorrente, true, 'instabilidade');
 
-        if (eFeriadoOuRecesso && !infoDiaNaoUtil) { // Só aplica se a regra especial acima não foi usada
+        if (eFeriadoOuRecesso) {
             infoDiaNaoUtil = eFeriadoOuRecesso;
-        // CORREÇÃO: Permite que 'feriado_cnj' seja contado como dia não útil se estiver comprovado.
-        // A regra de não contar no loop principal se aplica apenas quando não está comprovado.
-        } else if (considerarDecretos && eDecreto && comprovados.has(dataCorrenteStr) && !infoDiaNaoUtil) {
+        } else if (considerarDecretos && eDecreto && comprovados.has(dataCorrenteStr)) {
             infoDiaNaoUtil = eDecreto;
-        } else if (considerarInstabilidades && eInstabilidade && comprovados.has(dataCorrenteStr) && !infoDiaNaoUtil) {
+        } else if (considerarInstabilidades && eInstabilidade && comprovados.has(dataCorrenteStr)) {
             infoDiaNaoUtil = eInstabilidade;
         }
-        if (diaDaSemana === 0 || diaDaSemana === 6 || infoDiaNaoUtil) {
-            // CORREÇÃO: No cálculo "com decreto", só adicionamos à lista de dias não úteis
-            // os decretos e instabilidades, para não poluir o Cenário 2 com feriados.
-            // CORREÇÃO 2: A lógica anterior estava invertida. Agora, se `considerarDecretos` for true,
-            // adicionamos os decretos/instabilidades comprovados à lista para exibição.
-            if (infoDiaNaoUtil && considerarDecretos && (infoDiaNaoUtil.tipo === 'decreto' || infoDiaNaoUtil.tipo === 'instabilidade' || infoDiaNaoUtil.tipo === 'feriado_cnj')) {
+
+        if (dataCorrente.getDay() === 0 || dataCorrente.getDay() === 6 || infoDiaNaoUtil) {
+            if (infoDiaNaoUtil && considerarDecretos) {
                 diasNaoUteisEncontrados.push({ data: new Date(dataCorrente.getTime()), ...infoDiaNaoUtil });
             }
         } else {
             diasUteisContados++;
         }
-        dataCorrente.setDate(dataCorrente.getDate() + 1); // Avança a data no final do loop
+
+        // 2. Avança para o próximo dia apenas se o prazo ainda não foi atingido.
+        if (diasUteisContados < prazo) {
+            dataCorrente.setDate(dataCorrente.getDate() + 1);
+        }
     }
     // Após encontrar o prazo final, verifica se ele caiu em um dia não útil (incluindo instabilidade comprovada).
     // Se sim, prorroga para o próximo dia útil.
     let prazoFinalAjustado = dataCorrente;
     let infoDiaFinalNaoUtil;
+    const diasProrrogados = []; // Armazena os dias que causaram a prorrogação do prazo final
 
     // REGRA ESPECIAL: Se o prazo final cair em 19 ou 20 de junho, trata como feriado e prorroga.
     const prazoFinalStr = prazoFinalAjustado.toISOString().split('T')[0];
@@ -447,15 +438,19 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
     // Isso garante que o prazo final seja sempre um dia útil.
     while (
         (infoDiaFinalNaoUtil = getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'feriado') || 
-                               getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'recesso') || 
-                               (considerarDecretos && getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'decreto') && comprovados.has(prazoFinalAjustado.toISOString().split('T')[0])) ||
-                               (considerarInstabilidades && getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'instabilidade') && comprovados.has(prazoFinalAjustado.toISOString().split('T')[0]))
+                               getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'recesso') ||
+                               // CORREÇÃO: A prorrogação do prazo final deve considerar os decretos e instabilidades
+                               // que foram comprovados pelo usuário no checkbox.
+                               (considerarDecretos && comprovados.has(prazoFinalAjustado.toISOString().split('T')[0]) && getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'decreto')) ||
+                               (considerarInstabilidades && comprovados.has(prazoFinalAjustado.toISOString().split('T')[0]) && getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'instabilidade'))
+
         ) ||
         prazoFinalAjustado.getDay() === 0 || prazoFinalAjustado.getDay() === 6
     ) {
+        if (infoDiaFinalNaoUtil) diasProrrogados.push({ data: new Date(prazoFinalAjustado.getTime()), ...infoDiaFinalNaoUtil });
         prazoFinalAjustado.setDate(prazoFinalAjustado.getDate() + 1);
     }
-    return { prazoFinal: prazoFinalAjustado, diasNaoUteis: diasNaoUteisEncontrados };
+    return { prazoFinal: prazoFinalAjustado, diasNaoUteis: diasNaoUteisEncontrados, diasProrrogados };
   };
 
   const logUsage = () => {
@@ -511,6 +506,7 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
             diasNaoUteisDoInicio.push(...suspensoesInicio);
 
             calcularPrazoCivelComInicioDefinido(dataPublicacao, inicioDoPrazo, prazoNumerico, diasNaoUteisDoInicio);
+
         } else { // Lógica para Crime (dias corridos)
             // CORREÇÃO: Unifica a lógica de Crime com a de Cível para permitir a comprovação de decretos.
             const { proximoDia: dataPublicacao, suspensoesEncontradas: suspensoesPublicacao } = getProximoDiaUtilParaPublicacao(inicioDisponibilizacao);
@@ -541,8 +537,17 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
             const suspensoesRelevantesMap = new Map();
             todasAsSuspensoesParaUI.forEach(suspensao => suspensoesRelevantesMap.set(suspensao.data.toISOString().split('T')[0], suspensao));
             const suspensoesRelevantes = Array.from(suspensoesRelevantesMap.values());
-
-            setResultado({ dataPublicacao, inicioPrazo: dataIntimacao, semDecreto: resultadoSemDecreto, comDecreto: resultadoSemDecreto, suspensoesComprovaveis: suspensoesRelevantes, prazo: prazoNumerico, tipo: 'crime' });
+            
+            // CORREÇÃO: A lógica para 'crime' deve usar as variáveis corretas para exibição.
+            // O cenário "com decreto" e "sem decreto" é o mesmo para dias corridos, mas a UI precisa dos dados.
+            setResultado({ 
+                dataPublicacao: dataPublicacao, 
+                inicioPrazo: dataIntimacao, 
+                semDecreto: resultadoSemDecreto, 
+                comDecreto: resultadoComTodasSuspensoes, // Usa o resultado com todas as suspensões para o cenário 2
+                suspensoesComprovaveis: suspensoesRelevantes, 
+                prazo: prazoNumerico, tipo: 'crime' 
+            });
         }
         logUsage();
     } catch(e) {
@@ -614,7 +619,8 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
             semDecreto: resultadoSemDecreto,
             comDecreto: resultadoComDecretoInicial, // Inicialmente igual ao 'semDecreto'
             suspensoesComprovaveis: suspensoesRelevantes,
-            prazo: prazoNumerico, tipo: 'civel'
+            prazo: prazoNumerico, tipo: 'civel',
+            diasProrrogados: resultadoSemDecreto.diasProrrogados // Adiciona os dias que prorrogaram o prazo
         });
   };
 
@@ -638,65 +644,59 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
     setDiasComprovados(novosComprovados);
 
     // Recalcula o prazo com base nos dias agora comprovados
-    const { prazo, tipo } = resultado;
-
-    // CORREÇÃO: Recalcula o início do prazo e o prazo final do zero,
-    // considerando os decretos atualmente comprovados.
-    const getProximoDiaUtilComprovado = (data) => {
-        const proximoDia = new Date(data.getTime());
-        let motivo;
-        do {
-            proximoDia.setDate(proximoDia.getDate() + 1);
-            const dataStr = proximoDia.toISOString().split('T')[0];
-            motivo = getMotivoDiaNaoUtil(proximoDia, true, 'feriado') || getMotivoDiaNaoUtil(proximoDia, true, 'recesso') || (novosComprovados.has(dataStr) && getMotivoDiaNaoUtil(proximoDia, true));
-        } while (proximoDia.getDay() === 0 || proximoDia.getDay() === 6 || motivo);
-        return proximoDia;
-    };
-    const novaDataPublicacao = getProximoDiaUtilComprovado(new Date(dataDisponibilizacao + 'T00:00:00'));
-    const novoInicioPrazo = getProximoDiaUtilComprovado(novaDataPublicacao);
-    const novoResultado = calcularPrazoFinalDiasUteis(novoInicioPrazo, prazo, novosComprovados, true, true);
-
-    // CORREÇÃO: Atualiza não apenas o prazo final, mas também a data de publicação,
-    // o início do prazo e a lista de dias não úteis para o Cenário 2.
-    setResultado(prev => ({ 
-        ...prev, 
-        dataPublicacao: novaDataPublicacao,
-        inicioPrazo: novoInicioPrazo,
-        comDecreto: novoResultado 
-    }));
+    const { prazo, tipo, semDecreto, inicioPrazoOriginal } = resultado;
+    
+    // Se nenhuma checkbox estiver marcada, o "Cenário 2" deve ser exatamente igual ao "Cenário 1".
+    if (novosComprovados.size === 0) {
+        setResultado(prev => ({
+            ...prev,
+            comDecreto: { ...semDecreto } // Reseta para o resultado do Cenário 1
+        }));
+    } else {
+        // Se houver checkboxes marcadas, recalcula o prazo considerando os dias comprovados.
+        // A contagem sempre parte do início do prazo ORIGINAL (`inicioPrazoOriginal`).
+        // Isso garante que o recálculo seja sempre consistente, independentemente de quantos
+        // checkboxes são marcados ou desmarcados.
+        const novoResultadoComDecreto = calcularPrazoFinalDiasUteis(inicioPrazoOriginal, prazo, novosComprovados, true, true);
+        
+        setResultado(prev => ({
+            ...prev,
+            // CORREÇÃO: Garante que o objeto `comDecreto` seja atualizado completamente,
+            // incluindo os `diasProrrogados` que podem surgir no novo cálculo.
+            comDecreto: { ...novoResultadoComDecreto }
+        }));
+    }
   };
 
   useEffect(() => {
     if (resultado && dataInterposicao) {
         try {
             // Converte a data de interposição para um objeto Date em UTC para evitar problemas de fuso horário.
-            const [year, month, day] = dataInterposicao.split('-').map(Number);
-            const dataInterposicaoObj = new Date(Date.UTC(year, month - 1, day));
+            const [year, month, day] = dataInterposicao.split('-').map(Number); // '2025-09-05' -> [2025, 9, 5]
+            const dataInterposicaoObj = new Date(Date.UTC(year, month - 1, day)); // Cria a data em UTC
 
             // Prazo final mais benéfico possível (considerando TODAS as suspensões comprováveis).
             const todasSuspensoesComprovaveis = new Set(resultado.suspensoesComprovaveis.map(d => d.data.toISOString().split('T')[0]));
-            const prazoFinalMaximo = calcularPrazoFinalDiasUteis(resultado.inicioPrazo, resultado.prazo, todasSuspensoesComprovaveis, true, true).prazoFinal;
-            prazoFinalMaximo.setUTCHours(23, 59, 59, 999);
+            const prazoFinalMaximoObj = calcularPrazoFinalDiasUteis(resultado.inicioPrazoOriginal, resultado.prazo, todasSuspensoesComprovaveis, true, true).prazoFinal;
+            // Converte para UTC para garantir a comparação correta
+            const prazoFinalMaximo = new Date(Date.UTC(prazoFinalMaximoObj.getFullYear(), prazoFinalMaximoObj.getMonth(), prazoFinalMaximoObj.getDate()));
             
             // Prazo final considerando apenas as suspensões que o usuário marcou como comprovadas.
-            const prazoFinalComprovado = resultado.comDecreto.prazoFinal;
-            prazoFinalComprovado.setUTCHours(23, 59, 59, 999);
+            const prazoFinalComprovadoObj = resultado.comDecreto.prazoFinal;
+            // Converte para UTC para garantir a comparação correta
+            const prazoFinalComprovado = new Date(Date.UTC(prazoFinalComprovadoObj.getFullYear(), prazoFinalComprovadoObj.getMonth(), prazoFinalComprovadoObj.getDate()));
 
             // 1. Puramente intempestivo: A data de interposição é posterior ao prazo máximo possível.
-            if (dataInterposicaoObj > prazoFinalMaximo) {
+            if (dataInterposicaoObj.getTime() > prazoFinalMaximo.getTime()) {
                 setTempestividade('puramente_intempestivo');
             // 2. Intempestivo por falta de decreto: A data de interposição é posterior ao prazo com os decretos atualmente comprovados,
             // mas ainda poderia ser tempestivo se todos os decretos possíveis fossem comprovados.
-            } else if (dataInterposicaoObj > prazoFinalComprovado) {
+            } else if (dataInterposicaoObj.getTime() > prazoFinalComprovado.getTime()) {
                 setTempestividade('intempestivo_falta_decreto');
             // 3. Tempestivo: A data de interposição é igual ou anterior ao prazo com os decretos comprovados.
             } else {
                 setTempestividade('tempestivo');
             }
-
-            // Reverte as alterações de hora para não afetar a exibição da data na UI.
-            prazoFinalMaximo.setUTCHours(0, 0, 0, 0);
-            prazoFinalComprovado.setUTCHours(0, 0, 0, 0);
 
         } catch (e) {
             setTempestividade(null);
@@ -906,6 +906,9 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
                                 <h3 className="text-lg font-bold text-slate-700 dark:text-slate-200 mb-2">Resultado do Cálculo</h3>
                                 <p className="text-slate-600 dark:text-slate-300">O prazo final de {resultado.prazo} dias úteis é:</p>
                                 <p className="mt-2 text-3xl font-bold text-indigo-600 dark:text-indigo-400">{formatarData(resultado.semDecreto.prazoFinal)}</p>
+                                {resultado.diasProrrogados && resultado.diasProrrogados.length > 0 && (
+                                    <div className="mt-4 p-3 text-xs text-blue-800 rounded-lg bg-blue-50 dark:bg-gray-800 dark:text-blue-400" role="alert"><span className="font-medium">Nota:</span> O prazo foi prorrogado pois o vencimento original ({formatarData(resultado.diasProrrogados[0].data)}) caiu em um dia de suspensão ({resultado.diasProrrogados[0].motivo}).</div>
+                                )}
                                 {resultado.semDecreto.diasNaoUteis.length > 0 && <div className="mt-6 text-left border-t border-slate-300 dark:border-slate-600 pt-4"><p className="text-sm font-semibold text-slate-600 dark:text-slate-300 mb-2">Dias não úteis considerados no cálculo:</p><ul className="text-xs space-y-1"><GroupedDiasNaoUteis dias={resultado.semDecreto.diasNaoUteis} /></ul></div>}
                             </div>
                             
