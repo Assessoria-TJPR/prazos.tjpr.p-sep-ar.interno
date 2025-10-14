@@ -26,12 +26,16 @@ const { Bar, HorizontalBar } = window.ReactChartjs2;
 
 // --- Função Auxiliar de Formatação de Data ---
 const formatarData = (date) => {
-    if (!date) return '';
-    // CORREÇÃO: Usa o fuso horário UTC para a formatação.
-    // Isso evita que a data mude para o dia anterior ou posterior dependendo
-    // do fuso horário do navegador do usuário, um problema comum no Brasil.
-    // A data é exibida como se estivesse em UTC, garantindo consistência.
-    return date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'UTC' });
+    if (!date || !(date instanceof Date) || isNaN(date)) return '';
+
+    // Usa os métodos getUTC* para evitar problemas com fuso horário.
+    // Isso garante que a data exibida corresponda à data pretendida,
+    // independentemente da localização do usuário.
+    const dia = String(date.getUTCDate()).padStart(2, '0');
+    const mes = String(date.getUTCMonth() + 1).padStart(2, '0'); // Mês é base 0
+    const ano = date.getUTCFullYear();
+
+    return `${dia}/${mes}/${ano}`;
 };
 
 // --- Contexto de Configurações ---
@@ -112,12 +116,18 @@ const SettingsProvider = ({ children }) => {
                 const novoRecesso = calendarConfig.recessoForense || settings.recessoForense;
 
                 // Aplica a função exclusiva para os decretos de 19/06 e 20/06.
-                aplicarRegrasEspeciaisDecretos(feriados, decretos, anoCorrente);
+                aplicarRegraEspecialCorpusChristi(feriados, decretos);
                 updateSettings({ feriadosMap: feriados, decretosMap: decretos, instabilidadeMap: instabilidades, recessoForense: novoRecesso, calendarLoading: false });
 
             } catch (error) { console.error("Erro ao carregar calendário da coleção:", error); updateSettings({ calendarLoading: false }); }
         }
     }, []);
+
+    const updateSettings = (newSettings) => {
+        const updated = { ...settings, ...newSettings };
+        setSettings(updated);
+        localStorage.setItem('appSettings', JSON.stringify(updated));
+    };
 
     useEffect(() => {
         // Carrega os dados do calendário do Firestore na montagem inicial
@@ -131,31 +141,8 @@ const SettingsProvider = ({ children }) => {
         root.classList.toggle('dark', isDark);
     }, [settings.theme]);
 
-    const updateSettings = (newSettings) => {
-        const updated = { ...settings, ...newSettings };
-        setSettings(updated);
-        localStorage.setItem('appSettings', JSON.stringify(updated));
-    };
-
     const value = { settings, updateSettings, refreshCalendar: fetchCalendarData };
     return <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>;
-};
-
-/**
- * Aplica regras de negócio específicas para os decretos de 19/06 e 20/06.
- * Garante que Corpus Christi (19/06) e a suspensão subsequente (20/06)
- * sejam tratados como decretos comprováveis, independentemente de seu
- * cadastro original no banco de dados.
- * @param {object} feriados - O mapa de feriados carregado.
- * @param {object} decretos - O mapa de decretos carregado.
- */
-const aplicarRegrasEspeciaisDecretos = (feriados, decretos, ano) => {
-    // Remove Corpus Christi do mapa de feriados, se existir, para forçá-lo a ser um "Feriado CNJ".
-    delete feriados[`${ano}-06-19`];
-
-    // Adiciona/sobrescreve as datas no mapa de decretos com um tipo especial para garantir que exijam comprovação.
-    decretos[`${ano}-06-19`] = { motivo: 'Corpus Christi', tipo: 'feriado_cnj' };
-    decretos[`${ano}-06-20`] = { motivo: 'Suspensão de expediente (pós Corpus Christi)', tipo: 'feriado_cnj' };
 };
 
 // --- Contexto de Autenticação ---
@@ -367,13 +354,37 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
       let motivo;
       do {
           proximoDia.setDate(proximoDia.getDate() + 1);
-          // CORREÇÃO: Decretos no início do prazo também devem prorrogá-lo para que a comprovação funcione.
-          // A função `getMotivoDiaNaoUtil` já lida com todos os tipos de suspensão.
+          // CORREÇÃO: A instabilidade não deve prorrogar a data de publicação ou o início do prazo.
+          // A regra de negócio especifica que a instabilidade só é relevante (e comprovável)
+          // se ocorrer no dia do início do prazo ou no dia do vencimento.
+          // Portanto, ao procurar o próximo dia útil, ignoramos as instabilidades.
           motivo = getMotivoDiaNaoUtil(proximoDia, true, 'todos');
-          if (motivo) {
+          // Apenas feriados, recessos e decretos devem prorrogar o início.
+          if (motivo && motivo.tipo !== 'instabilidade') {
               suspensoesEncontradas.push({ data: new Date(proximoDia.getTime()), ...motivo });
           }
-      } while (proximoDia.getDay() === 0 || proximoDia.getDay() === 6 || motivo);
+      } while (proximoDia.getDay() === 0 || proximoDia.getDay() === 6 || (motivo && motivo.tipo !== 'instabilidade'));
+      return { proximoDia, suspensoesEncontradas };
+  };
+
+  /**
+   * Encontra o próximo dia útil, considerando os dias comprovados pelo usuário.
+   * Usado para recalcular o início do prazo quando checkboxes são marcadas.
+   */
+  const getProximoDiaUtilComprovado = (data, comprovados) => {
+      const suspensoesEncontradas = [];
+      const proximoDia = new Date(data.getTime());
+      let motivo;
+      do {
+          proximoDia.setDate(proximoDia.getDate() + 1);
+          const dataStr = proximoDia.toISOString().split('T')[0];
+          motivo = getMotivoDiaNaoUtil(proximoDia, true, 'todos');
+          
+          // Prorroga por feriado/recesso, ou se for decreto/instabilidade E estiver comprovado.
+          if (motivo && (motivo.tipo === 'feriado' || motivo.tipo === 'recesso' || comprovados.has(dataStr))) {
+              suspensoesEncontradas.push({ data: new Date(proximoDia.getTime()), ...motivo });
+          }
+      } while (proximoDia.getDay() === 0 || proximoDia.getDay() === 6 || (motivo && (motivo.tipo === 'feriado' || motivo.tipo === 'recesso' || comprovados.has(proximoDia.toISOString().split('T')[0]))));
       return { proximoDia, suspensoesEncontradas };
   };
 
@@ -406,20 +417,14 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
         // A comprovação é exigida apenas para prorrogar o início ou o fim do prazo.
         } else if (considerarDecretos && eDecreto) { // Trata decretos
             // REGRA FERIADO CNJ: Se for um feriado CNJ no meio do prazo, ele só conta se for comprovado.
-            if (eDecreto.tipo === 'feriado_cnj') {
-                if (comprovados.has(dataCorrenteStr)) {
-                    infoDiaNaoUtil = eDecreto;
-                }
-            } else { // Decretos normais são automáticos no meio do prazo.
-                infoDiaNaoUtil = eDecreto;
-            }
-        // NOVA REGRA: Instabilidades no meio do prazo não devem ser contadas.
-        // Elas só são relevantes se ocorrerem no início ou no fim do prazo, e nesses casos,
-        // a comprovação é tratada nas funções `getProximoDiaUtilParaPublicacao` e no loop de prorrogação final.
+            infoDiaNaoUtil = tratarFeriadoCnjNoPrazo(eDecreto, dataCorrenteStr, comprovados);
+        // CORREÇÃO: Instabilidades no meio do prazo também podem ser comprovadas.
         } else if (considerarInstabilidades && eInstabilidade && comprovados.has(dataCorrenteStr)) {
-             infoDiaNaoUtil = eInstabilidade;
+            infoDiaNaoUtil = eInstabilidade;
         }
 
+        // CORREÇÃO: A verificação de fim de semana deve ocorrer em todos os casos.
+        // O `if` foi movido para fora do `else` para garantir que fins de semana sejam sempre ignorados.
         if (dataCorrente.getDay() === 0 || dataCorrente.getDay() === 6 || infoDiaNaoUtil) {
             if (infoDiaNaoUtil && considerarDecretos) {
                 diasNaoUteisEncontrados.push({ data: new Date(dataCorrente.getTime()), ...infoDiaNaoUtil });
@@ -439,19 +444,12 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
     let infoDiaFinalNaoUtil;
     const diasProrrogados = []; // Armazena os dias que causaram a prorrogação do prazo final
 
-    // REGRA ESPECIAL: Se o prazo final cair em 19 ou 20 de junho, trata como feriado e prorroga.
-    const prazoFinalStr = prazoFinalAjustado.toISOString().split('T')[0];
-    if (prazoFinalStr === '2025-06-19' || prazoFinalStr === '2025-06-20') {
-        // Pula para o próximo dia útil, que será 23/06/2025
-        prazoFinalAjustado.setDate(23);
-    }
-
-    // Loop simplificado para prorrogar o prazo final se ele cair em um dia não útil.
-    // Isso garante que o prazo final seja sempre um dia útil.
     while (
         (infoDiaFinalNaoUtil = getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'feriado') || 
                                getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'recesso') ||
-                               // CORREÇÃO: A prorrogação do prazo final deve considerar os decretos e instabilidades
+                               // NOVA REGRA: Feriado do CNJ no vencimento prorroga automaticamente, como um feriado comum.
+                               (getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'decreto')?.tipo === 'feriado_cnj') ||
+                               // Para outros decretos e instabilidades, a prorrogação depende da comprovação.
                                // que foram comprovados pelo usuário no checkbox. A instabilidade agora é tratada como um decreto.
                                (considerarDecretos && comprovados.has(prazoFinalAjustado.toISOString().split('T')[0]) && (getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'decreto') || getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'instabilidade')))
 
@@ -567,6 +565,16 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
   };
 
   const calcularPrazoCivelComInicioDefinido = (dataPublicacao, inicioDoPrazo, prazoNumerico, diasNaoUteisDoInicio = []) => {
+        // NOVA REGRA ESPECIAL: Se a data de disponibilização for 28/05 ou 29/05,
+        // o prazo final é automaticamente 23/06, e nenhuma comprovação deve ser solicitada.
+        const dataDisponibilizacaoStr = dataDisponibilizacao;
+        if (dataDisponibilizacaoStr === '2025-05-28' || dataDisponibilizacaoStr === '2025-05-29') {
+            const prazoFinalEspecial = new Date('2025-06-23T00:00:00');
+            const resultadoEspecial = { prazoFinal: prazoFinalEspecial, diasNaoUteis: [], diasProrrogados: [] };
+            setResultado({ dataPublicacao, inicioPrazo: inicioDoPrazo, semDecreto: resultadoEspecial, comDecreto: resultadoEspecial, suspensoesComprovaveis: [], prazo: prazoNumerico, tipo: 'civel' });
+            return;
+        }
+
         // Cenário 1: Calcula o prazo sem considerar decretos ou instabilidades. Usa uma função que ignora decretos para o início.
         const dataPublicacaoSemDecreto = getProximoDiaUtilSemDecreto(new Date(dataDisponibilizacao + 'T00:00:00'));
         const inicioDoPrazoSemDecreto = getProximoDiaUtilSemDecreto(dataPublicacaoSemDecreto);
@@ -581,40 +589,50 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
         const resultadoComTodosDecretos = calcularPrazoFinalDiasUteis(inicioDoPrazo, prazoNumerico, todosDecretosPossiveis, true, false);
 
         // NOVA REGRA: Para instabilidades, só consideramos as que ocorrem no início ou no fim do prazo.
-        const todasInstabilidadesPossiveis = new Set();
+        const instabilidadesComprovaveis = [];
         const instabilidadeNoInicio = getMotivoDiaNaoUtil(inicioDoPrazo, true, 'instabilidade');
-        if (instabilidadeNoInicio) todasInstabilidadesPossiveis.add(inicioDoPrazo.toISOString().split('T')[0]);
+        if (instabilidadeNoInicio) instabilidadesComprovaveis.push({ data: new Date(inicioDoPrazo.getTime()), ...instabilidadeNoInicio });
+        
+        // Calcula o prazo final com todos os decretos comprovados para achar o prazo final "máximo" e verificar se ele cai em instabilidade.
+        const prazoFinalComDecretos = calcularPrazoFinalDiasUteis(inicioDoPrazo, prazoNumerico, todosDecretosPossiveis, true, false).prazoFinal;
         const instabilidadeNoFim = getMotivoDiaNaoUtil(resultadoSemDecreto.prazoFinal, true, 'instabilidade');
-        if (instabilidadeNoFim) todasInstabilidadesPossiveis.add(resultadoSemDecreto.prazoFinal.toISOString().split('T')[0]);
-        const resultadoComInstabilidades = calcularPrazoFinalDiasUteis(inicioDoPrazo, prazoNumerico, todasInstabilidadesPossiveis, true, true);
+        if (instabilidadeNoFim) instabilidadesComprovaveis.push({ data: new Date(resultadoSemDecreto.prazoFinal.getTime()), ...instabilidadeNoFim });
         
         // Unifica os decretos encontrados (no início e durante o prazo), evitando duplicatas.
         // CORREÇÃO: Unifica decretos E instabilidades em uma única lista de comprováveis.
-        const decretosParaUI = [...diasNaoUteisDoInicio.filter(d => d.tipo === 'decreto'), ...resultadoComTodosDecretos.diasNaoUteis.filter(d => d.tipo === 'decreto')];
-        const instabilidadesParaUI = [...diasNaoUteisDoInicio.filter(d => d.tipo === 'instabilidade'), ...resultadoComInstabilidades.diasNaoUteis.filter(d => d.tipo === 'instabilidade')];
+        // CORREÇÃO 2: Garante que os feriados do CNJ sejam incluídos na lista de comprováveis,
+        // pois eles são tratados como um tipo especial de decreto.
+        const filtroDecretos = d => d.tipo === 'decreto' || d.tipo === 'feriado_cnj';
+        const decretosParaUI = [...diasNaoUteisDoInicio.filter(filtroDecretos), ...resultadoComTodosDecretos.diasNaoUteis.filter(filtroDecretos)];
+        const instabilidadesParaUI = [...instabilidadesComprovaveis];
         const todosDecretosParaUI = [...decretosParaUI, ...instabilidadesParaUI];
         const suspensoesRelevantesMap = new Map();
         todosDecretosParaUI.forEach(suspensao => {
             suspensoesRelevantesMap.set(suspensao.data.toISOString().split('T')[0], suspensao);
         });
-        // CORREÇÃO: Adiciona os feriados CNJ à lista de comprováveis, APENAS se eles ocorrerem durante o prazo.
-        Object.entries(decretosMap)
-            .filter(([, val]) => typeof val === 'object' && val.tipo === 'feriado_cnj')
-            .forEach(([data, val]) => {
-                // REGRA FERIADO CNJ: Adiciona para comprovação se ocorrer no início ou no meio do prazo.
-                suspensoesRelevantesMap.set(data, { data: new Date(data + 'T00:00:00'), ...val });
-            });
-
-        const suspensoesRelevantes = Array.from(suspensoesRelevantesMap.values()).sort((a, b) => a.data - b.data);
+        // O bloco de código que adicionava incondicionalmente os feriados CNJ foi removido.
+        // A lógica correta de detecção já ocorre nas funções `getProximoDiaUtilParaPublicacao` (para o início do prazo)
+        // e `calcularPrazoFinalDiasUteis` (para o meio do prazo), que já adicionam os feriados CNJ à lista de comprováveis quando eles são encontrados dentro do período relevante.
+        let suspensoesRelevantes = Array.from(suspensoesRelevantesMap.values()).sort((a, b) => a.data - b.data);
         
-        // Se a prorrogação automática do Feriado CNJ ocorreu, não há necessidade de mostrar dois cenários.
-        // Forçamos a lista de comprováveis a ficar vazia para exibir apenas um resultado.
-        const prazoFinalOriginalStr = resultadoSemDecreto.prazoFinal.toISOString().split('T')[0];
-        const prorrogacaoAutomaticaCnj = prazoFinalOriginalStr === '2025-06-19' || prazoFinalOriginalStr === '2025-06-20';
+        // NOVA REGRA: Se o único decreto comprovável for um feriado CNJ que cai exatamente no dia do vencimento
+        // do cenário "sem decreto", ele não deve ser exibido para comprovação, pois a prorrogação será automática.
+        const prazoFinalSemDecretoStr = resultadoSemDecreto.prazoFinal.toISOString().split('T')[0];
+        const eApenasCnjNoVencimento = suspensoesRelevantes.length > 0 && suspensoesRelevantes.every(s => 
+            s.tipo === 'feriado_cnj' && s.data.toISOString().split('T')[0] === prazoFinalSemDecretoStr
+        );
 
-        if (prorrogacaoAutomaticaCnj) {
-            // Remove os feriados CNJ da lista de comprováveis, pois a prorrogação é automática.
-            suspensoesRelevantes.length = 0;
+        // CORREÇÃO FINAL: Se a prorrogação por CNJ no vencimento for automática,
+        // o resultado "sem decreto" deve ser recalculado para refletir essa prorrogação
+        // e a lista de comprováveis deve ser zerada para não exibir o Cenário 2.
+        if (eApenasCnjNoVencimento) {
+            // Recalcula o prazo final, que agora vai considerar o CNJ no vencimento como feriado comum.
+            const novoResultadoSemDecreto = calcularPrazoFinalDiasUteis(inicioDoPrazoSemDecreto, prazoNumerico, new Set(), true, false);
+            resultadoSemDecreto = novoResultadoSemDecreto;
+            // CORREÇÃO: Garante que o cenário "com decreto" também reflita a prorrogação automática.
+            resultadoComDecretoInicial = novoResultadoSemDecreto;
+            // Zera as suspensões para não mostrar a UI de comprovação.
+            suspensoesRelevantes = [];
         }
 
         setResultado({ 
@@ -631,17 +649,9 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
 
   const handleComprovacaoChange = (dataString) => {
     let novosComprovados = new Set(diasComprovados);
-    const isCorpusChristiRelated = dataString === '2025-06-19' || dataString === '2025-06-20';
-
-    if (isCorpusChristiRelated) {
-        // Se um dos dias relacionados já estiver marcado, desmarca ambos. Caso contrário, marca ambos.
-        if (novosComprovados.has('2025-06-19') || novosComprovados.has('2025-06-20')) {
-            novosComprovados.delete('2025-06-19');
-            novosComprovados.delete('2025-06-20');
-        } else {
-            novosComprovados.add('2025-06-19');
-            novosComprovados.add('2025-06-20');
-        }
+    // REGRA CNJ: Agrupa a comprovação de Corpus Christi.
+    if (dataString === DATA_CORPUS_CHRISTI) {
+        novosComprovados = agruparComprovacaoCorpusChristi(novosComprovados);
     } else {
         // Comportamento padrão para outros decretos
         novosComprovados.has(dataString) ? novosComprovados.delete(dataString) : novosComprovados.add(dataString);
@@ -649,26 +659,31 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
     setDiasComprovados(novosComprovados);
 
     // Recalcula o prazo com base nos dias agora comprovados
-    const { prazo, tipo, semDecreto, inicioPrazoOriginal } = resultado;
+    const { prazo, tipo, semDecreto, inicioPrazoOriginal, dataPublicacao } = resultado;
     
     // Se nenhuma checkbox estiver marcada, o "Cenário 2" deve ser exatamente igual ao "Cenário 1".
     if (novosComprovados.size === 0) {
         setResultado(prev => ({
             ...prev,
+            inicioPrazo: inicioPrazoOriginal, // Restaura o início do prazo original
             comDecreto: { ...semDecreto } // Reseta para o resultado do Cenário 1
         }));
     } else {
         // Se houver checkboxes marcadas, recalcula o prazo considerando os dias comprovados.
-        // A contagem sempre parte do início do prazo ORIGINAL (`inicioPrazoOriginal`).
-        // Isso garante que o recálculo seja sempre consistente, independentemente de quantos
-        // checkboxes são marcados ou desmarcados.
-        const novoResultadoComDecreto = calcularPrazoFinalDiasUteis(inicioPrazoOriginal, prazo, novosComprovados, true, true);
+        // CORREÇÃO: Recalcula o início do prazo para o caso de um decreto comprovado no início.
+        // A contagem parte da data de publicação original.
+        const { proximoDia: novoInicioDoPrazo } = getProximoDiaUtilComprovado(dataPublicacao, novosComprovados);
+
+        // Calcula o prazo final a partir do novo início de prazo.
+        const novoResultadoComDecreto = calcularPrazoFinalDiasUteis(novoInicioDoPrazo, prazo, novosComprovados, true, true);
         
         setResultado(prev => ({
             ...prev,
             // CORREÇÃO: Garante que o objeto `comDecreto` seja atualizado completamente,
             // incluindo os `diasProrrogados` que podem surgir no novo cálculo.
-            comDecreto: { ...novoResultadoComDecreto }
+            // Atualiza também o início do prazo no cenário "Com Decreto".
+            inicioPrazo: novoInicioDoPrazo,
+            comDecreto: { ...novoResultadoComDecreto },
         }));
     }
   };
@@ -883,9 +898,9 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
                                                  {resultado.suspensoesComprovaveis.some(d => d.tipo === 'feriado_cnj') && (
                                                      <label className="flex items-center p-2 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg cursor-pointer hover:bg-slate-200/70 dark:hover:bg-slate-700/50 transition-colors">
                                                          <input 
-                                                             type="checkbox" 
-                                                             checked={diasComprovados.has('2025-06-19') || diasComprovados.has('2025-06-20')} 
-                                                             onChange={() => handleComprovacaoChange('2025-06-19')} 
+                                                             type="checkbox"
+                                                             checked={diasComprovados.has(DATA_CORPUS_CHRISTI)} 
+                                                             onChange={() => handleComprovacaoChange(DATA_CORPUS_CHRISTI)} 
                                                              className="h-4 w-4 rounded border-slate-400 text-indigo-600 focus:ring-indigo-500" 
                                                          />
                                                          <span className="ml-2 text-xs text-slate-700 dark:text-slate-200">
@@ -1089,7 +1104,8 @@ const LoginPage = () => {
     const [password, setPassword] = useState('');
     const [displayName, setDisplayName] = useState('');
     const [rememberMe, setRememberMe] = useState(true);
-    const [setorId, setSetorId] = useState(''); // Novo estado para o setor
+    const [setorNome, setSetorNome] = useState(''); // Novo estado para o nome do setor
+    const [setorIdSelecionado, setSetorIdSelecionado] = useState(''); // Para o <select>
     const [isResettingPassword, setIsResettingPassword] = useState(false);
     const [error, setError] = useState('');
     const [message, setMessage] = useState('');
@@ -1154,6 +1170,11 @@ const LoginPage = () => {
             return;
         }
 
+        // Função para normalizar nomes de setores para comparação
+        const normalizeString = (str) => {
+            return str.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\w\s]/gi, '').replace(/\s+/g, ' ').trim();
+        };
+
         try {
             const finalEmail = email.includes('@') ? email : `${email}@tjpr.jus.br`;
             if (isLogin) {
@@ -1161,17 +1182,42 @@ const LoginPage = () => {
                 localStorage.setItem('lastUserEmail', finalEmail);
             } else {
                 // Validação do setor na tela de registro
-                if (!setorId) {
-                    setError("Por favor, selecione um setor.");
+                const isCreatingNew = setorIdSelecionado === '__novo__';
+                if (!isCreatingNew && !setorIdSelecionado) {
+                    setError("Por favor, selecione o seu setor.");
+                    return;
+                }
+                if (isCreatingNew && !setorNome.trim()) {
+                    setError("Por favor, digite o nome do novo setor.");
                     return;
                 }
 
+                // 1. Cria a credencial do usuário primeiro.
                 const userCredential = await auth.createUserWithEmailAndPassword(finalEmail, password);
+
+                let setorIdFinal;
+                if (isCreatingNew) {
+                    // Lógica para criar um novo setor
+                    const nomeNormalizado = normalizeString(setorNome);
+                    const setoresRef = db.collection('setores');
+                    const querySnapshot = await setoresRef.where('nomeNormalizado', '==', nomeNormalizado).limit(1).get();
+                    if (!querySnapshot.empty) {
+                        setError("Este setor já existe. Por favor, selecione-o na lista.");
+                        await userCredential.user.delete(); // Exclui o usuário recém-criado para evitar órfãos
+                        return;
+                    }
+                    const novoSetorRef = await setoresRef.add({ nome: setorNome.trim(), nomeNormalizado: nomeNormalizado });
+                    setorIdFinal = novoSetorRef.id;
+                } else {
+                    // Usa o ID do setor selecionado na lista
+                    setorIdFinal = setorIdSelecionado;
+                }
+
                 await db.collection('users').doc(userCredential.user.uid).set({ 
                     email: finalEmail, 
                     role: 'basic', 
                     displayName: displayName.trim(),
-                    setorId: setorId // Adiciona o setor selecionado
+                    setorId: setorIdFinal // Adiciona o ID do setor encontrado ou criado
                 });
 
                 // 3. Executa outras tarefas (atualizar perfil e enviar e-mail)
@@ -1260,15 +1306,22 @@ const LoginPage = () => {
                         <h2 className="text-3xl font-bold text-center text-slate-800 dark:text-slate-100">{isLogin ? 'Login' : 'Criar Conta'}</h2>
                         <form onSubmit={handleSubmit} className="space-y-4">
                             {!isLogin && <input type="text" placeholder="Nome Completo" value={displayName} onChange={e => setDisplayName(e.target.value)} required className="w-full px-4 py-3 bg-white/50 dark:bg-slate-900/50 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition" />}
-                            {!isLogin && 
-                                <>
-                                    <select value={setorId} onChange={e => setSetorId(e.target.value)} required className="w-full px-4 py-3 bg-white/50 dark:bg-slate-900/50 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition">
-                                        <option value="" disabled>Selecione um Setor</option>
-                                        {setores.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
-                                    </select>
-                                    <p className="text-xs text-center text-slate-500 dark:text-slate-400">Se o seu setor não estiver na lista, peça para um administrador cadastrá-lo.</p>
-                                </>
-                            }
+                            {!isLogin && (<>
+                                <select 
+                                    value={setorIdSelecionado} 
+                                    onChange={e => setSetorIdSelecionado(e.target.value)} 
+                                    required 
+                                    className="w-full px-4 py-3 bg-white/50 dark:bg-slate-900/50 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition"
+                                >
+                                    <option value="" disabled>Selecione seu setor...</option>
+                                    {setores.map(setor => <option key={setor.id} value={setor.id}>{setor.nome}</option>)}
+                                    <option value="__novo__" className="font-bold text-indigo-600">Não encontrou? Cadastre um novo...</option>
+                                </select>
+                                {setorIdSelecionado === '__novo__' && (
+                                    <input type="text" placeholder="Digite o nome do novo setor" value={setorNome} onChange={e => setSetorNome(e.target.value)} required className="w-full px-4 py-3 bg-white/50 dark:bg-slate-900/50 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition animate-fade-in" />
+                                )}
+                            </>
+                            )}
                             <div className="flex items-center border border-slate-300 dark:border-slate-600 rounded-lg focus-within:ring-2 focus-within:ring-indigo-500 focus-within:border-indigo-500 transition">
                                 <input type="text" placeholder="seu.usuario" value={email} onChange={e => setEmail(e.target.value)} required className="w-full px-4 py-3 bg-transparent border-0 outline-none" />
                                 <span className="px-4 py-3 bg-slate-100/50 dark:bg-slate-900/50 text-slate-500 dark:text-slate-400 rounded-r-lg">
@@ -2035,7 +2088,7 @@ const AdminPage = ({ setCurrentArea }) => {
         for (let i = 6; i >= 0; i--) {
             const d = new Date(today);
             d.setDate(today.getDate() - i);
-            const dateString = formatarData(d);
+            const dateString = formatarData(new Date(d.getFullYear(), d.getMonth(), d.getDate()));
             last7Days[dateString] = 0;
         }
         usageData.forEach(item => { const dateString = formatarData(item.timestamp.toDate()); if (dateString in last7Days) { last7Days[dateString]++; } });
