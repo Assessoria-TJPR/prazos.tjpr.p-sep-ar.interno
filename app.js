@@ -1828,11 +1828,21 @@ const AdminPage = ({ setCurrentArea }) => {
         try {
             let query = db.collection('users');
 
-            // Se o usuário for um 'setor_admin', filtra para ver apenas usuários do seu setor.
+            // Se o usuário for um 'setor_admin', ele só pode ver usuários do seu setor OU usuários sem setor.
+            // O Firestore não suporta queries com 'OU' lógicos em campos diferentes ('setorId' == X OU 'setorId' == null).
+            // A abordagem é buscar as duas listas e uni-las no cliente.
             if (adminUserData.role === 'setor_admin' && adminUserData.setorId) {
-                // Firestore exige que o primeiro orderBy seja no campo do where para consultas compostas.
-                // CORREÇÃO: Removido o orderBy para evitar a necessidade de um índice composto e resolver o erro de permissão.
-                query = query.where('setorId', '==', adminUserData.setorId);
+                const usersInSectorQuery = db.collection('users').where('setorId', '==', adminUserData.setorId).get();
+                const usersWithoutSectorQuery = db.collection('users').where('setorId', '==', null).get();
+
+                const [usersInSectorSnap, usersWithoutSectorSnap] = await Promise.all([usersInSectorQuery, usersWithoutSectorQuery]);
+                
+                const usersInSector = usersInSectorSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                const usersWithoutSector = usersWithoutSectorSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                
+                const combinedUsers = [...usersInSector, ...usersWithoutSector];
+                setAllUsersForManagement(combinedUsers);
+                return combinedUsers;
             } else {
                 query = query.orderBy('displayName');
             }
@@ -2372,8 +2382,8 @@ const AdminPage = ({ setCurrentArea }) => {
                 <thead className="text-xs text-slate-700 dark:text-slate-300 uppercase bg-slate-200/50 dark:bg-slate-800/50">
                     <tr>
                         <th className="px-4 py-3">Usuário</th>
-                        <th className="px-4 py-3">Setor</th>
                         <th className="px-4 py-3 text-center">Permissão</th>
+                        <th className="px-4 py-3">Setor</th>
                         <th className="px-4 py-3 text-right">Ações</th>
                     </tr>
                 </thead>
@@ -2388,8 +2398,8 @@ const AdminPage = ({ setCurrentArea }) => {
                                 return acc;
                             }, {})
                     ).sort(([sectorIdA], [sectorIdB]) => {
-                        if (sectorIdA === 'sem-setor') return 1;
-                        if (sectorIdB === 'sem-setor') return -1;
+                        if (sectorIdA === 'sem-setor') return -1; // Coloca "Sem Setor" no topo
+                        if (sectorIdB === 'sem-setor') return 1;
                         const setorA = setores.find(s => s.id === sectorIdA)?.nome || '';
                         const setorB = setores.find(s => s.id === sectorIdB)?.nome || '';
                         return setorA.localeCompare(setorB);
@@ -2399,7 +2409,7 @@ const AdminPage = ({ setCurrentArea }) => {
                         const isExpanded = expandedUserSectors.has(sectorId);
                         return (
                             <React.Fragment key={sectorId}>
-                                <tr className="bg-slate-100/70 dark:bg-slate-900/50 border-b border-slate-200/50 dark:border-slate-700/50 cursor-pointer" onClick={() => toggleUserSectorExpansion(sectorId)}>
+                                <tr className="bg-slate-100/70 dark:bg-slate-900/50 border-y border-slate-200/50 dark:border-slate-700/50 cursor-pointer" onClick={() => toggleUserSectorExpansion(sectorId)}>
                                     <td colSpan="4" className="px-4 py-2 font-bold text-slate-700 dark:text-slate-200 flex items-center gap-2">
                                         <svg xmlns="http://www.w3.org/2000/svg" className={`h-4 w-4 text-slate-500 transition-transform ${isExpanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
                                         {sectorName} ({users.length})
@@ -2408,6 +2418,16 @@ const AdminPage = ({ setCurrentArea }) => {
                                 {isExpanded && users.map(u => (
                                     <tr key={u.id} className="border-b border-slate-200/50 dark:border-slate-700/50 last:border-b-0 animate-fade-in">
                                         <td className="px-4 py-3 font-medium">{u.displayName || 'Não definido'}<br/><span className="text-xs text-slate-500">{u.email}</span></td>
+                                        <td className="px-4 py-3 text-center">
+                                            <span className={`inline-block px-2 py-1 text-xs font-semibold rounded-full ${
+                                                u.role === 'admin' ? 'bg-red-200 text-red-800 dark:bg-red-900/50 dark:text-red-300' :
+                                                u.role === 'setor_admin' ? 'bg-purple-200 text-purple-800 dark:bg-purple-900/50 dark:text-purple-300' :
+                                                u.role === 'intermediate' ? 'bg-blue-200 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300' :
+                                                'bg-slate-200 text-slate-800 dark:bg-slate-700 dark:text-slate-300'
+                                            }`}>
+                                                {u.role === 'admin' ? 'Admin Global' : u.role === 'setor_admin' ? 'Chefe de Gabinete' : u.role === 'intermediate' ? 'Intermediário' : 'Básico'}
+                                            </span>
+                                        </td>
                                         <td className="px-4 py-3" style={{ minWidth: '200px' }}>
                                             <select value={u.setorId || ''} onChange={(e) => handleSectorChange(u.id, e.target.value)} className="w-full p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700">
                                                 <option value="">Nenhum</option>
@@ -2416,10 +2436,6 @@ const AdminPage = ({ setCurrentArea }) => {
                                             <span className={`mt-1 inline-block px-2 py-0.5 text-xs font-semibold rounded-full ${u.emailVerified ? 'bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300' : 'bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300'}`}>
                                                 {u.emailVerified ? 'Verificado' : 'Não Verificado'}
                                             </span>
-                                        </td>
-                                        <td className="px-4 py-3 text-center">
-                                            {!u.emailVerified && <button onClick={() => handleManualVerification(u.id)} className="px-2 py-1 text-xs font-semibold bg-green-600 text-white rounded-lg hover:bg-green-700">Verificar Manualmente</button>}
-                                            {u.emailVerified && <button onClick={() => handleManualPasswordReset(u)} className="mt-1 px-2 py-1 text-xs font-semibold bg-blue-600 text-white rounded-lg hover:bg-blue-700">Resetar Senha</button>}
                                         </td>
                                         <td className="px-4 py-3 text-right">
                                             <button onClick={() => handleOpenUserManagementModal(u)} className="font-semibold text-indigo-600 hover:text-indigo-500">Gerenciar</button>
