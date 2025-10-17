@@ -1,45 +1,5 @@
-// For Firebase JS SDK v7.20.0 and later, measurementId is optional
-const firebaseConfig = {
-  apiKey: "AIzaSyD1ApCkzPbBRNJUCkAGet9DBKb1uE9O1Bo",
-  authDomain: "djen-com-minuta.firebaseapp.com",
-  projectId: "djen-com-minuta",
-  storageBucket: "djen-com-minuta.firebasestorage.app",
-  messagingSenderId: "498664224312",
-  appId: "1:498664224312:web:6de6a453d9e36138a398cd",
-  measurementId: "G-MCV0ZCD3Y1"
-};
-
-// Inicializa o Firebase
-let app;
-try {
-    app = firebase.initializeApp(firebaseConfig);
-} catch (e) {
-    console.error("Erro ao inicializar o Firebase:", e);
-}
-
-const auth = app ? firebase.auth() : null;
-const db = app ? firebase.firestore() : null;
-const storage = app ? firebase.storage() : null;
-
-const { useState, useEffect, useCallback, createContext, useContext, useRef } = React;
+const { useState, useEffect, useCallback, createContext, useContext, useRef, useMemo } = React;
 const { Bar, HorizontalBar } = window.ReactChartjs2;
-
-// --- Função Auxiliar de Formatação de Data ---
-const formatarData = (date) => {
-    if (!date || !(date instanceof Date) || isNaN(date)) return '';
-
-    // Usa os métodos getUTC* para evitar problemas com fuso horário.
-    // Isso garante que a data exibida corresponda à data pretendida,
-    // independentemente da localização do usuário.
-    const dia = String(date.getUTCDate()).padStart(2, '0');
-    const mes = String(date.getUTCMonth() + 1).padStart(2, '0'); // Mês é base 0
-    const ano = date.getUTCFullYear();
-
-    return `${dia}/${mes}/${ano}`;
-};
-
-// --- Contexto de Configurações ---
-const SettingsContext = createContext(null);
 
 const SettingsProvider = ({ children }) => {
     const [settings, setSettings] = useState({
@@ -121,7 +81,7 @@ const SettingsProvider = ({ children }) => {
 
             } catch (error) { console.error("Erro ao carregar calendário da coleção:", error); updateSettings({ calendarLoading: false }); }
         }
-    }, []);
+    }, [db]); // A dependência agora é `db`, que é estável.
 
     const updateSettings = (newSettings) => {
         const updated = { ...settings, ...newSettings };
@@ -130,9 +90,11 @@ const SettingsProvider = ({ children }) => {
     };
 
     useEffect(() => {
-        // Carrega os dados do calendário do Firestore na montagem inicial
-        fetchCalendarData();
-    }, []);
+        // Carrega os dados do calendário do Firestore assim que `db` estiver disponível.
+        if (db) {
+            fetchCalendarData();
+        }
+    }, [db, fetchCalendarData]);
 
     useEffect(() => {
         // Aplica o tema
@@ -144,9 +106,6 @@ const SettingsProvider = ({ children }) => {
     const value = { settings, updateSettings, refreshCalendar: fetchCalendarData };
     return <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>;
 };
-
-// --- Contexto de Autenticação ---
-const AuthContext = createContext(null);
 
 const AuthProvider = ({ children }) => {
     const [user, setUser] = useState(null);
@@ -228,11 +187,6 @@ const AuthProvider = ({ children }) => {
     return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
 
-const useAuth = () => {
-    return useContext(AuthContext);
-};
-
-
 // --- Componentes ---
 
 const ConsultaAssistidaPJE = ({ numeroProcesso, setNumeroProcesso }) => {
@@ -301,8 +255,7 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
   const [dataInterposicao, setDataInterposicao] = useState('');
   const [tempestividade, setTempestividade] = useState(null);
   const [error, setError] = useState('');
-  const { user } = useAuth();
-  const { userData, isAdmin } = useAuth();
+  const { user, userData } = useAuth();
   const { feriadosMap, decretosMap, instabilidadeMap, recessoForense, calendarLoading } = settings;
 
   const getMotivoDiaNaoUtil = (date, considerarDecretos, tipo = 'todos') => {
@@ -747,13 +700,13 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
   `;
 
   // Função para gerar um arquivo .doc a partir de um conteúdo HTML
-  const generateDocFromHtml = (bodyHtml, outputFileName) => {
+  const generateDocFromHtml = (bodyHtml, minutaType, placeholders, outputFileName) => {
     try {
         // Estilos comuns para os parágrafos
         const pStyle = "text-align: justify; text-indent: 50px; margin-bottom: 1em;";
         const pCenterStyle = "text-align: center; margin: 0;";
         const sourceHTML = getDocTemplate(bodyHtml, pStyle, pCenterStyle);
-
+ 
         const blob = new Blob([sourceHTML], { type: 'application/msword' });
         saveAs(blob, outputFileName);
     } catch (err) {
@@ -786,9 +739,19 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
         <p style="${pStyle}">(AgInt no AREsp n. 2.039.729/RS, relator Ministro Moura Ribeiro, Terceira Turma, julgado em 9/5/2022, DJe de 11/5/2022.)</p>
         <p style="${pStyle}">Diante do exposto, inadmito o recurso especial interposto.</p>
     `;
+    const placeholders = {
+        '{{numeroProcesso}}': numeroProcesso || '<span style="color: red;">[Nº Processo]</span>',
+        '{{movAcordao}}': '<span style="color: red;">[Mov. Acórdão]</span>',
+        '{{dataDisponibilizacao}}': dataDispStr,
+        '{{dataPublicacao}}': dataPubStr,
+        '{{inicioPrazo}}': inicioPrazoStr,
+        '{{dataInterposicao}}': dataInterposicaoStr,
+        '{{prazoDias}}': prazoSelecionado,
+    };
 
     generateDocFromHtml(
         corpoMinuta,
+        'intempestividade',
         `Minuta_Intempestividade_${numeroProcesso.replace(/\D/g, '') || 'processo'}.doc`
     );
   };
@@ -800,6 +763,7 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
     `;
     generateDocFromHtml(
         corpoMinuta,
+        'intimacao_decreto',
         `Minuta_Intimacao_Decreto_${numeroProcesso.replace(/\D/g, '') || 'processo'}.doc`
     );
   };
@@ -820,9 +784,20 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
         <p style="${pStyle}">"PROCESSUAL CIVIL. AGRAVO INTERNO NO AGRAVO EM RECURSO ESPECIAL. INTEMPESTIVIDADE DO RECURSO ESPECIAL. INCIDÊNCIA DO CPC DE 2015. FERIADO LOCAL E/OU SUSPENSÃO DE EXPEDIENTE FORENSE. QUESTÃO DE ORDEM NO ARESP 2.638.376/MG. ART. 1.003, § 6º, DO CPC/2015. INTIMAÇÃO PARA COMPROVAÇÃO POSTERIOR. DECURSO DO PRAZO. AGRAVO INTERNO DESPROVIDO. 1. A agravante foi intimada, nos termos da Questão de Ordem lavrada pela Corte Especial do Superior Tribunal de Justiça, no AREsp 2.638.376/MG, para comprovar, no prazo de 5 (cinco) dias úteis, a ocorrência de feriado local ou a suspensão de expediente forense, em consonância com a nova redação conferida pela Lei 14.939 /2024, ao art. 1.003, § 6º, do CPC, tendo deixado, contudo transcorrer in albis o prazo assinalado, conforme certidão de fl. 765. 2. Na hipótese dos autos, portanto, como não houve a juntada de documento comprobatório durante o iter processual, não é possível superar a intempestividade do apelo nobre. 3. Agravo interno a que se nega provimento." (AgInt no AREsp n. 2.710.026/MT, relator Ministro Raul Araújo, Quarta Turma, julgado em 14/4/2025, DJEN de 25/4/2025.)</p>
         <p style="${pStyle}">Diante do exposto, inadmito o recurso especial interposto.</p>
     `;
+    const placeholders = {
+        '{{camara}}': '<span style="color: red;">[Nº da Câmara]</span>',
+        '{{recursoApelacao}}': '<span style="color: red;">[Tipo e Mov. do Recurso]</span>',
+        '{{dataLeitura}}': dataLeituraStr,
+        '{{movIntimacao}}': '<span style="color: red;">[Mov. Intimação]</span>',
+        '{{inicioPrazo}}': inicioPrazoStr,
+        '{{prazoFinal}}': prazoFinalStr,
+        '{{movDespacho}}': '<span style="color: red;">[Mov. Despacho]</span>',
+        '{{movCertidao}}': '<span style="color: red;">[Mov. Certidão]</span>',
+    };
 
     generateDocFromHtml(
         corpoMinuta,
+        'falta_decreto',
         `Minuta_Intempestivo_Falta_Decreto_${numeroProcesso.replace(/\D/g, '') || 'processo'}.doc`
     );
   };
@@ -1192,22 +1167,33 @@ const LoginPage = () => {
                     return;
                 }
 
-                // 1. Cria a credencial do usuário primeiro.
-                const userCredential = await auth.createUserWithEmailAndPassword(finalEmail, password);
-
                 let setorIdFinal;
+                let userCredential;
+
+                // Cria o usuário primeiro para ter o UID
+                userCredential = await auth.createUserWithEmailAndPassword(finalEmail, password);
+
                 if (isCreatingNew) {
-                    // Lógica para criar um novo setor
+                    // Lógica para criar um novo setor usando uma transação em lote (batch)
                     const nomeNormalizado = normalizeString(setorNome);
-                    const setoresRef = db.collection('setores');
-                    const querySnapshot = await setoresRef.where('nomeNormalizado', '==', nomeNormalizado).limit(1).get();
-                    if (!querySnapshot.empty) {
-                        setError("Este setor já existe. Por favor, selecione-o na lista.");
-                        await userCredential.user.delete(); // Exclui o usuário recém-criado para evitar órfãos
-                        return;
+                    
+                    if (userCredential?.user) {
+                        // Prepara a transação em lote
+                        const batch = db.batch();
+
+                        // 1. Documento do novo setor
+                        const novoSetorRef = db.collection('setores').doc(); // Gera um ID automaticamente
+                        batch.set(novoSetorRef, { nome: setorNome.trim(), nomeNormalizado: nomeNormalizado });
+
+                        // 2. Documento de bloqueio para garantir unicidade do nome
+                        const nomeUnicoRef = db.collection('setorNomesUnicos').doc(nomeNormalizado);
+                        batch.set(nomeUnicoRef, { setorId: novoSetorRef.id });
+
+                        // Executa a transação
+                        await batch.commit();
+
+                        setorIdFinal = novoSetorRef.id; // Usa o ID gerado
                     }
-                    const novoSetorRef = await setoresRef.add({ nome: setorNome.trim(), nomeNormalizado: nomeNormalizado });
-                    setorIdFinal = novoSetorRef.id;
                 } else {
                     // Usa o ID do setor selecionado na lista
                     setorIdFinal = setorIdSelecionado;
@@ -1232,6 +1218,11 @@ const LoginPage = () => {
                 case 'auth/user-not-found': setError('Nenhuma conta encontrada com este e-mail. Verifique o e-mail ou crie uma nova conta.'); break;
                 case 'auth/wrong-password': setError('Palavra-passe incorreta. Tente novamente ou redefina a sua palavra-passe.'); break;
                 case 'auth/weak-password': setError('A palavra-passe deve ter pelo menos 6 caracteres.'); break;
+                case 'permission-denied': 
+                    setError('Permissão negada. É provável que o nome do setor que você tentou criar já exista.');
+                    // Se a criação do setor falhou, o usuário pode ter sido criado. Tentamos deletá-lo.
+                    if (auth.currentUser && auth.currentUser.email === finalEmail) await auth.currentUser.delete();
+                    break;
                 case 'auth/invalid-email': setError('O formato do e-mail é inválido.'); break;
                 default: setError('Ocorreu um erro. Tente novamente.'); 
                     console.error("Erro de autenticação:", err);
@@ -1505,231 +1496,6 @@ const CalendarioModal = ({ onClose }) => {
     );
 };
 
-const CalendarioAdminPage = () => {
-    const { refreshCalendar } = useContext(SettingsContext);
-    const [config, setConfig] = useState(null);
-    const [allEntries, setAllEntries] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState('');
-    const [isSaving, setIsSaving] = useState(false);
-    const [editando, setEditando] = useState(null); // Guarda o item sendo editado
-    const [novaEntrada, setNovaEntrada] = useState({ data: '', motivo: '', tipo: 'feriado' });
-
-    const fetchCalendarConfig = useCallback(async () => {
-        setLoading(true);
-        try {
-            const docRef = db.collection('configuracoes').doc('calendario');
-            const doc = await docRef.get();
-            if (!doc.exists) {
-                setError("Documento de configuração do calendário não encontrado.");
-                setLoading(false);
-                return;
-            }
-            const data = doc.data();
-            setConfig(data);
-
-            // Processa os dados para uma lista única para a UI
-            const year = new Date().getFullYear();
-            const entries = [];
-            // Adiciona feriados recorrentes
-            data.feriadosNacionaisRecorrentes?.forEach(f => {
-                const dataStr = `${year}-${String(f.mes).padStart(2, '0')}-${String(f.dia).padStart(2, '0')}`;
-                entries.push({ id: dataStr, data: dataStr, motivo: f.motivo, tipo: 'feriado', isRecurring: true });
-            });
-            // Adiciona exceções anuais
-            Object.keys(data.excecoesAnuais || {}).forEach(yearKey => {
-                data.excecoesAnuais[yearKey].forEach(e => {
-                    entries.push({ id: e.data, data: e.data, motivo: e.motivo, tipo: e.tipo, isRecurring: false });
-                });
-            });
-            
-            entries.sort((a, b) => new Date(a.data) - new Date(b.data));
-            setAllEntries(entries);
-
-        } catch (err) {
-            setError('Falha ao carregar a configuração do calendário.');
-            console.error(err);
-        } finally {
-            setLoading(false);
-        }
-    }, []);
-
-    useEffect(() => {
-        fetchCalendarConfig();
-    }, [fetchCalendarConfig]);
-
-    const handleSave = async (e) => {
-        e.preventDefault();
-        const item = editando || novaEntrada;
-        if (!item.data || !item.motivo || !item.tipo) {
-            setError('Todos os campos são obrigatórios.');
-            return;
-        }
-
-        setIsSaving(true);
-        setError('');
-        const updatedConfig = JSON.parse(JSON.stringify(config)); // Deep copy
-        const year = item.data.split('-')[0];
-
-        // Remove a entrada antiga se estiver editando
-        if (editando) {
-            const oldYear = editando.id.split('-')[0];
-            if (updatedConfig.excecoesAnuais[oldYear]) {
-                updatedConfig.excecoesAnuais[oldYear] = updatedConfig.excecoesAnuais[oldYear].filter(ex => ex.data !== editando.id);
-            }
-        }
-
-        // Adiciona a nova/atualizada entrada
-        if (!updatedConfig.excecoesAnuais[year]) {
-            updatedConfig.excecoesAnuais[year] = [];
-        }
-        updatedConfig.excecoesAnuais[year].push({ data: item.data, motivo: item.motivo, tipo: item.tipo });
-        updatedConfig.excecoesAnuais[year].sort((a, b) => new Date(a.data) - new Date(b.data));
-
-        try {
-            await db.collection('configuracoes').doc('calendario').set(updatedConfig);
-            setNovaEntrada({ data: '', motivo: '', tipo: 'feriado' });
-            setEditando(null);
-            await fetchCalendarConfig(); // Recarrega tudo
-            await refreshCalendar();
-        } catch (err) {
-            setError('Falha ao salvar a entrada.');
-            console.error(err);
-        } finally {
-            setIsSaving(false);
-        }
-    };
-
-    const handleDelete = async (itemToDelete) => {
-        if (itemToDelete.isRecurring) {
-            alert("Feriados nacionais recorrentes não podem ser excluídos por esta interface.");
-            return;
-        }
-        if (!window.confirm(`Tem certeza que deseja excluir a entrada para ${itemToDelete.data}?`)) return;
-
-        setIsSaving(true);
-        const updatedConfig = JSON.parse(JSON.stringify(config));
-        const year = itemToDelete.data.split('-')[0];
-
-        if (updatedConfig.excecoesAnuais[year]) {
-            updatedConfig.excecoesAnuais[year] = updatedConfig.excecoesAnuais[year].filter(ex => ex.data !== itemToDelete.data);
-        }
-
-        try {
-            await db.collection('configuracoes').doc('calendario').set(updatedConfig);
-            await fetchCalendarConfig();
-            await refreshCalendar();
-        } catch (err) {
-            setError('Falha ao excluir a entrada.');
-            console.error(err);
-        } finally {
-            setIsSaving(false);
-        }
-    };
-
-    const handleInputChange = (e) => {
-        const { name, value } = e.target;
-        if (editando) {
-            setEditando(prev => ({ ...prev, [name]: value }));
-        } else {
-            setNovaEntrada(prev => ({ ...prev, [name]: value }));
-        }
-    };
-
-    const renderForm = () => {
-        const item = editando || novaEntrada;
-        return (
-            <form onSubmit={handleSave} className="p-6 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg space-y-4">
-                <h3 className="text-xl font-bold text-slate-800 dark:text-slate-100">{editando ? `Editando ${editando.id}` : 'Adicionar Nova Data'}</h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div>
-                        <label className="text-xs font-medium text-slate-500">Data</label>
-                        <input type="date" name="data" value={item.data} onChange={handleInputChange} disabled={!!editando} required className="w-full mt-1 p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700 disabled:bg-slate-200 dark:disabled:bg-slate-800"/>
-                    </div>
-                    <div className="md:col-span-2">
-                        <label className="text-xs font-medium text-slate-500">Motivo</label>
-                        <input type="text" name="motivo" value={item.motivo} onChange={handleInputChange} required className="w-full mt-1 p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700"/>
-                    </div>
-                    <div>
-                        <label className="text-xs font-medium text-slate-500">Tipo</label>
-                        <select name="tipo" value={item.tipo} onChange={handleInputChange} required className="w-full mt-1 p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700">
-                            <option value="feriado">Feriado</option>
-                            <option value="decreto">Decreto</option>
-                            <option value="instabilidade">Instabilidade</option>
-                        </select>
-                    </div>
-                </div>
-                <div className="flex justify-end gap-3">
-                    {editando && <button type="button" onClick={() => setEditando(null)} className="px-4 py-2 text-sm font-semibold bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300">Cancelar</button>}
-                    <button type="submit" disabled={isSaving} className="px-4 py-2 text-sm font-semibold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50">
-                        {isSaving ? 'Salvando...' : 'Salvar'}
-                    </button>
-                </div>
-                {error && <p className="text-sm text-red-500">{error}</p>}
-            </form>
-        );
-    };
-
-    return (
-        <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-xl p-6 sm:p-8 rounded-2xl shadow-lg border border-slate-200/50 dark:border-slate-700/50 space-y-6">
-            <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Gerenciamento do Calendário</h2>
-            {renderForm()}
-            <div className="space-y-8">
-                {loading ? (
-                    <p className="text-center text-slate-500 dark:text-slate-400">Carregando calendário...</p>
-                ) : (
-                    ['feriado', 'decreto', 'instabilidade'].map(tipo => {
-                        const itemsFiltrados = allEntries.filter(item => item.tipo === tipo);
-                        if (itemsFiltrados.length === 0) return null;
-
-                        const titulos = { feriado: 'Feriados', decreto: 'Decretos', instabilidade: 'Instabilidades' };
-                        const tituloCores = {
-                            feriado: 'text-blue-700 dark:text-blue-400',
-                            decreto: 'text-red-700 dark:text-red-400',
-                            instabilidade: 'text-amber-600 dark:text-amber-400'
-                        };
-
-                        return (
-                            <div key={tipo} className="space-y-3">
-                                <h3 className={`text-xl font-bold ${tituloCores[tipo]}`}>{titulos[tipo]}</h3>
-                                <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700">
-                                    <table className="w-full text-sm text-left">
-                                        <thead className="text-xs text-slate-700 dark:text-slate-300 uppercase bg-slate-200/50 dark:bg-slate-800/50">
-                                            <tr>
-                                                <th className="px-4 py-3">Data</th>
-                                                <th className="px-4 py-3">Motivo</th>
-                                                <th className="px-4 py-3 text-right">Ações</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {itemsFiltrados.map(item => (
-                                                <tr key={item.id} className="border-b border-slate-200/50 dark:border-slate-700/50 last:border-b-0">
-                                                    <td className="px-4 py-3 font-medium">{formatarData(new Date(item.data + 'T00:00:00'))}</td>
-                                                    <td className="px-4 py-3">{item.motivo}</td>
-                                                    <td className="px-4 py-3 text-right space-x-2">
-                                                        {item.isRecurring ? (
-                                                            <span className="text-xs text-slate-400 italic">Fixo</span>
-                                                        ) : (
-                                                            <>
-                                                                <button onClick={() => setEditando(item)} className="font-semibold text-indigo-600 hover:text-indigo-500">Editar</button>
-                                                                <button onClick={() => handleDelete(item)} className="font-semibold text-red-600 hover:text-red-500">Excluir</button>
-                                                            </>
-                                                        )}
-                                                    </td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                        );
-                    })
-                )}
-            </div>
-        </div>
-    );
-}
-
 const Avatar = ({ user, userData, size = 'h-8 w-8' }) => {
     if (!user || !userData) return null;
 
@@ -1761,10 +1527,10 @@ const AdminPage = ({ setCurrentArea }) => {
      const [statsView, setStatsView] = useState('calculadora'); // 'calculadora' ou 'djen_consulta'
      const [allData, setAllData] = useState([]);
      const [viewData, setViewData] = useState([]);
-     const [filteredData, setFilteredData] = useState([]);
-     const [loading, setLoading] = useState(true);
-     const [filters, setFilters] = useState({ startDate: '', endDate: '', email: 'todos', materia: 'todos', prazo: 'todos', userId: '' });
-     const [allUsers, setAllUsers] = useState([]);
+    const [filteredData, setFilteredData] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [filters, setFilters] = useState({ startDate: '', endDate: '', email: 'todos', materia: 'todos', prazo: 'todos', userId: '', setorId: 'todos' });
+    const [allUsers, setAllUsers] = useState([]);
      const [hasSearched, setHasSearched] = useState(false);
      const [currentPage, setCurrentPage] = useState(1);
      const [selectedUserForStats, setSelectedUserForStats] = useState(null);
@@ -1786,42 +1552,40 @@ const AdminPage = ({ setCurrentArea }) => {
         if (!db) { setLoading(false); return; }
         setLoading(true);
 
-        // CORREÇÃO: A lógica de busca foi reestruturada para ser mais segura e evitar erros de permissão.
         const loadAdminData = async () => {
             try {
-                // 1. Busca os usuários que o admin atual tem permissão para ver.
-                const usersList = await fetchAllUsersForManagement();
+                // 1. Busca usuários e setores em paralelo
+                const [usersList, _] = await Promise.all([
+                    fetchAllUsersForManagement(),
+                    fetchSetores()
+                ]);
                 if (!isMounted) return;
 
-                // 2. Busca os setores que o admin pode ver.
-                await fetchSetores();
-                if (!isMounted) return;
-
-                // 3. Busca as estatísticas de uso.
+                // 2. Busca todas as estatísticas de uso
                 const usageSnapshot = await db.collection('usageStats').orderBy('timestamp', 'desc').get();
                 if (!isMounted) return;
 
                 let usageData = usageSnapshot.docs.map(doc => ({id: doc.id, ...doc.data()}));
                 const usersMap = usersList.reduce((acc, user) => { acc[user.id] = user; return acc; }, {});
 
-                // 4. Filtra as estatísticas para o Chefe de Gabinete.
+                // 3. Filtra estatísticas para Chefe de Setor
                 if (adminUserData.role === 'setor_admin' && adminUserData.setorId) {
-                    const userIdsInSector = usersList.map(u => u.id);
-                    usageData = usageData.filter(d => userIdsInSector.includes(d.userId));
+                    const userIdsInSector = new Set(usersList.filter(u => u.setorId === adminUserData.setorId).map(u => u.id));
+                    usageData = usageData.filter(d => userIdsInSector.has(d.userId));
                 }
 
                 const enrichedData = usageData.map(d => ({...d, userName: usersMap[d.userId]?.displayName || usersMap[d.userId]?.email || d.userEmail }));
                 
                 setAllData(enrichedData);
                 setAllUsers([...new Set(enrichedData.map(item => item.userName))].filter(Boolean).sort());
-                setLoading(false);
 
-            } catch (err) { console.error("Firebase query error:", err); if(isMounted) setLoading(false); }
+            } catch (err) { console.error("Firebase query error:", err); }
+            finally { if(isMounted) setLoading(false); }
         };
 
         loadAdminData();
         return () => { isMounted = false; };
-     }, [adminUserData]); // Re-executa se o usuário admin mudar
+     }, [adminUserData]);
 
      const fetchAllUsersForManagement = async () => {
         setUserManagementLoading(true);
@@ -2057,12 +1821,25 @@ const AdminPage = ({ setCurrentArea }) => {
         // Filtra os dados brutos com base na visualização selecionada (Calculadora ou Consulta)
         const dataForView = allData.filter(item => (item.type || 'calculadora') === statsView);
         setViewData(dataForView);
-        // Reseta os filtros e resultados ao trocar de aba
         setHasSearched(false);
         setFilteredData([]);
+        setAllUsers([...new Set(dataForView.map(item => item.userName))].filter(Boolean).sort());
     }, [statsView, allData]);
 
-    const handleFilter = () => {
+    // Filtra a lista de usuários disponíveis no dropdown quando um setor é selecionado
+    const usersForFilterDropdown = useMemo(() => {
+        if (filters.setorId === 'todos') return allUsers;
+        const userIdsInSector = new Set(allUsersForManagement.filter(u => u.setorId === filters.setorId).map(u => u.id));
+        const usersInSectorData = allData.filter(d => userIdsInSector.has(d.userId));
+        return [...new Set(usersInSectorData.map(d => d.userName || d.userEmail))].filter(Boolean).sort();
+    }, [filters.setorId, allUsers, allUsersForManagement, allData]);
+
+    const handleFilter = async () => {
+        if (!db) return;
+        setLoading(true);
+        setHasSearched(true);
+
+        // Reverte para a filtragem no cliente
         let usageData = viewData.filter(item => {
             const itemDate = item.timestamp.toDate();
             if (filters.startDate) {
@@ -2071,20 +1848,23 @@ const AdminPage = ({ setCurrentArea }) => {
             }
             if (filters.endDate) {
                 const endDate = new Date(filters.endDate);
-                // Ajusta a data final para o fim do dia (23:59:59) para incluir todos os registros do dia selecionado.
                 endDate.setHours(23, 59, 59, 999);
                 if (itemDate > endDate) return false;
             }
             if(filters.materia !== 'todos' && item.materia !== filters.materia) return false;
             if(filters.prazo !== 'todos' && item.prazo != filters.prazo) return false;
             if(filters.email !== 'todos' && (item.userName !== filters.email && item.userEmail !== filters.email)) return false;
+            if (filters.setorId !== 'todos') {
+                const user = allUsersForManagement.find(u => u.id === item.userId);
+                if (!user || user.setorId !== filters.setorId) return false;
+            }
             if(filters.userId && item.userId !== filters.userId) return false;
             return true;
         });
+
         setCurrentPage(1);
         setSelectedUserForStats(null);
         setFilteredData(usageData);
-        setHasSearched(true); // Marca que uma busca foi feita
 
         const summary = {
             total: usageData.length,
@@ -2104,6 +1884,7 @@ const AdminPage = ({ setCurrentArea }) => {
         usageData.forEach(item => { const dateString = formatarData(item.timestamp.toDate()); if (dateString in last7Days) { last7Days[dateString]++; } });
         summary.byDay = last7Days
         setStats(summary);
+        setLoading(false);
     };
 
     const handleUserClick = (userEmail) => {
@@ -2132,14 +1913,13 @@ const AdminPage = ({ setCurrentArea }) => {
         XLSX.writeFile(workbook, "relatorio_calculadora_prazos.xlsx");
     };
 
-    const topUsers = Object.entries(
+    const topUsers = useMemo(() => Object.entries(
         viewData.reduce((acc, curr) => {
-            if(curr.userName || curr.userEmail) acc[curr.userName || curr.userEmail] = (acc[curr.userName || curr.userEmail] || 0) + 1;
+            if (curr.userName || curr.userEmail) acc[curr.userName || curr.userEmail] = (acc[curr.userName || curr.userEmail] || 0) + 1;
             return acc;
-        }, {})
-    ).sort(([, a], [, b]) => b - a).slice(0, 10);
+        }, {})).sort(([, a], [, b]) => b - a).slice(0, 10), [viewData]);
 
-    const paginatedData = filteredData.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
+    const paginatedData = hasSearched ? filteredData.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE) : [];
     const totalPages = Math.ceil(filteredData.length / ITEMS_PER_PAGE);
 
     const chartDataMateria = { labels: ['Cível', 'Crime'], datasets: [{ data: [stats.perMateria.civel || 0, stats.perMateria.crime || 0], backgroundColor: ['#6366F1', '#F59E0B'] }] };
@@ -2196,8 +1976,9 @@ const AdminPage = ({ setCurrentArea }) => {
                     <button onClick={() => setAdminSection('users')} className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors ${adminSection === 'users' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>
                         {adminUserData.role === 'setor_admin' ? 'Usuários' : 'Usuários e Setores'}
                     </button>
+                    {(adminUserData.role === 'admin' || adminUserData.role === 'setor_admin') && <button onClick={() => setAdminSection('minutas')} className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors ${adminSection === 'minutas' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>Gerir Minutas</button>}
                     {adminUserData.role === 'admin' && <button onClick={() => setAdminSection('calendar')} className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors ${adminSection === 'calendar' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>Gerir Calendário</button>}
-                    {adminUserData.role === 'admin' && <button onClick={() => setCurrentArea('Chamados')} className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors bg-amber-500 text-white hover:bg-amber-600`}>Chamados</button>}
+                    {adminUserData.role === 'admin' && <button onClick={() => setAdminSection('chamados')} className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors ${adminSection === 'chamados' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>Chamados</button>}
                 </div>
             </div>
 
@@ -2233,13 +2014,22 @@ const AdminPage = ({ setCurrentArea }) => {
             
             <div className="p-4 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg space-y-4">
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 items-end">
-                    <div><label className="text-xs font-medium text-slate-500">Data Inicial</label><input type="date" name="startDate" value={filters.startDate} onChange={handleFilterChange} className="w-full mt-1 p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700"/></div>
-                    <div><label className="text-xs font-medium text-slate-500">Data Final</label><input type="date" name="endDate" value={filters.endDate} onChange={handleFilterChange} className="w-full mt-1 p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700"/></div>
+                    <div><label className="text-xs font-medium text-slate-500">Data Inicial</label><input type="date" name="startDate" value={filters.startDate} onChange={handleFilterChange} className="w-full mt-1 p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700" /></div>
+                    <div><label className="text-xs font-medium text-slate-500">Data Final</label><input type="date" name="endDate" value={filters.endDate} onChange={handleFilterChange} className="w-full mt-1 p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700" /></div>
                     {statsView === 'calculadora' && <>
                         <div><label className="text-xs font-medium text-slate-500">Matéria</label><select name="materia" value={filters.materia} onChange={handleFilterChange} className="w-full mt-1 p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700"><option value="todos">Todas</option><option value="civel">Cível</option><option value="crime">Crime</option></select></div>
                         <div><label className="text-xs font-medium text-slate-500">Prazo</label><select name="prazo" value={filters.prazo} onChange={handleFilterChange} className="w-full mt-1 p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700"><option value="todos">Todos</option><option value="5">5 Dias</option><option value="15">15 Dias</option></select></div>
                     </>}
-                    <div className="lg:col-span-full"><label className="text-xs font-medium text-slate-500">Utilizador</label><select name="email" value={filters.email} onChange={handleFilterChange} className="w-full mt-1 p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700"><option value="todos">Todos</option>{allUsers.map(u => <option key={u} value={u}>{u}</option>)}</select></div>
+                    {adminUserData.role === 'admin' && (
+                        <div>
+                            <label className="text-xs font-medium text-slate-500">Setor</label>
+                            <select name="setorId" value={filters.setorId} onChange={handleFilterChange} className="w-full mt-1 p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700">
+                                <option value="todos">Todos</option>
+                                {setores.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
+                            </select>
+                        </div>
+                    )}
+                    <div className="lg:col-span-full"><label className="text-xs font-medium text-slate-500">Utilizador</label><select name="email" value={filters.email} onChange={handleFilterChange} className="w-full mt-1 p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700"><option value="todos">Todos</option>{usersForFilterDropdown.map(u => <option key={u} value={u}>{u}</option>)}</select></div>
                 </div>
                 <div className="border-t border-slate-200 dark:border-slate-700 pt-4">
                      <label className="text-xs font-medium text-slate-500">Pesquisar por ID do Utilizador</label>
@@ -2260,9 +2050,11 @@ const AdminPage = ({ setCurrentArea }) => {
             </div>
 
             {!hasSearched ? (
-                <div className="text-center p-8 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg"><p className="text-slate-500 dark:text-slate-400">Selecione os filtros e clique em "Filtrar" para ver os resultados.</p></div>
+                <div className="text-center p-8 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg"><p className="text-slate-500 dark:text-slate-400">Os gráficos acima mostram o uso geral. Use os filtros para ver detalhes.</p></div>
             ) : filteredData.length === 0 ? (
-                <div className="text-center p-8 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg"><p className="text-slate-500 dark:text-slate-400">Nenhum resultado encontrado para os filtros selecionados.</p></div>
+                <div className="text-center p-8 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg">
+                    {loading ? <p className="text-slate-500 dark:text-slate-400">Buscando dados...</p> : <p className="text-slate-500 dark:text-slate-400">Nenhum resultado encontrado para os filtros selecionados.</p>}
+                </div>
             ) : (
                 <>
                     <div className="space-y-6">
@@ -2311,6 +2103,12 @@ const AdminPage = ({ setCurrentArea }) => {
         )}
         {adminSection === 'calendar' && (
             <CalendarioAdminPage />
+        )}
+        {adminSection === 'chamados' && (
+            <BugReportsPage />
+        )}
+        {adminSection === 'minutas' && (
+            <MinutasAdminPage />
         )}
         {adminSection === 'users' && (<div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-xl p-6 sm:p-8 rounded-2xl shadow-lg border border-slate-200/50 dark:border-slate-700/50 space-y-6">
     <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Gerenciamento de Usuários e Setores</h2>
@@ -2623,126 +2421,6 @@ const BugReportButton = () => {
     );
 };
 
-const ChamadosAdminPage = () => {
-    const [chamados, setChamados] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState('');
-
-    const fetchChamados = useCallback(async () => {
-        if (!db) return;
-        setLoading(true);
-        try {
-            const reportsSnapshot = await db.collection('bug_reports').orderBy('createdAt', 'desc').get();
-            const reportsList = reportsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-
-            const userIds = [...new Set(reportsList.map(r => r.userId))];
-            if (userIds.length > 0) {
-                const usersSnapshot = await db.collection('users').where(firebase.firestore.FieldPath.documentId(), 'in', userIds).get();
-                const usersMap = usersSnapshot.docs.reduce((acc, doc) => {
-                    acc[doc.id] = doc.data().displayName;
-                    return acc;
-                }, {});
-                const enrichedReports = reportsList.map(r => ({ ...r, reporterName: usersMap[r.userId] || r.userEmail }));
-                setChamados(enrichedReports);
-            } else {
-                setChamados([]);
-            }
-        } catch (err) {
-            console.error("Erro ao buscar chamados:", err);
-            setError("Falha ao carregar chamados.");
-        } finally {
-            setLoading(false);
-        }
-    }, []);
-
-    useEffect(() => {
-        fetchChamados();
-    }, [fetchChamados]);
-
-    const handleDeleteChamado = async (chamadoId) => {
-        if (window.confirm("Tem certeza que deseja excluir este chamado permanentemente? Esta ação não pode ser desfeita.")) {
-            if (!db) return;
-            try {
-                await db.collection('bug_reports').doc(chamadoId).delete();
-                fetchChamados(); // Recarrega a lista
-            } catch (err) {
-                console.error("Erro ao excluir chamado:", err);
-                alert("Falha ao excluir o chamado.");
-            }
-        }
-    };
-
-    const viewScreenshot = (base64String) => {
-        const newWindow = window.open();
-        if (newWindow) {
-            newWindow.document.write(`
-                <html>
-                    <head><title>Visualizador de Screenshot</title></head>
-                    <body style="margin:0; background-color:#1e293b; display:flex; justify-content:center; align-items:center;">
-                        <img src="${base64String}" alt="Screenshot do Chamado" style="max-width:100%; max-height:100%; object-fit:contain;">
-                    </body>
-                </html>
-            `);
-            newWindow.document.close();
-        } else {
-            alert('O visualizador de imagem foi bloqueado pelo seu navegador. Por favor, habilite os pop-ups para este site.');
-        }
-    };
-
-    const handleUpdateStatus = async (chamado, newStatus) => {
-        if (!db) return;
-        try {
-            await db.collection('bug_reports').doc(chamado.id).update({ status: newStatus });
-            fetchChamados();
-        } catch (err) {
-            console.error("Erro ao atualizar status:", err);
-            alert("Falha ao atualizar o status do chamado.");
-        }
-    };
-
-    if (loading) return <p>Carregando chamados...</p>;
-    if (error) return <p className="text-red-500">{error}</p>;
-
-    return (
-        <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-xl p-6 sm:p-8 rounded-2xl shadow-lg border border-slate-200/50 dark:border-slate-700/50">
-            <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100 mb-6">Caixa de Chamados de Problemas</h2>
-            <div className="space-y-4">
-                {chamados.length === 0 ? (
-                    <p className="text-slate-500 dark:text-slate-400">Nenhum chamado encontrado.</p>
-                ) : (
-                    chamados.map(chamado => (
-                        <div key={chamado.id} className={`p-4 rounded-lg border ${chamado.status === 'aberto' ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800' : 'bg-slate-100 dark:bg-slate-900/30 border-slate-200 dark:border-slate-700'}`}>
-                            <div className="flex justify-between items-start">
-                                <div>
-                                    <p className="text-sm text-slate-500 dark:text-slate-400">Reportado por: <span className="font-medium text-slate-700 dark:text-slate-200">{chamado.reporterName}</span></p>
-                                    <p className="text-xs text-slate-400 dark:text-slate-500">Em: {chamado.createdAt ? formatarData(chamado.createdAt.toDate()) : 'Data indisponível'}</p>
-                                </div>
-                                <span className={`px-3 py-1 text-xs font-semibold rounded-full ${chamado.status === 'aberto' ? 'bg-amber-200 text-amber-800 dark:bg-amber-500/30 dark:text-amber-300' : 'bg-green-200 text-green-800 dark:bg-green-500/30 dark:text-green-300'}`}>
-                                    {chamado.status}
-                                </span>
-                            </div>
-                            <p className="mt-4 text-slate-800 dark:text-slate-100 bg-slate-100 dark:bg-slate-800/50 p-3 rounded-md">{chamado.description}</p>
-                            <div className="mt-4 flex flex-wrap gap-4 items-center">
-                                <button onClick={() => viewScreenshot(chamado.screenshotBase64)} className="text-sm font-semibold text-indigo-600 hover:underline">
-                                    Ver Screenshot
-                                </button>
-                                {chamado.status === 'aberto' ? (
-                                    <button onClick={() => handleUpdateStatus(chamado, 'resolvido')} className="px-3 py-1 text-sm font-semibold bg-green-600 text-white rounded-lg hover:bg-green-700">Marcar como Resolvido</button>
-                                ) : (
-                                    <button onClick={() => handleUpdateStatus(chamado, 'aberto')} className="px-3 py-1 text-sm font-semibold bg-amber-600 text-white rounded-lg hover:bg-amber-700">Reabrir Chamado</button>
-                                )}
-                                <button onClick={() => handleDeleteChamado(chamado.id)} className="text-sm font-semibold text-red-600 hover:underline">
-                                    Excluir
-                                </button>
-                            </div>
-                        </div>
-                    ))
-                )}
-            </div>
-        </div>
-    );
-};
-
 const ChangelogModal = ({ onClose }) => {
     const [latestLog, setLatestLog] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -2786,7 +2464,7 @@ const ChangelogModal = ({ onClose }) => {
 
     return (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
-            <div className="bg-white dark:bg-slate-800 w-full max-w-2xl rounded-2xl shadow-2xl flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
+            <div className="bg-white dark:bg-slate-800 w-full max-w-2xl rounded-2xl shadow-2xl flex flex-col max-h-[90vh]">
                 <div className="p-6 text-center border-b border-slate-200 dark:border-slate-700">
                     <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100">{latestLog.title}</h2>
                     <p className="text-sm text-slate-500 dark:text-slate-400">Novidades da versão {latestLog.id} (em {formatarData(latestLog.date.toDate())})</p>
@@ -2829,7 +2507,7 @@ const NotificationsPanel = ({ notifications, onMarkAllAsRead, onClose }) => {
                             <li key={notif.id} className={`p-4 ${!notif.read ? 'bg-indigo-50 dark:bg-indigo-900/20' : ''}`}>
                                 <p className="font-semibold text-sm text-slate-800 dark:text-slate-100">{notif.title}</p>
                                 <p className="text-sm text-slate-600 dark:text-slate-300">{notif.message}</p>
-                                <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">{formatarData(notif.createdAt.toDate())}</p>
+                                <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">{formatarData(new Date(notif.createdAt.toDate()))}</p>
                             </li>
                         ))}
                     </ul>
@@ -3162,8 +2840,6 @@ const UserIDWatermark = ({ overlay = false }) => {
     );
 };
 
-const BugReportContext = createContext({ openBugReport: () => {} });
-
 const BugReportProvider = ({ children }) => {
     const { user, userData } = useAuth();
     const [isReporting, setIsReporting] = useState(false);
@@ -3314,8 +2990,6 @@ const App = () => {
                     <CalculatorApp />
                 ) : currentArea === 'Admin' && (isAdmin || userData?.role === 'setor_admin') ? (
                     <AdminPage setCurrentArea={setCurrentArea} />
-                ) : currentArea === 'Chamados' && isAdmin ? (
-                    <ChamadosAdminPage />
                 ) : (
                     <p>Área desconhecida.</p>
                 )}

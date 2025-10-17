@@ -35,9 +35,6 @@
     <!-- Biblioteca para salvar arquivos (alternativa robusta para download) -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 
-    <!-- Editor de Texto Rico (TinyMCE) -->
-    <script src="https://cdn.tiny.cloud/1/no-api-key/tinymce/6/tinymce.min.js" referrerpolicy="origin"></script>
-
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
 
 </head>
@@ -49,7 +46,16 @@
     <div id="root"></div>
 
     <!-- O Babel irá transpilar este arquivo .js externo -->
+    <script src="firebase-init.js" type="text/babel"></script>
+    <script src="contexts.js" type="text/babel"></script>
+    <script src="utils.js" type="text/babel"></script>
     <script src="regrasCNJ.js" type="text/babel"></script>
+    <script src="minutas-default.js" type="text/babel"></script> <!-- Carrega os modelos padrão -->
+    <script src="MinutasAdminPage.js" type="text/babel"></script> <!-- Carrega o componente da página -->
+    <script src="CalendarAdminPage.js" type="text/babel"></script>
+    <!-- Os arquivos de Estatísticas e Usuários serão criados a seguir -->
+    <script src="BugReportsPage.js" type="text/babel"></script>
+    
     <script src="app.js" type="text/babel" data-type="module"></script>
 </body>
 </html>
