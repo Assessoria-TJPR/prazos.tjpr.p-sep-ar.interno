@@ -648,27 +648,32 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
             const [year, month, day] = dataInterposicao.split('-').map(Number); // '2025-09-05' -> [2025, 9, 5]
             const dataInterposicaoObj = new Date(Date.UTC(year, month - 1, day)); // Cria a data em UTC
 
-            // Prazo final mais benéfico possível (considerando TODAS as suspensões comprováveis).
-            const todasSuspensoesComprovaveis = new Set(resultado.suspensoesComprovaveis.map(d => d.data.toISOString().split('T')[0]));
-            const prazoFinalMaximoObj = calcularPrazoFinalDiasUteis(resultado.inicioPrazoOriginal, resultado.prazo, todasSuspensoesComprovaveis, true, true).prazoFinal;
-            // Converte para UTC para garantir a comparação correta
-            const prazoFinalMaximo = new Date(Date.UTC(prazoFinalMaximoObj.getFullYear(), prazoFinalMaximoObj.getMonth(), prazoFinalMaximoObj.getDate()));
-            
-            // Prazo final considerando apenas as suspensões que o usuário marcou como comprovadas.
-            const prazoFinalComprovadoObj = resultado.comDecreto.prazoFinal;
-            // Converte para UTC para garantir a comparação correta
-            const prazoFinalComprovado = new Date(Date.UTC(prazoFinalComprovadoObj.getFullYear(), prazoFinalComprovadoObj.getMonth(), prazoFinalComprovadoObj.getDate()));
+            // Prazo final do Cenário 1 (sem nenhuma comprovação).
+            const prazoFinalSemDecretoObj = resultado.semDecreto.prazoFinal;
+            const prazoFinalSemDecreto = new Date(Date.UTC(prazoFinalSemDecretoObj.getFullYear(), prazoFinalSemDecretoObj.getMonth(), prazoFinalSemDecretoObj.getDate()));
 
-            // 1. Puramente intempestivo: A data de interposição é posterior ao prazo máximo possível.
-            if (dataInterposicaoObj.getTime() > prazoFinalMaximo.getTime()) {
-                setTempestividade('puramente_intempestivo');
-            // 2. Intempestivo por falta de decreto: A data de interposição é posterior ao prazo com os decretos atualmente comprovados,
-            // mas ainda poderia ser tempestivo se todos os decretos possíveis fossem comprovados.
-            } else if (dataInterposicaoObj.getTime() > prazoFinalComprovado.getTime()) {
-                setTempestividade('intempestivo_falta_decreto');
-            // 3. Tempestivo: A data de interposição é igual ou anterior ao prazo com os decretos comprovados.
-            } else {
+            // Prazo final do Cenário 2 (considerando as comprovações atuais).
+            const prazoFinalComDecretoObj = resultado.comDecreto.prazoFinal;
+            const prazoFinalComDecreto = new Date(Date.UTC(prazoFinalComDecretoObj.getFullYear(), prazoFinalComDecretoObj.getMonth(), prazoFinalComDecretoObj.getDate()));
+
+            // Calcula a diferença de dias entre a interposição e o prazo final do Cenário 1.
+            const diffTime = dataInterposicaoObj.getTime() - prazoFinalSemDecreto.getTime();
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+            // 1. Tempestivo: A interposição ocorreu dentro do prazo recalculado (Cenário 2).
+            if (dataInterposicaoObj.getTime() <= prazoFinalComDecreto.getTime()) {
                 setTempestividade('tempestivo');
+            // 2. Intempestivo por 2 ou mais dias: A interposição ocorreu 2 ou mais dias após o prazo do Cenário 1.
+            // Neste caso, é puramente intempestivo, mesmo que houvesse decretos a comprovar.
+            } else if (diffDays >= 2) {
+                setTempestividade('puramente_intempestivo');
+            // 3. Intempestivo por 1 dia: A interposição ocorreu exatamente 1 dia após o prazo do Cenário 1.
+            // Neste caso, o sistema deve sugerir a intimação para comprovar possíveis suspensões.
+            } else if (diffDays === 1) {
+                setTempestividade('intempestivo_falta_decreto');
+            // 4. Fallback para outros casos de intempestividade.
+            } else {
+                setTempestividade('puramente_intempestivo');
             }
 
         } catch (e) {
@@ -715,6 +720,29 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
     }
   };
 
+  // Função para buscar a minuta do Firestore ou usar o padrão
+  const getMinutaContent = async (minutaType) => {
+    // Se o usuário for de um setor específico, tenta buscar a minuta personalizada
+    if (userData?.setorId) {
+        const docId = `${userData.setorId}_${minutaType}`;
+        try {
+            const docRef = db.collection('minutas').doc(docId);
+            const doc = await docRef.get();
+            if (doc.exists) {
+                return doc.data().conteudo;
+            }
+        } catch (err) {
+            console.error(`Erro ao buscar minuta personalizada '${docId}'. Usando padrão.`, err);
+        }
+    }
+    // Se não houver setor, ou se a busca falhar, ou se o documento não existir, usa o padrão.
+    return MINUTAS_PADRAO[minutaType];
+  };
+
+  const replacePlaceholders = (template, placeholders) => {
+    return Object.entries(placeholders).reduce((acc, [key, value]) => acc.replace(new RegExp(key, 'g'), value), template);
+  };
+
   const gerarMinutaIntempestividade = async () => {
     const { dataPublicacao, inicioPrazo, prazo, suspensoesComprovaveis } = resultado;
     const todasSuspensoes = new Set(suspensoesComprovaveis.map(d => d.data.toISOString().split('T')[0]));
@@ -725,20 +753,6 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
     const inicioPrazoStr = formatarData(inicioPrazo);
     const dataInterposicaoStr = formatarData(new Date(dataInterposicao + 'T00:00:00'));
 
-    const pStyle = "text-align: justify; text-indent: 50px; margin-bottom: 1em;";
-    const corpoMinuta = `
-        <p style="${pStyle}">O recurso especial não pode ser admitido, pois foi interposto sem observância do prazo previsto no artigo 1.003, § 5º, c/c artigo 219, ambos do Código de Processo Civil.</p>
-        <p style="${pStyle}">Isto porque se verifica que a intimação do acórdão recorrido (<span style="color: red;">mov. x.x</span>, dos autos sob nº <span style="color: red;">${numeroProcesso || 'xxxxxx'}</span>) se deu pela disponibilização no DJEN na data de ${dataDispStr} e, considerada como data da publicação o primeiro dia útil seguinte ao da disponibilização da informação (artigos 4º, §3º, da Lei 11.419/2006, e 224, do Código de Processo Civil), ${dataPubStr}, iniciou-se a contagem do prazo no primeiro dia útil seguinte ao da publicação, isto é em ${inicioPrazoStr}.</p>
-        <p style="${pStyle}">Portanto, a petição recursal apresentada em ${dataInterposicaoStr} está intempestiva, já que protocolado além do prazo legal de ${prazoSelecionado} dias.</p>
-        <p style="${pStyle}">Neste sentido:</p>
-        <p style="${pStyle}">"PROCESSUAL CIVIL. AGRAVO INTERNO NO AGRAVO EM RECURSO ESPECIAL. RECURSO MANEJADO SOB A ÉGIDE DO NCPC. RECURSO INTEMPESTIVO. RECURSO ESPECIAL INTERPOSTO NA VIGÊNCIA DO NCPC. RECURSO ESPECIAL APRESENTADO FORA DO PRAZO LEGAL. INTEMPESTIVIDADE. APLICAÇÃO DOS ARTS. 219 E 1.003, § 5º, AMBOS DO NCPC. ADMISSIBILIDADE DO APELO NOBRE. JUÍZO BIFÁSICO. AUSÊNCIA DE VINCULAÇÃO DO STJ. AGRAVO INTERNO NÃO PROVIDO.</p>
-        <p style="${pStyle}">1. Aplica-se o NCPC a este julgamento ante os termos do Enunciado Administrativo nº 3, aprovado pelo Plenário do STJ na sessão de 9/3/2016: Aos recursos interpostos com fundamento no CPC/2015 (relativos a decisões publicadas a partir de 18 de março de 2016) serão exigidos os requisitos de admissibilidade recursal na forma do novo CPC.</p>
-        <p style="${pStyle}">2. A interposição de recurso especial após o prazo legal implica o seu não conhecimento, por intempestividade, nos termos dos arts. 219 e 1.003, § 5º, ambos do NCPC.</p>
-        <p style="${pStyle}">3. O juízo de admissibilidade do apelo nobre é bifásico, não ficando o STJ vinculado à decisão proferida pela Corte estadual.</p>
-        <p style="${pStyle}">4. Agravo interno não provido."</p>
-        <p style="${pStyle}">(AgInt no AREsp n. 2.039.729/RS, relator Ministro Moura Ribeiro, Terceira Turma, julgado em 9/5/2022, DJe de 11/5/2022.)</p>
-        <p style="${pStyle}">Diante do exposto, inadmito o recurso especial interposto.</p>
-    `;
     const placeholders = {
         '{{numeroProcesso}}': numeroProcesso || '<span style="color: red;">[Nº Processo]</span>',
         '{{movAcordao}}': '<span style="color: red;">[Mov. Acórdão]</span>',
@@ -749,45 +763,40 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
         '{{prazoDias}}': prazoSelecionado,
     };
 
+    const template = await getMinutaContent('intempestividade');
+    const corpoMinuta = replacePlaceholders(template, placeholders);
+
     generateDocFromHtml(
         corpoMinuta,
         'intempestividade',
+        placeholders,
         `Minuta_Intempestividade_${numeroProcesso.replace(/\D/g, '') || 'processo'}.doc`
     );
   };
 
   const gerarMinutaIntimacaoDecreto = async () => {
-    const pStyle = "text-align: justify; text-indent: 50px; margin-bottom: 1em;";
-    const corpoMinuta = `
-        <p style="${pStyle}">Intime-se a parte Recorrente, nos termos dos artigos 1.003, § 6º c/c 224, §1, ambos do Código de Processo Civil, sob pena de ser reconhecida a intempestividade do recurso, para, no prazo de 5 (cinco) dias, comprovar a ocorrência do feriado local ou a determinação de suspensão do expediente ou do prazo recursal neste Tribunal de Justiça, por meio de documento idôneo, conforme publicado no Diário da Justiça Eletrônico (AgInt no AREsp n. 2.734.555/RJ, relator Ministro Humberto Martins, Terceira Turma, julgado em 16/12/2024, DJEN de 19/12/2024.).</p>
-    `;
+    const template = await getMinutaContent('intimacao_decreto');
+    // Esta minuta não tem placeholders, então o corpo é o próprio template.
+    const corpoMinuta = template;
+
     generateDocFromHtml(
         corpoMinuta,
         'intimacao_decreto',
+        {},
         `Minuta_Intimacao_Decreto_${numeroProcesso.replace(/\D/g, '') || 'processo'}.doc`
     );
   };
 
   const gerarMinutaFaltaDecreto = async () => {
     const { inicioPrazo, semDecreto } = resultado;
-    const dataLeituraStr = formatarData(new Date(dataDisponibilizacao + 'T00:00:00'));
+    const dataDispStr = formatarData(new Date(dataDisponibilizacao + 'T00:00:00'));
     const inicioPrazoStr = formatarData(inicioPrazo);
     const prazoFinalStr = formatarData(semDecreto.prazoFinal);
 
-    const pStyle = "text-align: justify; text-indent: 50px; margin-bottom: 1em;";
-    const corpoMinuta = `
-        <p style="${pStyle}">Trata-se de recurso especial interposto em face do acórdão proferido pela <span style="color: red;">xxª Câmara Cível</span> deste Tribunal de Justiça, que negou provimento ao recurso de <span style="color: red;">xxx (mov. xx.1 - xxxx)</span>.</p>
-        <p style="${pStyle}">A leitura da intimação do acórdão recorrido foi confirmada em ${dataLeituraStr} (<span style="color: red;">xxx - mov. xx</span>), de modo que o prazo de 15 (quinze) dias úteis para interposição de recursos aos Tribunais Superiores passou a fluir no dia ${inicioPrazoStr} e findou em ${prazoFinalStr}.</p>
-        <p style="${pStyle}">Instada a comprovar o feriado local ou a determinação de suspensão do prazo neste Tribunal de Justiça, nos termos do artigo 1.003, § 6º, do Código de Processo Civil (despacho de <span style="color: red;">mov. xx.1</span>), a parte recorrente permaneceu inerte (certidão de decurso de prazo de <span style="color: red;">mov. xx.1</span>).</p>
-        <p style="${pStyle}">Desse modo, é forçoso reconhecer a intempestividade do recurso especial, o que faço.</p>
-        <p style="${pStyle}">Nesse sentido é o entendimento vigente no âmbito do Superior Tribunal de Justiça:</p>
-        <p style="${pStyle}">"PROCESSUAL CIVIL. AGRAVO INTERNO NO AGRAVO EM RECURSO ESPECIAL. INTEMPESTIVIDADE DO RECURSO ESPECIAL. INCIDÊNCIA DO CPC DE 2015. FERIADO LOCAL E/OU SUSPENSÃO DE EXPEDIENTE FORENSE. QUESTÃO DE ORDEM NO ARESP 2.638.376/MG. ART. 1.003, § 6º, DO CPC/2015. INTIMAÇÃO PARA COMPROVAÇÃO POSTERIOR. DECURSO DO PRAZO. AGRAVO INTERNO DESPROVIDO. 1. A agravante foi intimada, nos termos da Questão de Ordem lavrada pela Corte Especial do Superior Tribunal de Justiça, no AREsp 2.638.376/MG, para comprovar, no prazo de 5 (cinco) dias úteis, a ocorrência de feriado local ou a suspensão de expediente forense, em consonância com a nova redação conferida pela Lei 14.939 /2024, ao art. 1.003, § 6º, do CPC, tendo deixado, contudo transcorrer in albis o prazo assinalado, conforme certidão de fl. 765. 2. Na hipótese dos autos, portanto, como não houve a juntada de documento comprobatório durante o iter processual, não é possível superar a intempestividade do apelo nobre. 3. Agravo interno a que se nega provimento." (AgInt no AREsp n. 2.710.026/MT, relator Ministro Raul Araújo, Quarta Turma, julgado em 14/4/2025, DJEN de 25/4/2025.)</p>
-        <p style="${pStyle}">Diante do exposto, inadmito o recurso especial interposto.</p>
-    `;
     const placeholders = {
         '{{camara}}': '<span style="color: red;">[Nº da Câmara]</span>',
         '{{recursoApelacao}}': '<span style="color: red;">[Tipo e Mov. do Recurso]</span>',
-        '{{dataLeitura}}': dataLeituraStr,
+        '{{dataLeitura}}': dataDispStr, // O template usa 'dataLeitura', mas o valor correto é da disponibilização
         '{{movIntimacao}}': '<span style="color: red;">[Mov. Intimação]</span>',
         '{{inicioPrazo}}': inicioPrazoStr,
         '{{prazoFinal}}': prazoFinalStr,
@@ -795,9 +804,13 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
         '{{movCertidao}}': '<span style="color: red;">[Mov. Certidão]</span>',
     };
 
+    const template = await getMinutaContent('falta_decreto');
+    const corpoMinuta = replacePlaceholders(template, placeholders);
+
     generateDocFromHtml(
         corpoMinuta,
         'falta_decreto',
+        placeholders,
         `Minuta_Intempestivo_Falta_Decreto_${numeroProcesso.replace(/\D/g, '') || 'processo'}.doc`
     );
   };
