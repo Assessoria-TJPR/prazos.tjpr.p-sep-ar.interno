@@ -35,13 +35,9 @@ const aplicarRegraEspecialCorpusChristi = (feriados, decretos) => {
  * @returns {object|null} O objeto do decreto se for um dia não útil, caso contrário null.
  */
 const tratarFeriadoCnjNoPrazo = (eDecreto, dataCorrenteStr, comprovados) => {
-    if (eDecreto.tipo === 'feriado_cnj') {
-        // RESTAURAÇÃO: Feriados do CNJ que ocorrem no meio do prazo só devem
-        // ser contados como dia não útil se forem explicitamente comprovados pelo usuário.
-        return comprovados.has(dataCorrenteStr) ? eDecreto : null;
-    }
-    // Decretos normais são contados automaticamente.
-    return eDecreto;
+    // Feriados do CNJ que ocorrem no meio do prazo só devem ser contados como dia não útil
+    // se forem explicitamente comprovados pelo usuário. A comprovação é feita pela data principal.
+    return comprovados.has(DATA_CORPUS_CHRISTI) ? eDecreto : null;
 };
 
 /**

@@ -1,19 +1,18 @@
 const { useState, useEffect, useCallback, useContext, useRef } = React;
 
 const MinutasAdminPage = () => {
-    const { userData } = useAuth();
+    const { userData, isAdmin, isSetorAdmin } = useAuth();
     const [setores, setSetores] = useState([]);
     const [tiposMinuta, setTiposMinuta] = useState([]);
     const [novoTipoMinutaNome, setNovoTipoMinutaNome] = useState('');
     const [selectedSetorId, setSelectedSetorId] = useState('');
-    const [minutas, setMinutas] = useState({});
-    const [loading, setLoading] = useState(true);
+    const [minutasCache, setMinutasCache] = useState({}); // Cache para armazenar minutas por setor
+    const [loading, setLoading] = useState(false);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
 
     const editorRefs = useRef({});
-    const isInitialMount = useRef(true);
 
     const handleSave = async (tipoId) => {
         if (!selectedSetorId || !editorRefs.current[tipoId]) return;
@@ -29,7 +28,7 @@ const MinutasAdminPage = () => {
                 conteudo: conteudo,
                 lastUpdated: firebase.firestore.FieldValue.serverTimestamp(),
             }, { merge: true });
-            setSuccess(`Minuta "${tiposMinuta.find(t => t.id === tipoId).nome}" salva com sucesso!`);
+            setSuccess(`Minuta salva com sucesso!`);
             setTimeout(() => setSuccess(''), 3000);
         } catch (err) {
             setError('Falha ao salvar a minuta.');
@@ -39,62 +38,74 @@ const MinutasAdminPage = () => {
         }
     };
 
-    // Efeito principal para carregar todos os dados da página
-    useEffect(() => { // Efeito para carregar os setores e definir o setor inicial
-        const fetchSetores = async () => {
-            if (!db || !userData) return;
-            setError('');
-            try {
-                const setoresSnapshot = await db.collection('setores').orderBy('nome').get();
-                const setoresList = setoresSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                setSetores(setoresList);
-
-                if (userData.role === 'setor_admin') {
-                    setSelectedSetorId(userData.setorId);
-                } else if (setoresList.length > 0) {
-                    setSelectedSetorId(setoresList[0].id);
-                }
-            } catch (err) {
-                setError('Falha ao carregar setores.');
-                console.error(err);
-            }
-        };
-        fetchSetores();
-    }, [db, userData]); // Roda apenas uma vez quando o componente é montado
-
-    // Efeito para buscar as minutas QUANDO o setor selecionado muda
+    // Efeito para carregar dados estáticos (setores e tipos de minuta) uma única vez.
     useEffect(() => {
-        const fetchMinutasData = async () => {
-            if (!selectedSetorId || !db) return;
-
+        const loadStaticData = async () => {
+            if (!db || !userData || !(isAdmin || isSetorAdmin)) {
+                setLoading(false);
+                return;
+            }
             setLoading(true);
             setError('');
             try {
-                // Busca os tipos de minuta sempre que o setor muda para garantir que estão atualizados
-                const tiposSnapshot = await db.collection('minutaTipos').orderBy('nome').get();
-                const tiposList = tiposSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                const [setoresSnapshot, configDoc] = await Promise.all([
+                    db.collection('setores').orderBy('nome').get(),
+                    db.collection('configuracoes').doc('minutas').get()
+                ]);
+
+                const setoresList = setoresSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                setSetores(setoresList);
+
+                let tiposList = [];
+                if (configDoc.exists) {
+                    tiposList = configDoc.data().tipos.sort((a, b) => a.nome.localeCompare(b.nome));
+                } else {
+                    console.warn("Documento de configuração de minutas não encontrado. A lista pode estar vazia.");
+                }
+                if (tiposList.length > 0) {
+                    tiposList.unshift({ id: 'exemplo_didatico', nome: 'Exemplo Didático (Modelo)' });
+                }
                 setTiposMinuta(tiposList);
 
-                if (tiposList.length > 0) {
-                    const minutasData = {};
-                    // Usando Promise.all para buscar todas as minutas em paralelo
-                    await Promise.all(tiposList.map(async (tipo) => {
-                        const docRef = db.collection('minutas').doc(`${selectedSetorId}_${tipo.id}`);
-                        const doc = await docRef.get();
-                        minutasData[tipo.id] = doc.exists ? doc.data().conteudo : (MINUTAS_PADRAO[tipo.id] || `<p>Modelo para ${tipo.nome}...</p>`);
-                    }));
-                    setMinutas(minutasData);
-                }
+                const initialSetorId = isSetorAdmin ? userData.setorId : (setoresList[0]?.id || '');
+                setSelectedSetorId(initialSetorId);
             } catch (err) {
-                setError('Falha ao carregar os dados das minutas.');
+                setError('Falha ao carregar dados iniciais da página.');
                 console.error(err);
             } finally {
                 setLoading(false);
             }
         };
+        loadStaticData();
+    }, [db, userData, isAdmin, isSetorAdmin]);
 
-        fetchMinutasData();
-    }, [selectedSetorId, db]); // Roda sempre que o setor selecionado ou o 'db' mudam
+    // Efeito para buscar o conteúdo das minutas para o setor selecionado, apenas se não estiver em cache.
+    useEffect(() => {
+        const fetchMinutasContent = async () => {
+            if (!selectedSetorId || !db || tiposMinuta.length === 0 || loading) return;
+
+            // Se os dados para este setor já estão em cache, não faz nova busca.
+            if (minutasCache[selectedSetorId]) {
+                return;
+            }
+
+            try {
+                const minutasData = {};
+                await Promise.all(tiposMinuta.map(async (tipo) => {
+                    const docRef = db.collection('minutas').doc(`${selectedSetorId}_${tipo.id}`);
+                    const doc = await docRef.get();
+                    minutasData[tipo.id] = doc.exists ? doc.data().conteudo : (MINUTAS_PADRAO[tipo.id] || `<p>Modelo para ${tipo.nome}...</p>`);
+                }));
+                // Adiciona os dados ao cache.
+                setMinutasCache(prevCache => ({ ...prevCache, [selectedSetorId]: minutasData }));
+            } catch (err) {
+                setError('Falha ao carregar minutas para o setor selecionado.');
+                console.error(err);
+            }
+        };
+
+        fetchMinutasContent();
+    }, [selectedSetorId, tiposMinuta, loading, minutasCache]); // Dependências controladas
 
     const handleAddTipoMinuta = async (e) => {
         e.preventDefault();
@@ -104,12 +115,28 @@ const MinutasAdminPage = () => {
             setError("Nome inválido para o tipo de minuta.");
             return;
         }
+    
+        const configRef = db.collection('configuracoes').doc('minutas');
+    
         try {
-            await db.collection('minutaTipos').doc(id).set({ nome: novoTipoMinutaNome.trim() });
+            // Usa uma transação para garantir a consistência
+            await db.runTransaction(async (transaction) => {
+                const configDoc = await transaction.get(configRef);
+                const tipos = configDoc.exists ? configDoc.data().tipos : [];
+                if (tipos.some(t => t.id === id)) throw new Error("ID_EXISTS");
+                
+                tipos.push({ id: id, nome: novoTipoMinutaNome.trim() });
+                transaction.set(configRef, { tipos: tipos }, { merge: true });
+            });
+    
+            // ATUALIZAÇÃO: Em vez de recarregar a página, atualiza o estado local.
+            const novoTipo = { id: id, nome: novoTipoMinutaNome.trim() };
+            setTiposMinuta(prevTipos => [novoTipo, ...prevTipos].sort((a, b) => a.nome.localeCompare(b.nome)));
             setNovoTipoMinutaNome('');
-            window.location.reload();
+            setSuccess('Novo tipo de minuta adicionado com sucesso!');
+            setTimeout(() => setSuccess(''), 3000);
         } catch (err) {
-            setError("Falha ao adicionar novo tipo de minuta. O ID pode já existir.");
+            setError(err.message === "ID_EXISTS" ? "Falha: Um tipo de minuta com esse ID já existe." : "Falha ao adicionar novo tipo de minuta.");
             console.error(err);
         }
     };
@@ -117,8 +144,17 @@ const MinutasAdminPage = () => {
     const handleDeleteTipoMinuta = async (tipoId) => {
         if (window.confirm("Tem certeza que deseja excluir este tipo de minuta? Todas as minutas salvas deste tipo para todos os setores serão perdidas.")) {
             try {
-                await db.collection('minutaTipos').doc(tipoId).delete();
-                window.location.reload();
+                const configRef = db.collection('configuracoes').doc('minutas');
+                await db.runTransaction(async (transaction) => {
+                    const configDoc = await transaction.get(configRef);
+                    if (!configDoc.exists) return;
+                    const tipos = configDoc.data().tipos || [];
+                    const novosTipos = tipos.filter(t => t.id !== tipoId);
+                    transaction.update(configRef, { tipos: novosTipos });
+                });
+                // ATUALIZAÇÃO: Em vez de recarregar a página, atualiza o estado local.
+                setTiposMinuta(prevTipos => prevTipos.filter(t => t.id !== tipoId));
+                setSuccess('Tipo de minuta excluído com sucesso!');
             } catch (err) {
                 setError("Falha ao excluir o tipo de minuta.");
                 console.error(err);
@@ -175,7 +211,7 @@ const MinutasAdminPage = () => {
                 <ol className="list-decimal list-inside space-y-2 text-sm text-blue-700 dark:text-blue-300">
                     <li><strong>Selecione o Setor:</strong> Se você for um Admin Global, escolha o setor para o qual deseja editar as minutas. Chefes de Setor verão apenas as minutas do seu próprio setor.</li>
                     <li><strong>Edite o Modelo:</strong> Altere o texto no editor para cada tipo de minuta. Você pode usar negrito, itálico e outras formatações.</li>
-                    <li><strong>Use Placeholders:</strong> Para dados que mudam a cada processo (como número do processo, datas, etc.), use placeholders no formato {"{{placeholder}}"}. Ex: {"{{numeroProcesso}}"}, {"{{dataPublicacao}}"}. Estes serão substituídos automaticamente ao gerar o documento na calculadora.</li>
+                    <li><strong>Use Placeholders:</strong> Para dados que mudam a cada processo (como número do processo, datas, etc.), use placeholders no formato <code>{"{{placeholder}}"}</code>. Ex: <code>{"{{numeroProcesso}}"}</code>, <code>{"{{dataPublicacao}}"}</code>. Estes serão substituídos automaticamente ao gerar o documento na calculadora. Veja o "Exemplo Didático" para uma lista de placeholders disponíveis.</li>
                     <li><strong>Salve a Minuta:</strong> Após editar, clique em "Salvar Minuta". O modelo ficará salvo para o setor selecionado.</li>
                     <li><strong>Gerar Documento:</strong> Na tela da Calculadora, após fazer um cálculo e analisar a tempestividade, os botões para baixar as minutas aparecerão. Ao clicar, o sistema usará o modelo salvo para gerar um arquivo `.doc` com os dados do cálculo.</li>
                 </ol>
@@ -191,7 +227,7 @@ const MinutasAdminPage = () => {
                 </div>
             )}
             
-            {userData.role === 'admin' && (
+            {isAdmin && (
                 <div>
                     <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Selecione o Setor</label>
                     <select value={selectedSetorId} onChange={e => setSelectedSetorId(e.target.value)} className="w-full md:w-1/2 p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700">
@@ -206,23 +242,27 @@ const MinutasAdminPage = () => {
                 <p className="text-red-500">{error}</p>
             ) : (
                 <div className="space-y-8">
-                    {tiposMinuta.map(tipo => (
+                    {tiposMinuta.map(tipo => minutasCache[selectedSetorId] && (
                         <div key={tipo.id} className="p-4 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg">
                             <div className="flex justify-between items-center mb-4">
                                 <h3 className="text-xl font-bold text-slate-800 dark:text-slate-100">{tipo.nome}</h3>
-                                {userData.role === 'admin' && (
+                                {/* O botão de excluir só aparece para tipos de minuta que não são o exemplo e para admins globais */}
+                                {isAdmin && tipo.id !== 'exemplo_didatico' && (
                                     <button onClick={() => handleDeleteTipoMinuta(tipo.id)} title="Excluir este tipo de minuta" className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 px-2 text-xl font-bold">&times;</button>
                                 )}
                             </div>
                             <SimpleRichEditor
-                                initialValue={minutas[tipo.id]}
+                                initialValue={minutasCache[selectedSetorId][tipo.id]}
                                 onRef={el => editorRefs.current[tipo.id] = el}
                             />
+                            {/* O botão de salvar só aparece para minutas que não são o exemplo */}
+                            {tipo.id !== 'exemplo_didatico' && (
                             <div className="mt-4 flex justify-end gap-4">
                                 <button onClick={() => handleSave(tipo.id)} disabled={saving} className="px-4 py-2 text-sm font-semibold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50">
                                     {saving ? 'Salvando...' : 'Salvar Minuta'}
                                 </button>
                             </div>
+                            )}
                         </div>
                     ))}
                 </div>

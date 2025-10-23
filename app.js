@@ -1,6 +1,52 @@
 const { useState, useEffect, useCallback, createContext, useContext, useRef, useMemo } = React;
 const { Bar, HorizontalBar } = window.ReactChartjs2;
 
+const usePagination = (data, itemsPerPage) => {
+    const [currentPage, setCurrentPage] = useState(1);
+    const totalPages = Math.ceil(data.length / itemsPerPage);
+    const paginatedData = data.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+
+    const PaginationControls = () => totalPages > 1 && (
+        <div className="flex justify-between items-center mt-4 text-sm p-4">
+            <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="px-3 py-1 rounded-md bg-slate-200 dark:bg-slate-700 disabled:opacity-50">Anterior</button>
+            <span>Página {currentPage} de {totalPages}</span>
+            <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="px-3 py-1 rounded-md bg-slate-200 dark:bg-slate-700 disabled:opacity-50">Próxima</button>
+        </div>
+    );
+
+    return { paginatedData, PaginationControls, currentPage };
+};
+
+const UserUsageCharts = ({ userData }) => {
+    const monthlyUsage = useMemo(() => {
+        const now = new Date();
+        const currentMonth = now.getMonth();
+        const currentYear = now.getFullYear();
+        const lastMonth = now.getMonth() - 1 < 0 ? 11 : now.getMonth() - 1;
+        const lastMonthYear = now.getMonth() - 1 < 0 ? currentYear - 1 : currentYear;
+
+        const stats = { current: { calculadora: 0, djen_consulta: 0 }, last: { calculadora: 0, djen_consulta: 0 } };
+
+        (userData || []).forEach(item => {
+            const itemDate = item.timestamp.toDate();
+            const type = item.type || 'calculadora';
+            if (itemDate.getMonth() === currentMonth && itemDate.getFullYear() === currentYear) stats.current[type]++;
+            if (itemDate.getMonth() === lastMonth && itemDate.getFullYear() === lastMonthYear) stats.last[type]++;
+        });
+        return stats;
+    }, [userData]);
+
+    const chartData = { labels: ['Mês Anterior', 'Mês Atual'], datasets: [ { label: 'Calculadora', data: [monthlyUsage.last.calculadora, monthlyUsage.current.calculadora], backgroundColor: '#6366F1' }, { label: 'Consulta DJEN', data: [monthlyUsage.last.djen_consulta, monthlyUsage.current.djen_consulta], backgroundColor: '#F59E0B' } ] };
+    const chartOptions = { responsive: true, maintainAspectRatio: false, scales: { yAxes: [{ ticks: { beginAtZero: true, stepSize: 1 } }] } };
+
+    return (
+        <div className="p-4 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg shadow-sm h-64">
+            <h3 className="font-semibold text-center mb-2">Uso Mensal (Mês Atual vs. Anterior)</h3>
+            <Bar data={chartData} options={chartOptions} />
+        </div>
+    );
+};
+
 const SettingsProvider = ({ children }) => {
     const [settings, setSettings] = useState({
         theme: 'system', // 'light', 'dark', 'system'
@@ -364,15 +410,15 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
         const eDecreto = getMotivoDiaNaoUtil(dataCorrente, true, 'decreto');
         const eInstabilidade = getMotivoDiaNaoUtil(dataCorrente, true, 'instabilidade');
 
-        if (eFeriadoOuRecesso) {
+        // REGRA CORRIGIDA: Um dia é considerado não útil se for feriado/recesso,
+        // ou se for um decreto/instabilidade E estiver comprovado pelo usuário.
+        if (eFeriadoOuRecesso) { // Feriados e recessos são sempre dias não úteis.
             infoDiaNaoUtil = eFeriadoOuRecesso;
-        // NOVA REGRA: No meio do prazo, decretos e instabilidades são contados automaticamente, sem precisar de comprovação.
-        // A comprovação é exigida apenas para prorrogar o início ou o fim do prazo.
-        } else if (considerarDecretos && eDecreto) { // Trata decretos
-            // REGRA FERIADO CNJ: Se for um feriado CNJ no meio do prazo, ele só conta se for comprovado.
-            infoDiaNaoUtil = tratarFeriadoCnjNoPrazo(eDecreto, dataCorrenteStr, comprovados);
-        // CORREÇÃO: Instabilidades no meio do prazo também podem ser comprovadas.
+        } else if (considerarDecretos && eDecreto && comprovados.has(dataCorrenteStr)) {
+            // Decretos (incluindo o feriado do CNJ) só contam se estiverem na lista de comprovados.
+            infoDiaNaoUtil = eDecreto;
         } else if (considerarInstabilidades && eInstabilidade && comprovados.has(dataCorrenteStr)) {
+            // Instabilidades só contam se estiverem na lista de comprovados.
             infoDiaNaoUtil = eInstabilidade;
         }
 
@@ -627,13 +673,12 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
         // A contagem parte da data de publicação original.
         const { proximoDia: novoInicioDoPrazo } = getProximoDiaUtilComprovado(dataPublicacao, novosComprovados);
 
-        // Calcula o prazo final a partir do novo início de prazo.
+        // CORREÇÃO: Calcula o prazo final a partir do novo início, considerando APENAS os dias comprovados.
+        // O parâmetro `considerarDecretos` é `true`, mas a função `calcularPrazoFinalDiasUteis` agora só pulará os dias que estiverem no set `novosComprovados`.
         const novoResultadoComDecreto = calcularPrazoFinalDiasUteis(novoInicioDoPrazo, prazo, novosComprovados, true, true);
         
         setResultado(prev => ({
             ...prev,
-            // CORREÇÃO: Garante que o objeto `comDecreto` seja atualizado completamente,
-            // incluindo os `diasProrrogados` que podem surgir no novo cálculo.
             // Atualiza também o início do prazo no cenário "Com Decreto".
             inicioPrazo: novoInicioDoPrazo,
             comDecreto: { ...novoResultadoComDecreto },
@@ -880,28 +925,32 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
                                     {/* Mostra a seção de comprovação apenas se houver decretos comprováveis */}
                                     {resultado.suspensoesComprovaveis.length > 0 && (
                                         <div className="mt-4 text-left border-t border-slate-300 dark:border-slate-600 pt-2">
-                                            <h4 className="text-xs font-semibold text-orange-600 dark:text-orange-400 mb-2">Decretos que influenciaram na dilação do prazo:</h4>
+                                            <h4 className="text-xs font-semibold text-orange-600 dark:text-orange-400 mb-2">Suspensões que influenciaram na dilação do prazo:</h4>
                                              <div className="space-y-1">
                                                  {/* Lógica para agrupar o Feriado CNJ em uma única checkbox */}
                                                  {resultado.suspensoesComprovaveis.some(d => d.tipo === 'feriado_cnj') && (
                                                      <label className="flex items-center p-2 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg cursor-pointer hover:bg-slate-200/70 dark:hover:bg-slate-700/50 transition-colors">
                                                          <input 
                                                              type="checkbox"
-                                                             checked={diasComprovados.has(DATA_CORPUS_CHRISTI)} 
+                                                             // A checkbox é marcada se QUALQUER um dos dias do feriado CNJ estiver comprovado
+                                                             checked={diasComprovados.has(DATA_CORPUS_CHRISTI) || diasComprovados.has(DATA_POS_CORPUS_CHRISTI)} 
                                                              onChange={() => handleComprovacaoChange(DATA_CORPUS_CHRISTI)} 
                                                              className="h-4 w-4 rounded border-slate-400 text-indigo-600 focus:ring-indigo-500" 
                                                          />
                                                          <span className="ml-2 text-xs text-slate-700 dark:text-slate-200">
-                                                             <strong className="font-semibold">19/06 e 20/06/2025:</strong> Corpus Christi e Suspensão
+                                                             <strong className="font-semibold">{formatarData(new Date(DATA_CORPUS_CHRISTI+'T00:00:00'))} e {formatarData(new Date(DATA_POS_CORPUS_CHRISTI+'T00:00:00'))}:</strong> Corpus Christi e Suspensão
                                                          </span>
                                                      </label>
                                                  )}
                                                  {/* Renderiza as outras suspensões normalmente */}
                                                  {resultado.suspensoesComprovaveis.filter(d => d.tipo !== 'feriado_cnj').map(dia => {
                                                      const dataString = dia.data.toISOString().split('T')[0];
-                                                     return (
-                                                         <label key={dataString} className="flex items-center p-2 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg cursor-pointer hover:bg-slate-200/70 dark:hover:bg-slate-700/50 transition-colors"><input type="checkbox" checked={diasComprovados.has(dataString)} onChange={() => handleComprovacaoChange(dataString)} className="h-4 w-4 rounded border-slate-400 text-indigo-600 focus:ring-indigo-500" /><span className="ml-2 text-xs text-slate-700 dark:text-slate-200"><strong className="font-semibold">{formatarData(dia.data)}:</strong> {dia.motivo}</span></label>
-                                                     );
+                                                     return ( // O key agora é o dataString para garantir unicidade
+                                                         <label key={dataString} className="flex items-center p-2 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg cursor-pointer hover:bg-slate-200/70 dark:hover:bg-slate-700/50 transition-colors">
+                                                            <input type="checkbox" checked={diasComprovados.has(dataString)} onChange={() => handleComprovacaoChange(dataString)} className="h-4 w-4 rounded border-slate-400 text-indigo-600 focus:ring-indigo-500" />
+                                                            <span className="ml-2 text-xs text-slate-700 dark:text-slate-200"><strong className="font-semibold">{formatarData(dia.data)}:</strong> {dia.motivo} ({dia.tipo})</span>
+                                                         </label>
+                                                     ); // Adicionado o tipo para clareza
                                                  })}
                                              </div>
                                     </div>
@@ -972,17 +1021,6 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
                                 <p className="text-center text-slate-600 dark:text-slate-300">O prazo final de {resultado.prazo} dias úteis é:</p>
                                 <p className="text-center mt-2 text-2xl font-bold text-indigo-600 dark:text-indigo-400">{formatarData(resultado.semDecreto.prazoFinal)}</p>
                             </div>
-                            {resultado.decretoImpactou && (
-                                <div className="border-t md:border-t-0 md:border-l border-slate-200 dark:border-slate-700 md:pl-4 pt-4 md:pt-0">
-                                    <h3 className="text-lg font-bold text-slate-700 dark:text-slate-200 text-center mb-2">Cenário 2: Com Decreto</h3>
-                                    <p className="text-center text-sm text-slate-500 dark:text-slate-400 mb-1 whitespace-nowrap">Publicação em {formatarData(resultado.dataPublicacaoComDecreto)} / Início em {formatarData(resultado.inicioPrazoComDecreto)}</p>
-                                    <p className="text-center text-slate-600 dark:text-slate-300">O prazo final de {resultado.prazo} dias úteis, <strong>comprovando o decreto</strong>, é:</p>
-                                    <p className="text-center mt-2 text-2xl font-bold text-green-600 dark:text-green-400">{formatarData(resultado.comDecreto.prazoFinal)}</p>
-                                    {resultado.comDecreto.diasNaoUteis.some(d => ['2025-06-19', '2025-06-20'].includes(d.data.toISOString().split('T')[0])) && (
-                                        <div className="mt-4 p-3 text-xs text-blue-800 rounded-lg bg-blue-50 dark:bg-gray-800 dark:text-blue-400" role="alert"><span className="font-medium">Atenção:</span> A comprovação do feriado de Corpus Christi (19/06) e da suspensão do dia 20/06 é necessária para validar a prorrogação do prazo.</div>
-                                    )}
-                                </div>
-                            )}
                         </div>
                     </>
                 )}
@@ -1543,9 +1581,7 @@ const AdminPage = ({ setCurrentArea }) => {
     const [filteredData, setFilteredData] = useState([]);
     const [loading, setLoading] = useState(true);
     const [filters, setFilters] = useState({ startDate: '', endDate: '', email: 'todos', materia: 'todos', prazo: 'todos', userId: '', setorId: 'todos' });
-    const [allUsers, setAllUsers] = useState([]);
-     const [hasSearched, setHasSearched] = useState(false);
-     const [currentPage, setCurrentPage] = useState(1);
+    const [hasSearched, setHasSearched] = useState(false);
      const [selectedUserForStats, setSelectedUserForStats] = useState(null);
      // Estados para gerenciamento de usuários
      const [allUsersForManagement, setAllUsersForManagement] = useState([]);
@@ -1558,8 +1594,6 @@ const AdminPage = ({ setCurrentArea }) => {
      const [setores, setSetoresAdmin] = useState([]); // This was a typo, corrected in a previous step but good to double check.
      const [newSectorName, setNewSectorName] = useState('');
 
-     const ITEMS_PER_PAGE = 10;
-     
     useEffect(() => {
         let isMounted = true;
         if (!db) { setLoading(false); return; }
@@ -1590,7 +1624,6 @@ const AdminPage = ({ setCurrentArea }) => {
                 const enrichedData = usageData.map(d => ({...d, userName: usersMap[d.userId]?.displayName || usersMap[d.userId]?.email || d.userEmail }));
                 
                 setAllData(enrichedData);
-                setAllUsers([...new Set(enrichedData.map(item => item.userName))].filter(Boolean).sort());
 
             } catch (err) { console.error("Firebase query error:", err); }
             finally { if(isMounted) setLoading(false); }
@@ -1836,16 +1869,16 @@ const AdminPage = ({ setCurrentArea }) => {
         setViewData(dataForView);
         setHasSearched(false);
         setFilteredData([]);
-        setAllUsers([...new Set(dataForView.map(item => item.userName))].filter(Boolean).sort());
-    }, [statsView, allData]);
+    }, [statsView, allData, adminUserData]);
 
     // Filtra a lista de usuários disponíveis no dropdown quando um setor é selecionado
     const usersForFilterDropdown = useMemo(() => {
-        if (filters.setorId === 'todos') return allUsers;
+        const allUsersInView = [...new Set(viewData.map(d => d.userName || d.userEmail))].filter(Boolean).sort();
+        if (filters.setorId === 'todos') return allUsersInView;
         const userIdsInSector = new Set(allUsersForManagement.filter(u => u.setorId === filters.setorId).map(u => u.id));
-        const usersInSectorData = allData.filter(d => userIdsInSector.has(d.userId));
+        const usersInSectorData = viewData.filter(d => userIdsInSector.has(d.userId));
         return [...new Set(usersInSectorData.map(d => d.userName || d.userEmail))].filter(Boolean).sort();
-    }, [filters.setorId, allUsers, allUsersForManagement, allData]);
+    }, [filters.setorId, viewData, allUsersForManagement]);
 
     const handleFilter = async () => {
         if (!db) return;
@@ -1875,7 +1908,6 @@ const AdminPage = ({ setCurrentArea }) => {
             return true;
         });
 
-        setCurrentPage(1);
         setSelectedUserForStats(null);
         setFilteredData(usageData);
 
@@ -1932,13 +1964,15 @@ const AdminPage = ({ setCurrentArea }) => {
             return acc;
         }, {})).sort(([, a], [, b]) => b - a).slice(0, 10), [viewData]);
 
-    const paginatedData = hasSearched ? filteredData.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE) : [];
-    const totalPages = Math.ceil(filteredData.length / ITEMS_PER_PAGE);
+    // CORREÇÃO: O hook de paginação é chamado incondicionalmente no topo do componente.
+    // Ele vai operar sobre `filteredData` ou `selectedUserForStats.data` dependendo do contexto.
+    const dataForPagination = selectedUserForStats ? selectedUserForStats.data : filteredData;
+    const { paginatedData, PaginationControls } = usePagination(dataForPagination || [], 10);
 
     const chartDataMateria = { labels: ['Cível', 'Crime'], datasets: [{ data: [stats.perMateria.civel || 0, stats.perMateria.crime || 0], backgroundColor: ['#6366F1', '#F59E0B'] }] };
     const chartDataPrazo = { labels: ['5 Dias', '15 Dias'], datasets: [{ data: [stats.perPrazo[5] || 0, stats.perPrazo[15] || 0], backgroundColor: ['#10B981', '#3B82F6'] }] };
     const chartDataByDay = { labels: Object.keys(stats.byDay || {}).reverse(), datasets: [{ label: 'Cálculos por Dia', data: Object.values(stats.byDay || {}).reverse(), backgroundColor: 'rgba(79, 70, 229, 0.8)' }] };
-    const chartOptions = { legend: { display: false }, scales: { xAxes: [{ ticks: { beginAtZero: true } }] }};
+    const chartOptions = { legend: { display: false }, maintainAspectRatio: false, scales: { xAxes: [{ ticks: { beginAtZero: true } }] }};
 
     if(loading && adminSection === 'stats') return <div className="text-center p-8"><p>A carregar dados...</p></div>
 
@@ -1959,13 +1993,14 @@ const AdminPage = ({ setCurrentArea }) => {
                         Baixar Relatório do Utilizador
                     </button>
                 </div>
+                <UserUsageCharts userData={selectedUserForStats?.data} />
                 <div className="overflow-x-auto bg-slate-100/70 dark:bg-slate-900/50 rounded-lg">
                     <table className="w-full text-sm text-left">
                         <thead className="text-xs text-slate-700 dark:text-slate-300 uppercase bg-slate-200/50 dark:bg-slate-800/50">
                             <tr><th className="px-6 py-3">Data</th><th className="px-6 py-3">Nº Processo</th><th className="px-6 py-3">Matéria</th><th className="px-6 py-3">Prazo</th></tr>
                         </thead>
                         <tbody>
-                        {selectedUserForStats.data.map(item => (
+                        {paginatedData.map(item => (
                             <tr key={item.id} className="border-b border-slate-200/50 dark:border-slate-700/50"> 
                                 <td className="px-6 py-4">{item.timestamp ? formatarData(item.timestamp.toDate()) : ''}</td>
                                 <td className="px-6 py-4">{item.numeroProcesso}</td>
@@ -1975,6 +2010,7 @@ const AdminPage = ({ setCurrentArea }) => {
                         ))}
                         </tbody>
                     </table>
+                    <PaginationControls />
                 </div>
             </div>
         );
@@ -2100,14 +2136,8 @@ const AdminPage = ({ setCurrentArea }) => {
                                 ))}
                                 </tbody>
                             </table>
+                            {filteredData.length > 0 && <PaginationControls />}
                         </div>
-                        {totalPages > 1 && (
-                            <div className="flex justify-between items-center mt-4 text-sm">
-                                <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="px-3 py-1 rounded-md bg-slate-200 dark:bg-slate-700 disabled:opacity-50">Anterior</button>
-                                <span>Página {currentPage} de {totalPages}</span>
-                                <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="px-3 py-1 rounded-md bg-slate-200 dark:bg-slate-700 disabled:opacity-50">Próxima</button>
-                            </div>
-                        )}
                     </div>
                 </>
             )}
