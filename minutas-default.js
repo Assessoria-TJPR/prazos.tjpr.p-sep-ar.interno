@@ -32,16 +32,16 @@ const MINUTAS_PADRAO = {
         <p style="text-align: justify; text-indent: 50px; margin-bottom: 1em;">Diante do exposto, inadmito o recurso especial interposto.</p>
     `,
     exemplo_didatico: `
-        <p style="background-color: #fef9c3; border-left: 4px solid #f59e0b; padding: 12px; margin-bottom: 1em; font-size: 12pt;">
-            <i><b>Nota do Admin:</b> Este é um modelo de exemplo. Use os placeholders (ex: {{numeroProcesso}}) para inserir dados da calculadora. Placeholders em vermelho (ex: <span style="color: red;">[Mov. Acórdão]</span>) são exemplos de informações que precisam ser preenchidas manualmente no documento gerado.</i>
+        <p style="background-color: #FFFBEB; color: #92400E; border-left: 4px solid #FBBF24; padding: 12px; margin-bottom: 1em; font-size: 12pt;">
+            <i><b>Nota do Admin:</b> Este é um modelo de exemplo. Use os placeholders (ex: {{numeroProcesso}}) para inserir dados da calculadora. Placeholders em laranja (ex: <span style="color: #D97706; font-weight: bold;">[Mov. Acórdão]</span>) são exemplos de informações que precisam ser preenchidas manualmente no documento gerado.</i>
         </p>
-        <p style="background-color: #dbeafe; border-left: 4px solid #3b82f6; padding: 12px; margin-bottom: 1em; font-size: 12pt;"><b>Placeholders disponíveis:</b> <code>{{numeroProcesso}}</code>, <code>{{dataDisponibilizacao}}</code>, <code>{{dataPublicacao}}</code>, <code>{{inicioPrazo}}</code>, <code>{{prazoDias}}</code>, <code>{{prazoFinal}}</code>, <code>{{dataInterposicao}}</code>, <code>{{movAcordao}}</code>, <code>{{camara}}</code>, <code>{{recursoApelacao}}</code>, <code>{{dataLeitura}}</code>, <code>{{movIntimacao}}</code>, <code>{{movDespacho}}</code>, <code>{{movCertidao}}</code></p>
+        <p style="background-color: #EFF6FF; color: #1E40AF; border-left: 4px solid #60A5FA; padding: 12px; margin-bottom: 1em; font-size: 12pt;"><b>Placeholders disponíveis:</b> <code>{{numeroProcesso}}</code>, <code>{{dataDisponibilizacao}}</code>, <code>{{dataPublicacao}}</code>, <code>{{inicioPrazo}}</code>, <code>{{prazoDias}}</code>, <code>{{prazoFinal}}</code>, <code>{{dataInterposicao}}</code>, <code>{{movAcordao}}</code>, <code>{{camara}}</code>, <code>{{recursoApelacao}}</code>, <code>{{dataLeitura}}</code>, <code>{{movIntimacao}}</code>, <code>{{movDespacho}}</code>, <code>{{movCertidao}}</code></p>
         <p style="text-align: justify; text-indent: 50px; margin-bottom: 1em;">
             Trata-se de análise de tempestividade do recurso interposto nos autos sob nº <b>{{numeroProcesso}}</b>.
         </p>
 
         <p style="text-align: justify; text-indent: 50px; margin-bottom: 1em;">
-            A intimação do acórdão (mov. <span style="color: red;">[Mov. Acórdão]</span>) foi disponibilizada no DJEN em <b>{{dataDisponibilizacao}}</b>. A publicação ocorreu no primeiro dia útil seguinte, em <b>{{dataPublicacao}}</b>, e o prazo de <b>{{prazoDias}}</b> dias começou a fluir em <b>{{inicioPrazo}}</b>.
+            A intimação do acórdão (mov. <span style="color: #D97706; font-weight: bold;">[Mov. Acórdão]</span>) foi disponibilizada no DJEN em <b>{{dataDisponibilizacao}}</b>. A publicação ocorreu no primeiro dia útil seguinte, em <b>{{dataPublicacao}}</b>, e o prazo de <b>{{prazoDias}}</b> dias começou a fluir em <b>{{inicioPrazo}}</b>.
         </p>
 
         <p style="text-align: justify; text-indent: 50px; margin-bottom: 1em;">
