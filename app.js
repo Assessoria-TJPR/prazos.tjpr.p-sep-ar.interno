@@ -1128,6 +1128,7 @@ const LoginPage = () => {
     const [isLogin, setIsLogin] = useState(true);
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
+    const [confirmPassword, setConfirmPassword] = useState('');
     const [displayName, setDisplayName] = useState('');
     const [rememberMe, setRememberMe] = useState(true);
     const [setorNome, setSetorNome] = useState(''); // Novo estado para o nome do setor
@@ -1208,6 +1209,12 @@ const LoginPage = () => {
                 localStorage.setItem('lastUserEmail', finalEmail);
             } else {
                 // Validação do setor na tela de registro
+                if (password !== confirmPassword) {
+                    setError("As senhas não coincidem.");
+                    return;
+                }
+
+
                 const isCreatingNew = setorIdSelecionado === '__novo__';
                 if (!isCreatingNew && !setorIdSelecionado) {
                     setError("Por favor, selecione o seu setor.");
@@ -1325,6 +1332,9 @@ const LoginPage = () => {
             <div className="w-full max-w-md p-8 space-y-6 bg-white/60 dark:bg-slate-800/60 backdrop-blur-xl rounded-2xl shadow-lg">
                 {rememberedUser && isLogin ? (
                     <>
+                        <div className="p-3 text-sm text-blue-800 rounded-lg bg-blue-50 dark:bg-gray-800 dark:text-blue-400" role="alert">
+                            <span className="font-medium">Atenção:</span> O seu e-mail do TJPR não está vinculado a esta calculadora. É necessário fazer um novo cadastro para acessar.
+                        </div>
                         <h2 className="text-3xl font-bold text-center text-slate-800 dark:text-slate-100">Bem-vindo de volta!</h2>
                         <div className="text-center p-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-slate-100/50 dark:bg-slate-900/50">
                             <p className="font-medium text-slate-700 dark:text-slate-200">{rememberedUser}</p>
@@ -1346,6 +1356,11 @@ const LoginPage = () => {
                 ) : (
                     <>
                         <h2 className="text-3xl font-bold text-center text-slate-800 dark:text-slate-100">{isLogin ? 'Login' : 'Criar Conta'}</h2>
+                        {isLogin && (
+                            <div className="p-3 text-sm text-blue-800 rounded-lg bg-blue-50 dark:bg-gray-800 dark:text-blue-400" role="alert">
+                                <span className="font-medium">Atenção:</span> O seu e-mail do TJPR não está vinculado a esta calculadora. É necessário fazer um novo cadastro para acessar.
+                            </div>
+                        )}
                         <form onSubmit={handleSubmit} className="space-y-4">
                             {!isLogin && <input type="text" placeholder="Nome Completo" value={displayName} onChange={e => setDisplayName(e.target.value)} required className="w-full px-4 py-3 bg-white/50 dark:bg-slate-900/50 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition" />}
                             {!isLogin && (<>
@@ -1371,6 +1386,12 @@ const LoginPage = () => {
                                 </span>
                             </div>
                             <input type="password" placeholder="Palavra-passe" value={password} onChange={e => setPassword(e.target.value)} required className="w-full px-4 py-3 bg-white/50 dark:bg-slate-900/50 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition" />
+                            {!isLogin && <input type="password" placeholder="Confirmar Palavra-passe" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} required className="w-full px-4 py-3 bg-white/50 dark:bg-slate-900/50 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition" />}
+                            {!isLogin && (
+                                <div className="p-3 text-sm text-amber-800 rounded-lg bg-amber-50 dark:bg-gray-800 dark:text-amber-400" role="alert">
+                                    <span className="font-medium">Importante:</span> Por segurança, não utilize a mesma senha do seu e-mail do TJPR ou de outros sistemas.
+                                </div>
+                            )}
                             <div className="flex items-center justify-between text-sm">
                                 <label className="flex items-center gap-2 text-slate-600 dark:text-slate-300"><input type="checkbox" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"/>Lembrar-me</label>
                                 <a href="#" onClick={(e) => { e.preventDefault(); setIsResettingPassword(true); setError(''); }} className="font-medium text-indigo-600 hover:text-indigo-500">Esqueceu a sua palavra-passe?</a>
