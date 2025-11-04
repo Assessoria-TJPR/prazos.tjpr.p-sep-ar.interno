@@ -516,44 +516,31 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
             calcularPrazoCivelComInicioDefinido(dataPublicacao, inicioDoPrazo, prazoNumerico, diasNaoUteisDoInicio);
 
         } else { // Lógica para Crime (dias corridos)
-            // CORREÇÃO: Unifica a lógica de Crime com a de Cível para permitir a comprovação de decretos.
-            const { proximoDia: dataPublicacao, suspensoesEncontradas: suspensoesPublicacao } = getProximoDiaUtilParaPublicacao(inicioDisponibilizacao);
-            const { proximoDia: dataIntimacao, suspensoesEncontradas: suspensoesIntimacao } = getProximoDiaUtilParaPublicacao(dataPublicacao);
-            
-            const calcularPrazoCrime = (inicioPrazo, prazo, comprovados = new Set(), considerarDecretos = true) => {
+            const calcularPrazoCrime = (inicio, prazo) => {
                 const diasNaoUteisEncontrados = [];
-                const prazoFinal = new Date(dataIntimacao.getTime());
-                prazoFinal.setDate(prazoFinal.getDate() + prazoNumerico - 1);
+                const prazoFinal = new Date(inicio.getTime());
+                prazoFinal.setDate(prazoFinal.getDate() + prazo - 1); // Adiciona o prazo em dias corridos
                 
                 let prazoFinalAjustado = new Date(prazoFinal.getTime());
                 let infoDiaFinalNaoUtil;
-                while (
-                    (infoDiaFinalNaoUtil = getMotivoDiaNaoUtil(prazoFinalAjustado, considerarDecretos)) &&
-                    (infoDiaFinalNaoUtil.tipo !== 'decreto' || comprovados.has(prazoFinalAjustado.toISOString().split('T')[0]))
-                ) {
+                // Prorroga o prazo final se cair em qualquer dia não útil (feriado, decreto, etc.)
+                while ((infoDiaFinalNaoUtil = getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'todos'))) {
                     diasNaoUteisEncontrados.push({ data: new Date(prazoFinalAjustado.getTime()), ...infoDiaFinalNaoUtil });
                     prazoFinalAjustado.setDate(prazoFinalAjustado.getDate() + 1);
                 }
                 return { prazoFinal: prazoFinalAjustado, diasNaoUteis: diasNaoUteisEncontrados };
             };
 
-            const resultadoSemDecreto = calcularPrazoCrime(dataIntimacao, prazoNumerico, new Set(), false);
-            const todasSuspensoesPossiveis = new Set(Object.keys(decretosMap).concat(Object.keys(instabilidadeMap)));
-            const resultadoComTodasSuspensoes = calcularPrazoCrime(dataIntimacao, prazoNumerico, todasSuspensoesPossiveis, true);
+            const { proximoDia: dataPublicacao } = getProximoDiaUtilParaPublicacao(inicioDisponibilizacao);
+            const { proximoDia: dataIntimacao } = getProximoDiaUtilParaPublicacao(dataPublicacao);
+            const resultadoFinal = calcularPrazoCrime(dataIntimacao, prazoNumerico);
 
-            const todasAsSuspensoesParaUI = [...suspensoesPublicacao, ...suspensoesIntimacao, ...resultadoComTodasSuspensoes.diasNaoUteis.filter(d => d.tipo === 'decreto' || d.tipo === 'instabilidade')];
-            const suspensoesRelevantesMap = new Map();
-            todasAsSuspensoesParaUI.forEach(suspensao => suspensoesRelevantesMap.set(suspensao.data.toISOString().split('T')[0], suspensao));
-            const suspensoesRelevantes = Array.from(suspensoesRelevantesMap.values());
-            
-            // CORREÇÃO: A lógica para 'crime' deve usar as variáveis corretas para exibição.
-            // O cenário "com decreto" e "sem decreto" é o mesmo para dias corridos, mas a UI precisa dos dados.
             setResultado({ 
                 dataPublicacao: dataPublicacao, 
                 inicioPrazo: dataIntimacao, 
-                semDecreto: resultadoSemDecreto, 
-                comDecreto: resultadoComTodasSuspensoes, // Usa o resultado com todas as suspensões para o cenário 2
-                suspensoesComprovaveis: suspensoesRelevantes, 
+                semDecreto: resultadoFinal, // Usado para exibição do prazo final
+                comDecreto: resultadoFinal, // Usado para a lógica de tempestividade
+                suspensoesComprovaveis: [], // Não há suspensões a comprovar no crime
                 prazo: prazoNumerico, tipo: 'crime' 
             });
         }
@@ -970,58 +957,89 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
                             </div>
                             
                         )}
-                    </>
-                )}
-                {resultado && resultado.tipo === 'civel' && (userData?.role === 'intermediate' || userData?.role === 'admin') && (
-                    <div className="mt-6 border-t border-slate-300 dark:border-slate-600 pt-4 animate-fade-in">
-                        <h3 className="text-lg font-bold text-slate-700 dark:text-slate-200 mb-2">Verificação de Tempestividade</h3>
-                        <div>
-                            <label htmlFor="data-interposicao" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Data de Interposição do Recurso</label>
-                            <input type="date" id="data-interposicao" value={dataInterposicao} onChange={e => setDataInterposicao(e.target.value)} className="w-full md:w-1/2 px-4 py-3 bg-white/50 dark:bg-slate-900/50 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition" />
-                        </div>
-                        {tempestividade && (
-                            <div className={`mt-4 p-4 rounded-lg flex items-center gap-3 ${tempestividade === 'tempestivo' ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300' : 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300'}`}>
-                                {tempestividade === 'tempestivo' ? (
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                                ) : (
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                                )}
+                        {/* Seção de Tempestividade movida para dentro do bloco 'civel' */}
+                        {(userData?.role === 'intermediate' || userData?.role === 'admin') && (
+                            <div className="mt-6 border-t border-slate-300 dark:border-slate-600 pt-4 animate-fade-in">
+                                <h3 className="text-lg font-bold text-slate-700 dark:text-slate-200 mb-2">Verificação de Tempestividade</h3>
                                 <div>
-                                    <p className="font-bold">{tempestividade === 'tempestivo' ? 'RECURSO TEMPESTIVO' : 'RECURSO INTEMPESTIVO'}</p>
-                                    <p className="text-sm">O recurso foi interposto {tempestividade === 'tempestivo' ? 'dentro do' : 'fora do'} prazo legal. O prazo final, considerando as suspensões selecionadas, é {formatarData(resultado.comDecreto.prazoFinal)}.</p>
+                                    <label htmlFor="data-interposicao" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Data de Interposição do Recurso</label>
+                                    <input type="date" id="data-interposicao" value={dataInterposicao} onChange={e => setDataInterposicao(e.target.value)} className="w-full md:w-1/2 px-4 py-3 bg-white/50 dark:bg-slate-900/50 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition" />
                                 </div>
-                            </div>
-                        )}
-                        {tempestividade === 'puramente_intempestivo' && (
-                            <div className="mt-4"><button onClick={gerarMinutaIntempestividade} className="w-full md:w-auto flex justify-center items-center bg-gradient-to-br from-red-500 to-red-600 text-white font-semibold py-2 px-5 rounded-lg hover:from-red-600 hover:to-red-700 transition-all duration-300 shadow-md">Baixar Minuta (Intempestivo)</button></div>
-                        )} 
-                        {tempestividade === 'intempestivo_falta_decreto' && resultado.suspensoesComprovaveis.length > 0 && (
-                            <div className="mt-4 space-y-4">
-                                <div className="p-3 text-sm text-amber-800 rounded-lg bg-amber-50 dark:bg-gray-800 dark:text-amber-400" role="alert">
-                                    <span className="font-medium">Atenção:</span> O recurso está intempestivo, a menos que as suspensões de prazo sejam comprovadas.
-                                </div>
-                                <div className="flex items-center gap-4 flex-wrap">
-                                    <p className="text-sm text-slate-600 dark:text-slate-300 font-medium">Gerar outras minutas:</p>
-                                    <div className="flex gap-3">
-                                        <button onClick={gerarMinutaIntimacaoDecreto} className="flex-1 md:flex-auto justify-center flex items-center bg-gradient-to-br from-sky-500 to-sky-600 text-white font-semibold py-2 px-4 rounded-lg hover:from-sky-600 hover:to-sky-700 transition-all duration-300 shadow-md text-sm">Intimação Decreto</button>
-                                        <button onClick={gerarMinutaFaltaDecreto} className="flex-1 md:flex-auto justify-center flex items-center bg-gradient-to-br from-orange-500 to-orange-600 text-white font-semibold py-2 px-4 rounded-lg hover:from-orange-600 hover:to-orange-700 transition-all duration-300 shadow-md text-sm">Intempestivo Falta Decreto</button>
+                                {tempestividade && (
+                                    <div className={`mt-4 p-4 rounded-lg flex items-center gap-3 ${tempestividade === 'tempestivo' ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300' : 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300'}`}>
+                                        {tempestividade === 'tempestivo' ? <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg> : <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
+                                        <div>
+                                            <p className="font-bold">{tempestividade === 'tempestivo' ? 'RECURSO TEMPESTIVO' : 'RECURSO INTEMPESTIVO'}</p>
+                                            <p className="text-sm">O recurso foi interposto {tempestividade === 'tempestivo' ? 'dentro do' : 'fora do'} prazo legal. O prazo final, considerando as suspensões selecionadas, é {formatarData(resultado.comDecreto.prazoFinal)}.</p>
+                                        </div>
                                     </div>
-                                </div>
+                                )}
+                                {tempestividade === 'puramente_intempestivo' && (
+                                    <div className="mt-4"><button onClick={gerarMinutaIntempestividade} className="w-full md:w-auto flex justify-center items-center bg-gradient-to-br from-red-500 to-red-600 text-white font-semibold py-2 px-5 rounded-lg hover:from-red-600 hover:to-red-700 transition-all duration-300 shadow-md">Baixar Minuta (Intempestivo)</button></div>
+                                )} 
+                                {tempestividade === 'intempestivo_falta_decreto' && (
+                                    <div className="mt-4 space-y-4">
+                                        <div className="p-3 text-sm text-amber-800 rounded-lg bg-amber-50 dark:bg-gray-800 dark:text-amber-400" role="alert">
+                                            <span className="font-medium">Atenção:</span> O recurso está intempestivo, a menos que as suspensões de prazo sejam comprovadas.
+                                        </div>
+                                        <div className="flex items-center gap-4 flex-wrap">
+                                            <p className="text-sm text-slate-600 dark:text-slate-300 font-medium">Gerar outras minutas:</p>
+                                            <div className="flex gap-3">
+                                                <button onClick={gerarMinutaIntimacaoDecreto} className="flex-1 md:flex-auto justify-center flex items-center bg-gradient-to-br from-sky-500 to-sky-600 text-white font-semibold py-2 px-4 rounded-lg hover:from-sky-600 hover:to-sky-700 transition-all duration-300 shadow-md text-sm">Intimação Decreto</button>
+                                                <button onClick={gerarMinutaFaltaDecreto} className="flex-1 md:flex-auto justify-center flex items-center bg-gradient-to-br from-orange-500 to-orange-600 text-white font-semibold py-2 px-4 rounded-lg hover:from-orange-600 hover:to-orange-700 transition-all duration-300 shadow-md text-sm">Intempestivo Falta Decreto</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         )}
-                    </div>
+                    </>
                 )}
                 {resultado.tipo === 'crime' && (
                     <>
-                        {resultado.decretoImpactou && ( <div className="p-4 mb-4 text-sm text-orange-800 rounded-lg bg-orange-50 dark:bg-gray-800 dark:text-orange-400" role="alert"><span className="font-medium">Atenção!</span> Foi identificado um decreto de suspensão de prazo no período. Verifique se o advogado juntou o decreto aos autos para comprovar a prorrogação.</div> )}
-                        <div className={`grid grid-cols-1 ${resultado.decretoImpactou ? 'md:grid-cols-2' : ''} gap-4`}>
-                            <div className={resultado.decretoImpactou ? 'border-r md:pr-4' : ''}>
-                                <h3 className="text-lg font-bold text-slate-700 dark:text-slate-200 text-center mb-2">{resultado.decretoImpactou ? "Cenário 1: Sem Decreto" : "Prazo Final"}</h3>
-                                <p className="text-center text-sm text-slate-500 dark:text-slate-400 mb-1 whitespace-nowrap">Publicação em {formatarData(resultado.dataPublicacaoSemDecreto)} / Início em {formatarData(resultado.inicioPrazoSemDecreto)}</p>
-                                <p className="text-center text-slate-600 dark:text-slate-300">O prazo final de {resultado.prazo} dias úteis é:</p>
+                        <div className="text-center">
+                            <h3 className="text-lg font-bold text-slate-700 dark:text-slate-200 mb-2">Resultado do Cálculo</h3>
+                            <p className="text-slate-600 dark:text-slate-300">O prazo final de {resultado.prazo} dias corridos é:</p>
+                            <div className="flex justify-center items-baseline gap-4 mt-2">
                                 <p className="text-center mt-2 text-2xl font-bold text-indigo-600 dark:text-indigo-400">{formatarData(resultado.semDecreto.prazoFinal)}</p>
                             </div>
                         </div>
+                        {/* Seção de Tempestividade movida para dentro do bloco 'crime' */}
+                        {(userData?.role === 'intermediate' || userData?.role === 'admin') && (
+                            <div className="mt-6 border-t border-slate-300 dark:border-slate-600 pt-4 animate-fade-in">
+                                <h3 className="text-lg font-bold text-slate-700 dark:text-slate-200 mb-2">Verificação de Tempestividade</h3>
+                                <div>
+                                    <label htmlFor="data-interposicao" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Data de Interposição do Recurso</label>
+                                    <input type="date" id="data-interposicao" value={dataInterposicao} onChange={e => setDataInterposicao(e.target.value)} className="w-full md:w-1/2 px-4 py-3 bg-white/50 dark:bg-slate-900/50 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition" />
+                                </div>
+                                {tempestividade && (
+                                    <div className={`mt-4 p-4 rounded-lg flex items-center gap-3 ${tempestividade === 'tempestivo' ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300' : 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300'}`}>
+                                        {tempestividade === 'tempestivo' ? <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg> : <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
+                                        <div>
+                                            <p className="font-bold">{tempestividade === 'tempestivo' ? 'RECURSO TEMPESTIVO' : 'RECURSO INTEMPESTIVO'}</p>
+                                            <p className="text-sm">O recurso foi interposto {tempestividade === 'tempestivo' ? 'dentro do' : 'fora do'} prazo legal. O prazo final, considerando as suspensões selecionadas, é {formatarData(resultado.comDecreto.prazoFinal)}.</p>
+                                        </div>
+                                    </div>
+                                )}
+                                {tempestividade === 'puramente_intempestivo' && (
+                                    <div className="mt-4"><button onClick={gerarMinutaIntempestividade} className="w-full md:w-auto flex justify-center items-center bg-gradient-to-br from-red-500 to-red-600 text-white font-semibold py-2 px-5 rounded-lg hover:from-red-600 hover:to-red-700 transition-all duration-300 shadow-md">Baixar Minuta (Intempestivo)</button></div>
+                                )} 
+                                {tempestividade === 'intempestivo_falta_decreto' && (
+                                    <div className="mt-4 space-y-4">
+                                        <div className="p-3 text-sm text-amber-800 rounded-lg bg-amber-50 dark:bg-gray-800 dark:text-amber-400" role="alert">
+                                            <span className="font-medium">Atenção:</span> O recurso está intempestivo, a menos que as suspensões de prazo sejam comprovadas.
+                                        </div>
+                                        <div className="flex items-center gap-4 flex-wrap">
+                                            <p className="text-sm text-slate-600 dark:text-slate-300 font-medium">Gerar outras minutas:</p>
+                                            <div className="flex gap-3">
+                                                <button onClick={gerarMinutaIntimacaoDecreto} className="flex-1 md:flex-auto justify-center flex items-center bg-gradient-to-br from-sky-500 to-sky-600 text-white font-semibold py-2 px-4 rounded-lg hover:from-sky-600 hover:to-sky-700 transition-all duration-300 shadow-md text-sm">Intimação Decreto</button>
+                                                <button onClick={gerarMinutaFaltaDecreto} className="flex-1 md:flex-auto justify-center flex items-center bg-gradient-to-br from-orange-500 to-orange-600 text-white font-semibold py-2 px-4 rounded-lg hover:from-orange-600 hover:to-orange-700 transition-all duration-300 shadow-md text-sm">Intempestivo Falta Decreto</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        )}
                     </>
                 )}
 
