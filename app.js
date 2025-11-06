@@ -770,12 +770,39 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
   `;
 
   // Função para gerar um arquivo .doc a partir de um conteúdo HTML
-  const generateDocFromHtml = (bodyHtml, minutaType, placeholders, outputFileName) => {
+  const generateDocFromHtml = (bodyHtml, minutaType, placeholders, outputFileName, arUsuario = null) => {
     try {
-        // Estilos comuns para os parágrafos
-        const pStyle = "text-align: justify; text-indent: 50px; margin-bottom: 1em;";
-        const pCenterStyle = "text-align: center; margin: 0;";
-        const sourceHTML = getDocTemplate(bodyHtml, pStyle, pCenterStyle);
+        const pStyle = "text-align: justify; text-indent: 50px; margin-bottom: 1em; font-family: Arial, sans-serif; font-size: 16pt;";
+        const pCenterStyle = "text-align: center; margin: 0; font-family: Arial, sans-serif; font-size: 16pt;";
+        
+        // Adiciona o rodapé padrão
+        const finalHtml = `
+            ${bodyHtml}
+            <br>
+            <p style="${pCenterStyle}">Curitiba, data da assinatura digital.</p>
+            <br><br>
+            <p style="${pCenterStyle}"><b>Desembargador HAYTON LEE SWAIN FILHO</b></p>
+            <p style="${pCenterStyle}">1º Vice-Presidente do Tribunal de Justiça do Estado do Paraná</p>
+            ${arUsuario ? `
+                <br>
+                <p style="font-family: Arial, sans-serif; font-size: 10pt; text-align: left; margin: 0;">${arUsuario.trim()}</p>
+            ` : ''}
+        `;
+
+        const sourceHTML = `
+            <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+            <head><meta charset='utf-8'><title>Minuta Despacho</title>
+            <style>
+                p { font-family: Arial, sans-serif; font-size: 16pt; line-height: 1.5; }
+            </style>
+            </head>
+            <body>
+                <div>
+                    ${finalHtml}
+                </div>
+            </body>
+            </html>
+        `;
  
         const blob = new Blob([sourceHTML], { type: 'application/msword' });
         saveAs(blob, outputFileName);
@@ -840,6 +867,12 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
   };
 
   const gerarMinutaIntimacaoDecreto = async () => {
+    const arUsuario = window.prompt("Por favor, insira o código AR do usuário (ex: AR1234):", "");
+    if (arUsuario === null || arUsuario.trim() === "") {
+        // Usuário cancelou ou não inseriu nada
+        return;
+    }
+
     const template = await getMinutaContent('intimacao_decreto');
     // Esta minuta não tem placeholders, então o corpo é o próprio template.
     const corpoMinuta = template;
@@ -848,7 +881,26 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
         corpoMinuta,
         'intimacao_decreto',
         {},
-        `Minuta_Intimacao_Decreto_${numeroProcesso.replace(/\D/g, '') || 'processo'}.doc`
+        `Minuta_Intimacao_Decreto_${numeroProcesso.replace(/\D/g, '') || 'processo'}.doc`,
+        arUsuario
+    );
+  };
+
+  const gerarMinutaIntimacaoDecretoCrime = async () => {
+    const arUsuario = window.prompt("Por favor, insira o código AR do usuário (ex: AR1234):", "");
+    if (arUsuario === null || arUsuario.trim() === "") {
+        // Usuário cancelou ou não inseriu nada
+        return;
+    }
+
+    const template = await getMinutaContent('intimacao_decreto_crime');
+
+    generateDocFromHtml(
+        template,
+        'intimacao_decreto_crime',
+        {},
+        `Minuta_Intimacao_Decreto_Crime_${numeroProcesso.replace(/\D/g, '') || 'processo'}.doc`,
+        arUsuario
     );
   };
 
@@ -1030,8 +1082,14 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
                                         <div className="flex items-center gap-4 flex-wrap">
                                             <p className="text-sm text-slate-600 dark:text-slate-300 font-medium">Gerar outras minutas:</p>
                                             <div className="flex gap-3">
-                                                <button onClick={gerarMinutaIntimacaoDecreto} className="flex-1 md:flex-auto justify-center flex items-center bg-gradient-to-br from-sky-500 to-sky-600 text-white font-semibold py-2 px-4 rounded-lg hover:from-sky-600 hover:to-sky-700 transition-all duration-300 shadow-md text-sm">Intimação Decreto</button>
-                                                <button onClick={gerarMinutaFaltaDecreto} className="flex-1 md:flex-auto justify-center flex items-center bg-gradient-to-br from-orange-500 to-orange-600 text-white font-semibold py-2 px-4 rounded-lg hover:from-orange-600 hover:to-orange-700 transition-all duration-300 shadow-md text-sm">Intempestivo Falta Decreto</button>
+                                                {resultado.tipo === 'civel' ? (
+                                                    <>
+                                                        <button onClick={gerarMinutaIntimacaoDecreto} className="flex-1 md:flex-auto justify-center flex items-center bg-gradient-to-br from-sky-500 to-sky-600 text-white font-semibold py-2 px-4 rounded-lg hover:from-sky-600 hover:to-sky-700 transition-all duration-300 shadow-md text-sm">Intimação Decreto</button>
+                                                        <button onClick={gerarMinutaFaltaDecreto} className="flex-1 md:flex-auto justify-center flex items-center bg-gradient-to-br from-orange-500 to-orange-600 text-white font-semibold py-2 px-4 rounded-lg hover:from-orange-600 hover:to-orange-700 transition-all duration-300 shadow-md text-sm">Intempestivo Falta Decreto</button>
+                                                    </>
+                                                ) : (
+                                                    <button onClick={gerarMinutaIntimacaoDecretoCrime} className="flex-1 md:flex-auto justify-center flex items-center bg-gradient-to-br from-sky-500 to-sky-600 text-white font-semibold py-2 px-4 rounded-lg hover:from-sky-600 hover:to-sky-700 transition-all duration-300 shadow-md text-sm">Intimação Decreto (Crime)</button>
+                                                )}
                                             </div>
                                         </div>
                                     </div>
@@ -1048,39 +1106,8 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
 };
 
 const GroupedDiasNaoUteis = ({ dias }) => {
-    const groupedDias = [];
-    let i = 0;
-    while (i < dias.length) {
-        const currentDay = dias[i];
-        if (currentDay.tipo === 'recesso') {
-            let j = i;
-            // Agrupa dias de recesso consecutivos
-            while (j + 1 < dias.length && dias[j + 1].tipo === 'recesso') {
-                const date1 = new Date(dias[j].data);
-                const date2 = new Date(dias[j + 1].data);
-                date1.setDate(date1.getDate() + 1);
-                if (date1.getTime() === date2.getTime()) {
-                    j++;
-                } else {
-                    break;
-                }
-            }
-            const startDate = dias[i].data;
-            const endDate = dias[j].data;
-            groupedDias.push({
-                ...dias[i],
-                id: `recesso-${i}-${j}`, 
-                motivo: `Recesso Forense de ${formatarData(startDate)} até ${formatarData(endDate)}`,
-                data: startDate, // Apenas para a chave
-                tipo: 'recesso_grouped' // Tipo especial para renderização
-            });
-            i = j + 1;
-        } else {
-            groupedDias.push({...currentDay, id: i});
-            i++;
-        }
-    }
-    return groupedDias.map(dia => <DiaNaoUtilItem key={dia.id} dia={dia} />);
+    // Esta função foi movida para helpers.js
+    return agruparDiasConsecutivos(dias).map(dia => <DiaNaoUtilItem key={dia.id} dia={dia} />);
 };
 
 const DiaNaoUtilItem = ({ dia, as = 'li' }) => {
