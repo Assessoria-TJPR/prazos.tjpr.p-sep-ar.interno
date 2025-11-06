@@ -22,6 +22,12 @@ const MINUTAS_PADRAO = {
     intimacao_decreto: `
         <p style="text-align: justify; text-indent: 50px; margin-bottom: 1em;">Intime-se a parte Recorrente, nos termos dos artigos 1.003, § 6º c/c 224, §1, ambos do Código de Processo Civil, sob pena de ser reconhecida a intempestividade do recurso, para, no prazo de 5 (cinco) dias, comprovar a ocorrência do feriado local ou a determinação de suspensão do expediente ou do prazo recursal neste Tribunal de Justiça, por meio de documento idôneo, conforme publicado no Diário da Justiça Eletrônico (AgInt no AREsp n. 2.734.555/RJ, relator Ministro Humberto Martins, Terceira Turma, julgado em 16/12/2024, DJEN de 19/12/2024.).</p>
     `,
+    intimacao_decreto_crime: `
+        <p style="text-align: justify; text-indent: 50px; margin-bottom: 1em;">Intime-se a parte Recorrente, nos termos dos artigos 1.003, § 6º c/c 224, §1, ambos do Código de Processo Civil, para, no prazo de 5 (cinco) dias, comprovar a ocorrência do feriado local ou a determinação de suspensão do expediente ou do prazo recursal neste Tribunal de Justiça, por meio de documento idôneo, conforme publicado no Diário da Justiça Eletrônico (AgInt no AREsp n. 2.734.555/RJ, relator Ministro Humberto Martins, Terceira Turma, julgado em 16/12/2024, DJEN de 19/12/2024.).</p>
+        <br>
+        <p style="text-align: justify; text-indent: 50px; margin-bottom: 1em;">Oportunamente, voltem-se os autos conclusos à Assessoria de Recursos aos Tribunais Superiores.</p>
+        <br>
+    `,
     falta_decreto: `
         <p style="text-align: justify; text-indent: 50px; margin-bottom: 1em;">Trata-se de recurso especial interposto em face do acórdão proferido pela {{camara}} deste Tribunal de Justiça, que negou provimento ao recurso de {{recursoApelacao}}.</p>
         <p style="text-align: justify; text-indent: 50px; margin-bottom: 1em;">A leitura da intimação do acórdão recorrido foi confirmada em {{dataLeitura}} ({{movIntimacao}}), de modo que o prazo de 15 (quinze) dias úteis para interposição de recursos aos Tribunais Superiores passou a fluir no dia {{inicioPrazo}} e findou em {{prazoFinal}}.</p>
