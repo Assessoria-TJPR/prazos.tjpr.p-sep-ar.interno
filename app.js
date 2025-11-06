@@ -569,12 +569,21 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
     const { proximoDia: inicioDoPrazoSemDecreto } = getProximoDiaUtilParaPublicacao(dataPublicacaoSemDecreto, false);
     
     const resultadoSemDecreto = calcularPrazoFinalDiasCorridos(inicioDoPrazoSemDecreto, prazoNumerico, new Set(), false);
-
     const resultadoComDecretoInicial = { ...resultadoSemDecreto }; // Cenário 2 inicia igual ao Cenário 1
 
+    // Busca por todos os decretos possíveis durante o prazo para exibi-los na UI.
+    const todosDecretosPossiveis = new Set(Object.keys(decretosMap));
+    const resultadoComTodosDecretos = calcularPrazoFinalDiasCorridos(inicioDoPrazoComDecreto, prazoNumerico, todosDecretosPossiveis, true);
+
+    // Monta a lista de suspensões que podem ser comprovadas pelo usuário.
     const suspensoesParaUI = [];
     const filtroSuspensoes = d => d.tipo === 'decreto' || d.tipo === 'feriado_cnj' || d.tipo === 'instabilidade';
 
+    // Adiciona decretos que ocorrem durante o prazo.
+    suspensoesParaUI.push(...resultadoComTodosDecretos.diasNaoUteis.filter(filtroSuspensoes));
+    suspensoesParaUI.push(...resultadoComTodosDecretos.diasProrrogados.filter(filtroSuspensoes));
+
+    // Adiciona decretos que ocorrem antes do início do prazo.
     suspensoesParaUI.push(...diasNaoUteisDoInicioComDecreto.filter(filtroSuspensoes));
 
     // REGRA DE NEGÓCIO: Para instabilidades, apenas as que ocorrem no início ou no fim do prazo são comprováveis.
