@@ -539,7 +539,11 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
     if (instabilidadeNoFim) instabilidadesComprovaveis.push({ data: new Date(resultadoSemDecreto.prazoFinal.getTime()), ...instabilidadeNoFim });
 
     const filtroDecretos = d => d.tipo === 'decreto' || d.tipo === 'feriado_cnj';
-    const decretosParaUI = [...diasNaoUteisDoInicioComDecreto.filter(filtroDecretos), ...resultadoComTodosDecretos.diasNaoUteis.filter(filtroDecretos)];
+    const decretosParaUI = [
+        ...diasNaoUteisDoInicioComDecreto.filter(filtroDecretos), 
+        ...resultadoComTodosDecretos.diasNaoUteis.filter(filtroDecretos),
+        ...resultadoComTodosDecretos.diasProrrogados.filter(filtroDecretos) // Adiciona decretos encontrados na prorrogação
+    ];
     const instabilidadesParaUI = [...instabilidadesComprovaveis];
     const todosDecretosParaUI = [...decretosParaUI, ...instabilidadesParaUI];
     const suspensoesRelevantesMap = new Map();
