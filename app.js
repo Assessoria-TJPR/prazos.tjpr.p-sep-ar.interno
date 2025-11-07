@@ -465,52 +465,60 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
   };
 
   const calcularPrazoFinalDiasCorridos = (inicioDoPrazo, prazo, comprovados = new Set(), considerarDecretosNaProrrogacao = true) => {
-    const diasNaoUteisEncontrados = [];
-    const dataCorrente = new Date(inicioDoPrazo.getTime());
+    // Para prazos de 'crime' (dias corridos), decretos/instabilidades no meio do prazo NÃO prorrogam.
+    // A prorrogação ocorre APENAS se o dia final (já ajustado por fins de semana/feriados/recessos)
+    // cair em um decreto/instabilidade COMPROVADO.
+    // Para prazos de 'crime' (dias corridos), o prazo é contado em dias corridos,
+    // mas o início e o fim não podem cair em dias não úteis (incluindo fins de semana, feriados, recessos, decretos e instabilidades).
 
     // 1. Calcula a data final "bruta" do prazo, sem considerar prorrogações por dias não úteis.
-    const dataFinalBruta = new Date(inicioDoPrazo.getTime());
-    dataFinalBruta.setDate(dataFinalBruta.getDate() + prazo - 1);
-
-    // 2. Itera do início do prazo até a data final bruta para encontrar decretos/instabilidades
-    // que caem DENTRO do período e que são comprovados. Estes são para a UI de comprovação.
-    const tempDateForInternalChecks = new Date(inicioDoPrazo.getTime());
-    while (tempDateForInternalChecks <= dataFinalBruta) {
-        const dataCorrenteStr = tempDateForInternalChecks.toISOString().split('T')[0];
-        const eDecreto = getMotivoDiaNaoUtil(tempDateForInternalChecks, true, 'decreto');
-        const eInstabilidade = getMotivoDiaNaoUtil(tempDateForInternalChecks, true, 'instabilidade');
-
-        // Adiciona à lista de dias não úteis encontrados se for um decreto/instabilidade comprovado
-        // CORREÇÃO: Para dias corridos, qualquer suspensão comprovada (decreto/instabilidade) no meio do prazo
-        // deve ser adicionada ao final. Não importa se cai em fim de semana ou não.
-        const eSuspensaoComprovada = (eDecreto || eInstabilidade) && comprovados.has(dataCorrenteStr);
-
-        if (eSuspensaoComprovada) {
-            diasNaoUteisEncontrados.push({ data: new Date(tempDateForInternalChecks.getTime()), ...eDecreto || eInstabilidade });
-        }
-        tempDateForInternalChecks.setDate(tempDateForInternalChecks.getDate() + 1);
+    // 1. Ajusta o início do prazo para o próximo dia útil, se necessário.
+    let inicioAjustado = new Date(inicioDoPrazo.getTime());
+    let infoDiaInicioNaoUtil;
+    // Para crime, o início do prazo é prorrogado por qualquer dia não útil, incluindo decretos e instabilidades.
+    while (
+        (infoDiaInicioNaoUtil = getMotivoDiaNaoUtil(inicioAjustado, true, 'feriado') || getMotivoDiaNaoUtil(inicioAjustado, true, 'recesso') || getMotivoDiaNaoUtil(inicioAjustado, true, 'decreto') || getMotivoDiaNaoUtil(inicioAjustado, true, 'instabilidade')) ||
+        (inicioAjustado.getDay() === 0 || inicioAjustado.getDay() === 6)
+    ) {
+        inicioAjustado.setDate(inicioAjustado.getDate() + 1);
     }
 
-    // Adiciona os dias não úteis (suspensões comprovadas) encontrados ao prazo final.
-    const dataFinalComSuspensoes = new Date(dataFinalBruta.getTime());
-    dataFinalComSuspensoes.setDate(dataFinalComSuspensoes.getDate() + diasNaoUteisEncontrados.length);
+    // 2. Calcula a data final "bruta" a partir do início ajustado.
+    const dataFinalBruta = new Date(inicioAjustado.getTime());
+    dataFinalBruta.setDate(dataFinalBruta.getDate() + prazo - 1);
 
     // Após o loop principal, verifica se a data final caiu em um dia não útil e prorroga se necessário.
-    let prazoFinalAjustado = dataFinalComSuspensoes;
+    let prazoFinalAjustado = dataFinalBruta;
     let infoDiaFinalNaoUtil;
     const diasProrrogados = [];
+    const diasPotenciaisComprovaveis = []; // Para a UI, lista todos os decretos/instabilidades no período
 
+    // Itera do início do prazo até a data final bruta para encontrar decretos/instabilidades
+    // que caem DENTRO do período. Estes são para a UI de comprovação.
+    const tempDateForPotentialChecks = new Date(inicioDoPrazo.getTime());
+    while (tempDateForPotentialChecks <= dataFinalBruta) {
+        const eDecreto = getMotivoDiaNaoUtil(tempDateForPotentialChecks, true, 'decreto');
+        const eInstabilidade = getMotivoDiaNaoUtil(tempDateForPotentialChecks, true, 'instabilidade');
+
+        if (eDecreto || eInstabilidade) {
+            diasPotenciaisComprovaveis.push({ data: new Date(tempDateForPotentialChecks.getTime()), ...eDecreto || eInstabilidade });
+        }
+        tempDateForPotentialChecks.setDate(tempDateForPotentialChecks.getDate() + 1);
+    }
+
+    // 3. Prorroga o prazo final se ele cair em um dia não útil.
     while (
         (infoDiaFinalNaoUtil = getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'feriado') ||
-                               getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'recesso') ||
-                               (considerarDecretosNaProrrogacao && getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'decreto')?.tipo === 'feriado_cnj') ||
-                               (considerarDecretosNaProrrogacao && comprovados.has(prazoFinalAjustado.toISOString().split('T')[0]) && (getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'decreto') || getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'instabilidade')))
+                               getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'recesso') || // Feriados e recessos sempre prorrogam
+                               (getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'decreto') || getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'instabilidade')) // Decretos e instabilidades também prorrogam o fim
         ) || prazoFinalAjustado.getDay() === 0 || prazoFinalAjustado.getDay() === 6
     ) {
         if (infoDiaFinalNaoUtil) diasProrrogados.push({ data: new Date(prazoFinalAjustado.getTime()), ...infoDiaFinalNaoUtil });
         prazoFinalAjustado.setDate(prazoFinalAjustado.getDate() + 1);
     }
-    return { prazoFinal: prazoFinalAjustado, diasNaoUteis: diasNaoUteisEncontrados, diasProrrogados };
+    // Retorna os dias que realmente causaram a prorrogação final como 'diasNaoUteis'
+    // e os dias potenciais para comprovação para a UI.
+    return { prazoFinal: prazoFinalAjustado, diasNaoUteis: diasProrrogados, diasProrrogados: diasProrrogados, diasPotenciaisComprovaveis: diasPotenciaisComprovaveis };
   };
 
   const calcularPrazoCivel = (dataPublicacaoComDecreto, inicioDoPrazoComDecreto, prazoNumerico, diasNaoUteisDoInicioComDecreto = [], inicioDisponibilizacao) => {
@@ -572,46 +580,16 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
     const { proximoDia: dataPublicacaoSemDecreto } = getProximoDiaUtilParaPublicacao(inicioDisponibilizacao, false);
     const { proximoDia: inicioDoPrazoSemDecreto } = getProximoDiaUtilParaPublicacao(dataPublicacaoSemDecreto, false);
     
+    // Para Crime, o cálculo já considera decretos/instabilidades no início e no fim, sem necessidade de comprovação.
     const resultadoSemDecreto = calcularPrazoFinalDiasCorridos(inicioDoPrazoSemDecreto, prazoNumerico, new Set(), false);
-    const resultadoComDecretoInicial = { ...resultadoSemDecreto }; // Cenário 2 inicia igual ao Cenário 1
-
-    // Busca por todos os decretos possíveis durante o prazo para exibi-los na UI.
-    const todosDecretosPossiveis = new Set(Object.keys(decretosMap));
-    const resultadoComTodosDecretos = calcularPrazoFinalDiasCorridos(inicioDoPrazoComDecreto, prazoNumerico, todosDecretosPossiveis, true);
-
-    // Monta a lista de suspensões que podem ser comprovadas pelo usuário.
-    const suspensoesParaUI = [];
-    const filtroSuspensoes = d => d.tipo === 'decreto' || d.tipo === 'feriado_cnj' || d.tipo === 'instabilidade';
-
-    // Adiciona decretos que ocorrem durante o prazo.
-    suspensoesParaUI.push(...resultadoComTodosDecretos.diasNaoUteis.filter(filtroSuspensoes));
-    suspensoesParaUI.push(...resultadoComTodosDecretos.diasProrrogados.filter(filtroSuspensoes));
-
-    // Adiciona decretos que ocorrem antes do início do prazo.
-    suspensoesParaUI.push(...diasNaoUteisDoInicioComDecreto.filter(filtroSuspensoes));
-
-    // REGRA DE NEGÓCIO: Para instabilidades, apenas as que ocorrem no início ou no fim do prazo são comprováveis.
-    const instabilidadeNoInicio = getMotivoDiaNaoUtil(inicioDoPrazoComDecreto, true, 'instabilidade');
-    if (instabilidadeNoInicio) {
-        suspensoesParaUI.push({ data: new Date(inicioDoPrazoComDecreto.getTime()), ...instabilidadeNoInicio });
-    }
-
-    const instabilidadeNoFim = getMotivoDiaNaoUtil(resultadoSemDecreto.prazoFinal, true, 'instabilidade');
-    if (instabilidadeNoFim) {
-        suspensoesParaUI.push({ data: new Date(resultadoSemDecreto.prazoFinal.getTime()), ...instabilidadeNoFim });
-    }
-
-
-    const suspensoesRelevantesMap = new Map();
-    suspensoesParaUI.forEach(suspensao => suspensoesRelevantesMap.set(suspensao.data.toISOString().split('T')[0], suspensao));
-    const suspensoesRelevantes = Array.from(suspensoesRelevantesMap.values()).sort((a, b) => a.data - b.data);
+    const resultadoComDecretoInicial = { ...resultadoSemDecreto };
 
     return {
         dataPublicacao: dataPublicacaoComDecreto,
         inicioPrazo: inicioDoPrazoComDecreto,
         semDecreto: resultadoSemDecreto,
         comDecreto: resultadoComDecretoInicial,
-        suspensoesComprovaveis: suspensoesRelevantes,
+        suspensoesComprovaveis: [], // Para Crime, nunca há suspensões comprováveis na UI.
         prazo: prazoNumerico, tipo: 'crime',
         diasProrrogados: resultadoSemDecreto.diasProrrogados
     };
@@ -632,6 +610,7 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
   }
 
     const handleCalcular = () => {
+    console.log("--- Início do Cálculo ---");
     setError('');
     setResultado(null);
     setDataInterposicao('');
@@ -642,13 +621,8 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
         return;
     }
     try {
-        // CORREÇÃO: Constrói a data de forma mais robusta para evitar problemas de fuso horário e parsing.
-        // O formato 'YYYY-MM-DD' do input[type=date] pode ser interpretado como UTC por alguns navegadores,
-        // causando erros de data inválida. Usar split('/') ou new Date(year, month-1, day) é mais seguro.
-        const parts = dataDisponibilizacao.split('-');
-        if (parts.length !== 3) throw new Error("Formato de data inválido.");
-        const [year, month, day] = parts.map(Number);
-        const inicioDisponibilizacao = new Date(year, month - 1, day);
+        // Constrói a data adicionando 'T00:00:00' para garantir que seja interpretada como data local, evitando problemas de fuso horário.
+        const inicioDisponibilizacao = new Date(dataDisponibilizacao + 'T00:00:00');
 
         // Adiciona uma verificação para garantir que a data construída é válida.
         if (isNaN(inicioDisponibilizacao.getTime())) {
@@ -675,6 +649,7 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
             const resultadoCrime = calcularPrazoCrime(dataPublicacaoComDecreto, inicioDoPrazoComDecreto, prazoNumerico, diasNaoUteisDoInicioComDecreto, inicioDisponibilizacao);
             setResultado(resultadoCrime);
         }
+        console.log("Resultado inicial:", resultado);
         logUsage();
     } catch(e) {
         setError('Data inválida. Verifique o valor inserido.');
@@ -682,6 +657,7 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
   };
 
   const handleComprovacaoChange = (dataString) => {
+    console.log("handleComprovacaoChange chamado para:", dataString);
     let novosComprovados = new Set(diasComprovados);
     // REGRA CNJ: Agrupa a comprovação de Corpus Christi.
     if (dataString === DATA_CORPUS_CHRISTI) {
@@ -690,6 +666,7 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
         // Comportamento padrão para outros decretos
         novosComprovados.has(dataString) ? novosComprovados.delete(dataString) : novosComprovados.add(dataString);
     }
+    console.log("Dias comprovados (após toggle):", Array.from(novosComprovados));
     setDiasComprovados(novosComprovados);
 
     // Recalcula o prazo com base nos dias agora comprovados
@@ -1018,6 +995,11 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
                                     <h3 className="text-lg font-bold text-slate-700 dark:text-slate-200 text-center mb-2">Cenário 2: Com Decreto</h3> 
                                     <p className="text-center text-slate-600 dark:text-slate-300">O prazo final, <strong>comprovando as suspensões</strong>, é:</p> 
                                     <p className="text-center mt-2 text-2xl font-bold text-green-600 dark:text-green-400">{formatarData(resultado.comDecreto.prazoFinal)}</p>
+                                    {resultado.tipo === 'crime' && resultado.comDecreto.diasNaoUteis.length > 0 && (
+                                        <p className="text-center text-sm text-slate-500 dark:text-slate-400 mt-1">
+                                            (Prazo estendido em {resultado.comDecreto.diasNaoUteis.length} dia{resultado.comDecreto.diasNaoUteis.length > 1 ? 's' : ''} devido a comprovações)
+                                        </p>
+                                    )}
                                     
                                     {/* Mostra a seção de comprovação apenas se houver decretos comprováveis */}
                                     {resultado.suspensoesComprovaveis.length > 0 && (
@@ -1120,7 +1102,10 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
 
 const GroupedDiasNaoUteis = ({ dias }) => {
     // Esta função foi movida para helpers.js
-    return agruparDiasConsecutivos(dias).map(dia => <DiaNaoUtilItem key={dia.id} dia={dia} />);
+    return agruparDiasConsecutivos(dias).map(dia => {
+        const key = dia.id || dia.data.toISOString(); // Garante uma chave única
+        return <DiaNaoUtilItem key={key} dia={dia} />;
+    });
 };
 
 const DiaNaoUtilItem = ({ dia, as = 'li' }) => {
@@ -1713,32 +1698,31 @@ const AdminPage = ({ setCurrentArea }) => {
      const fetchAllUsersForManagement = async () => {
         setUserManagementLoading(true);
         try {
-            let query = db.collection('users');
-
             // Se o usuário for um 'setor_admin', ele só pode ver usuários do seu setor OU usuários sem setor.
             // O Firestore não suporta queries com 'OU' lógicos em campos diferentes ('setorId' == X OU 'setorId' == null).
             // A abordagem é buscar as duas listas e uni-las no cliente.
             if (adminUserData.role === 'setor_admin' && adminUserData.setorId) {
                 const usersInSectorQuery = db.collection('users').where('setorId', '==', adminUserData.setorId).get();
-                const usersWithoutSectorQuery = db.collection('users').where('setorId', '==', null).get();
+                // A query para usuários sem setor pode ser desnecessária se o chefe de setor só gerencia seu próprio setor.
+                // Vamos mantê-la por enquanto, mas pode ser removida se a regra de negócio for estrita.
+                const usersWithoutSectorQuery = db.collection('users').where('setorId', '==', null).get(); 
 
                 const [usersInSectorSnap, usersWithoutSectorSnap] = await Promise.all([usersInSectorQuery, usersWithoutSectorQuery]);
                 
                 const usersInSector = usersInSectorSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 const usersWithoutSector = usersWithoutSectorSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 
-                const combinedUsers = [...usersInSector, ...usersWithoutSector];
+                const combinedUsers = [...usersInSector, ...usersWithoutSector].sort((a, b) => (a.displayName || '').localeCompare(b.displayName || ''));
                 setAllUsersForManagement(combinedUsers);
                 return combinedUsers;
             } else {
-                query = query.orderBy('displayName');
+                // Apenas o Admin Global executa a query geral
+                const snapshot = await db.collection('users').orderBy('displayName').get();
+                const usersList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                setAllUsersForManagement(usersList);
+                return usersList;
             }
-
-            const snapshot = await query.get();
-            const usersList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            setAllUsersForManagement(usersList);
-            return usersList; // Retorna a lista para ser usada em outras funções.
-        } catch (err) { // Esta linha corresponde ao erro reportado
+        } catch (err) {
             console.error("Erro ao buscar usuários para gerenciamento:", err);
             if (err.code === 'permission-denied') {
                 alert("Você não tem permissão para visualizar todos os usuários.");
