@@ -644,8 +644,8 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
         // Se houver checkboxes marcadas, recalcula o prazo considerando os dias comprovados.
         // CORREÇÃO: O recálculo deve partir da data de disponibilização original para ser preciso.
         const inicioDisponibilizacao = new Date(dataDisponibilizacao + 'T00:00:00');
-        const { proximoDia: novaDataPublicacao } = getProximoDiaUtilComprovado(inicioDisponibilizacao, diasComprovados);
-        const { proximoDia: novoInicioDoPrazo } = getProximoDiaUtilComprovado(novaDataPublicacao, novosComprovados);
+        const { proximoDia: novaDataPublicacao } = getProximoDiaUtilComprovado(inicioDisponibilizacao, novosComprovados);
+        const { proximoDia: novoInicioDoPrazo } = getProximoDiaUtilComprovado(novaDataPublicacao, novosComprovados); // Correção aqui
         let novoResultadoComDecreto;
         
         if (tipo === 'civel') {
