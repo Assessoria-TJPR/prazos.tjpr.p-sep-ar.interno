@@ -12,21 +12,30 @@ const calcularPrazoCrimeComprovavel = (dataPublicacaoComDecreto, inicioDoPrazoCo
     // O início e o fim são prorrogados apenas por feriados/recesso/fim de semana. Decretos/instabilidades são ignorados.
     const { proximoDia: dataPublicacaoSemDecreto, suspensoesEncontradas: suspensoesNaPublicacao } = getProximoDiaUtilParaPublicacao(inicioDisponibilizacao, false);
     const { proximoDia: inicioDoPrazoSemDecreto, suspensoesEncontradas: suspensoesNoInicio } = getProximoDiaUtilParaPublicacao(dataPublicacaoSemDecreto, false);
-    const resultadoSemDecreto = calcularPrazoFinalDiasCorridos(inicioDoPrazoSemDecreto, prazoNumerico, new Set(), false);
+    const resultadoSemDecreto = calcularPrazoFinalDiasCorridos(inicioDoPrazoSemDecreto, prazoNumerico, new Set(), true);
 
     // Cenário 2: Com comprovação. Inicia igual ao cenário 1.
     // Será recalculado na UI quando o usuário marcar as checkboxes.
     const resultadoComDecretoInicial = { ...resultadoSemDecreto };
 
-    // Identifica suspensões comprováveis APENAS no início e no fim do prazo.
-    const suspensoesParaUI = [];
-    const filtroComprovavel = (tipo) => tipo === 'decreto' || tipo === 'instabilidade' || tipo === 'feriado_cnj';
+    // Identifica suspensões comprováveis: as do início e todas as que causaram a prorrogação do prazo final.
+    const filtroComprovavel = (tipo) => tipo === 'decreto' || tipo === 'instabilidade' || tipo === 'feriado_cnj' || tipo === 'suspensao_outubro';
+    // CORREÇÃO: A lista inicial deve ser filtrada para incluir apenas itens comprováveis.
+    // Feriados nacionais não precisam de comprovação.
+    const suspensoesParaUI = diasNaoUteisDoInicioComDecreto.filter(s => filtroComprovavel(s.tipo));
 
     const suspensaoNoInicio = getMotivoDiaNaoUtil(inicioDoPrazoSemDecreto, true);
     if (suspensaoNoInicio && filtroComprovavel(suspensaoNoInicio.tipo)) {
         suspensoesParaUI.push({ data: new Date(inicioDoPrazoSemDecreto.getTime()), ...suspensaoNoInicio });
     }
 
+    // Adiciona todos os dias da prorrogação inicial à lista de comprováveis.
+    (resultadoSemDecreto.diasProrrogados || []).forEach(dia => {
+        if (filtroComprovavel(dia.tipo)) suspensoesParaUI.push(dia);
+    });
+
+    // CORREÇÃO: Garante que, se o próprio dia do vencimento (antes da prorrogação) for uma suspensão,
+    // ele também seja adicionado à lista para comprovação.
     const suspensaoNoFim = getMotivoDiaNaoUtil(resultadoSemDecreto.prazoFinal, true);
     if (suspensaoNoFim && filtroComprovavel(suspensaoNoFim.tipo)) {
         suspensoesParaUI.push({ data: new Date(resultadoSemDecreto.prazoFinal.getTime()), ...suspensaoNoFim });

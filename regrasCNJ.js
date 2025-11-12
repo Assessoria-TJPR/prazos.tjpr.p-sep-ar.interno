@@ -10,8 +10,6 @@
  */
 const DATA_CORPUS_CHRISTI = '2025-06-19';
 const DATA_POS_CORPUS_CHRISTI = '2025-06-20';
-const DATA_SUSPENSAO_OUT_1 = '2025-10-23';
-const DATA_SUSPENSAO_OUT_2 = '2025-10-24';
 
 /**
  * Modifica os mapas de feriados e decretos para garantir que Corpus Christi
@@ -27,10 +25,6 @@ const aplicarRegrasEspeciaisDeAgrupamento = (feriados, decretos) => {
     // Adiciona/sobrescreve as datas no mapa de decretos com um tipo especial.
     decretos[DATA_CORPUS_CHRISTI] = { motivo: 'Corpus Christi', tipo: 'feriado_cnj' };
     decretos[DATA_POS_CORPUS_CHRISTI] = { motivo: 'Suspensão de expediente (pós Corpus Christi)', tipo: 'feriado_cnj' };
-
-    // Aplica a regra para a suspensão de Outubro
-    decretos[DATA_SUSPENSAO_OUT_1] = { motivo: 'Suspensão de expediente', tipo: 'suspensao_outubro' };
-    decretos[DATA_SUSPENSAO_OUT_2] = { motivo: 'Suspensão de expediente', tipo: 'suspensao_outubro' };
 };
 
 /**
@@ -62,24 +56,6 @@ const agruparComprovacaoCorpusChristi = (diasComprovados) => {
     } else {
         novosComprovados.add(DATA_CORPUS_CHRISTI);
         novosComprovados.add(DATA_POS_CORPUS_CHRISTI);
-    }
-    return novosComprovados;
-};
-
-/**
- * Agrupa as checkboxes da suspensão de Outubro (23/10 e 24/10)
- * para que funcionem como uma única seleção na interface.
- * @param {Set<string>} diasComprovados - O conjunto de dias atualmente comprovados.
- * @returns {Set<string>} O novo conjunto de dias comprovados.
- */
-const agruparComprovacaoSuspensaoOutubro = (diasComprovados) => {
-    const novosComprovados = new Set(diasComprovados);
-    if (novosComprovados.has(DATA_SUSPENSAO_OUT_1) || novosComprovados.has(DATA_SUSPENSAO_OUT_2)) {
-        novosComprovados.delete(DATA_SUSPENSAO_OUT_1);
-        novosComprovados.delete(DATA_SUSPENSAO_OUT_2);
-    } else {
-        novosComprovados.add(DATA_SUSPENSAO_OUT_1);
-        novosComprovados.add(DATA_SUSPENSAO_OUT_2);
     }
     return novosComprovados;
 };

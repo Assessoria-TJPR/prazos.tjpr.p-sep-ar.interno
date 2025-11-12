@@ -596,8 +596,6 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
     // REGRA CNJ: Agrupa a comprovação de Corpus Christi.
     if (dataString === DATA_CORPUS_CHRISTI) {
         novosComprovados = agruparComprovacaoCorpusChristi(novosComprovados);
-    } else if (dataString === DATA_SUSPENSAO_OUT_1) {
-        novosComprovados = agruparComprovacaoSuspensaoOutubro(novosComprovados);
     } else {
         // Comportamento padrão para outros decretos
         novosComprovados.has(dataString) ? novosComprovados.delete(dataString) : novosComprovados.add(dataString);
@@ -632,16 +630,28 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
         
         if (tipo === 'civel') {
             novoResultadoComDecreto = calcularPrazoFinalDiasUteis(novoInicioDoPrazo, prazo, novosComprovados, true, true, true);
+            return {
+                ...prev,
+                comDecreto: novoResultadoComDecreto,
+            };
         } else { // Para 'crime', o recálculo é sempre em dias corridos.
             novoResultadoComDecreto = calcularPrazoFinalDiasCorridos(inicioPrazoOriginal, prazo, novosComprovados, true);
+            
+            // LÓGICA DA CASCATA: Verifica se o novo prazo final também é uma suspensão comprovável.
+            const novaSuspensaoNoFim = getMotivoDiaNaoUtil(novoResultadoComDecreto.prazoFinal, true, 'todos');
+            const filtroComprovavel = (tipo) => tipo === 'decreto' || tipo === 'instabilidade' || tipo === 'feriado_cnj' || tipo === 'suspensao_outubro';
+            
+            const novasSuspensoesComprovaveis = new Set(prev.suspensoesComprovaveis.map(s => s.data.toISOString().split('T')[0]));
+            if (novaSuspensaoNoFim && filtroComprovavel(novaSuspensaoNoFim.tipo) && !novasSuspensoesComprovaveis.has(novoResultadoComDecreto.prazoFinal.toISOString().split('T')[0])) {
+                prev.suspensoesComprovaveis.push({ data: new Date(novoResultadoComDecreto.prazoFinal.getTime()), ...novaSuspensaoNoFim });
+            }
+
+            return {
+                ...prev,
+                comDecreto: novoResultadoComDecreto,
+                suspensoesComprovaveis: prev.suspensoesComprovaveis.sort((a, b) => a.data - b.data)
+            };
         }
-        
-        return {
-            ...prev,
-            // CORREÇÃO: O recálculo do Cenário 2 não deve alterar a data de publicação ou início do prazo do Cenário 1.
-            // Apenas o resultado de 'comDecreto' é atualizado.
-            comDecreto: novoResultadoComDecreto,
-        };
     });
   };
 
@@ -974,22 +984,8 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
                                                          </span>
                                                      </label>
                                                  )}
-                                                 {/* Lógica para agrupar a Suspensão de Outubro */}
-                                                 {resultado.suspensoesComprovaveis.some(d => d.tipo === 'suspensao_outubro') && (
-                                                     <label className="flex items-center p-2 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg cursor-pointer hover:bg-slate-200/70 dark:hover:bg-slate-700/50 transition-colors">
-                                                         <input 
-                                                             type="checkbox"
-                                                             checked={diasComprovados.has(DATA_SUSPENSAO_OUT_1) || diasComprovados.has(DATA_SUSPENSAO_OUT_2)} 
-                                                             onChange={() => handleComprovacaoChange(DATA_SUSPENSAO_OUT_1, dataDisponibilizacao)} 
-                                                             className="h-4 w-4 rounded border-slate-400 text-indigo-600 focus:ring-indigo-500" 
-                                                         />
-                                                         <span className="ml-2 text-xs text-slate-700 dark:text-slate-200">
-                                                             <strong className="font-semibold">{formatarData(new Date(DATA_SUSPENSAO_OUT_1+'T00:00:00'))} e {formatarData(new Date(DATA_SUSPENSAO_OUT_2+'T00:00:00'))}:</strong> Suspensão de expediente
-                                                         </span>
-                                                     </label>
-                                                 )}
                                                  {/* Renderiza as outras suspensões normalmente */}
-                                                 {resultado.suspensoesComprovaveis.filter(d => d.tipo !== 'feriado_cnj' && d.tipo !== 'suspensao_outubro').map(dia => {
+                                                 {resultado.suspensoesComprovaveis.filter(d => d.tipo !== 'feriado_cnj').map(dia => {
                                                      const dataString = dia.data.toISOString().split('T')[0];
                                                      return ( // O key agora é o dataString para garantir unicidade
                                                          <label key={dataString} className="flex items-center p-2 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg cursor-pointer hover:bg-slate-200/70 dark:hover:bg-slate-700/50 transition-colors">
