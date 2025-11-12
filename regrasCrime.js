@@ -1,52 +1,50 @@
 /**
  * @file regrasCrime.js
  * Contém a lógica de cálculo de prazo específica para a matéria de Crime.
+ * REGRA: A contagem é em dias corridos. Decretos e instabilidades só são relevantes
+ * (e precisam de comprovação) se ocorrerem no dia do início ou no dia do vencimento do prazo.
  */
 
 const calcularPrazoCrimeComprovavel = (dataPublicacaoComDecreto, inicioDoPrazoComDecreto, prazoNumerico, diasNaoUteisDoInicioComDecreto = [], inicioDisponibilizacao, helpers) => {
-    const { getProximoDiaUtilParaPublicacao, calcularPrazoFinalDiasCorridos, decretosMap } = helpers;
+    const { getProximoDiaUtilParaPublicacao, calcularPrazoFinalDiasCorridos, getMotivoDiaNaoUtil } = helpers;
 
-    // 1. Encontra o prazo final sem considerar nenhuma comprovação (Cenário 1)
-    const { proximoDia: dataPublicacaoSemDecreto } = getProximoDiaUtilParaPublicacao(inicioDisponibilizacao, false);
-    const { proximoDia: inicioDoPrazoSemDecreto } = getProximoDiaUtilParaPublicacao(dataPublicacaoSemDecreto, false);
+    // Cenário 1: Sem comprovação de decretos/instabilidades.
+    // O início e o fim são prorrogados apenas por feriados/recesso/fim de semana. Decretos/instabilidades são ignorados.
+    const { proximoDia: dataPublicacaoSemDecreto, suspensoesEncontradas: suspensoesNaPublicacao } = getProximoDiaUtilParaPublicacao(inicioDisponibilizacao, false);
+    const { proximoDia: inicioDoPrazoSemDecreto, suspensoesEncontradas: suspensoesNoInicio } = getProximoDiaUtilParaPublicacao(dataPublicacaoSemDecreto, false);
     const resultadoSemDecreto = calcularPrazoFinalDiasCorridos(inicioDoPrazoSemDecreto, prazoNumerico, new Set(), false);
 
-    // 2. Encontra todas as suspensões comprováveis no período, similar ao cível.
-    const todosDecretosPossiveis = new Set(Object.keys(decretosMap));
-    const resultadoComTodosDecretos = calcularPrazoFinalDiasCorridos(inicioDoPrazoComDecreto, prazoNumerico, todosDecretosPossiveis, true);
+    // Cenário 2: Com comprovação. Inicia igual ao cenário 1.
+    // Será recalculado na UI quando o usuário marcar as checkboxes.
+    const resultadoComDecretoInicial = { ...resultadoSemDecreto };
 
-    // CORREÇÃO: Para Crime, a instabilidade só é comprovável se ocorrer no início do prazo ou no vencimento.
-    // Filtramos a lista de instabilidades potenciais para incluir apenas as que correspondem a essas datas.
-    const inicioPrazoStr = inicioDoPrazoComDecreto.toISOString().split('T')[0];
-    const prazoFinalSemDecretoStr = resultadoSemDecreto.prazoFinal.toISOString().split('T')[0];
+    // Identifica suspensões comprováveis APENAS no início e no fim do prazo.
+    const suspensoesParaUI = [];
+    const filtroComprovavel = (tipo) => tipo === 'decreto' || tipo === 'instabilidade' || tipo === 'feriado_cnj';
 
-    const instabilidadesParaUI = (resultadoComTodosDecretos.diasPotenciaisComprovaveis || [])
-        .filter(d => {
-            const dataInstabilidadeStr = d.data.toISOString().split('T')[0];
-            return d.tipo === 'instabilidade' && (dataInstabilidadeStr === inicioPrazoStr || dataInstabilidadeStr === prazoFinalSemDecretoStr);
-        });
+    const suspensaoNoInicio = getMotivoDiaNaoUtil(inicioDoPrazoSemDecreto, true);
+    if (suspensaoNoInicio && filtroComprovavel(suspensaoNoInicio.tipo)) {
+        suspensoesParaUI.push({ data: new Date(inicioDoPrazoSemDecreto.getTime()), ...suspensaoNoInicio });
+    }
 
-    const filtroDecretos = d => d.tipo === 'decreto' || d.tipo === 'feriado_cnj';
-    const decretosParaUI = [
-        ...diasNaoUteisDoInicioComDecreto.filter(filtroDecretos),
-        ...(resultadoComTodosDecretos.diasPotenciaisComprovaveis || []).filter(filtroDecretos),
-        ...resultadoComTodosDecretos.diasProrrogados.filter(filtroDecretos)
-    ];
-    const todosDecretosParaUI = [...decretosParaUI, ...instabilidadesParaUI];
+    const suspensaoNoFim = getMotivoDiaNaoUtil(resultadoSemDecreto.prazoFinal, true);
+    if (suspensaoNoFim && filtroComprovavel(suspensaoNoFim.tipo)) {
+        suspensoesParaUI.push({ data: new Date(resultadoSemDecreto.prazoFinal.getTime()), ...suspensaoNoFim });
+    }
+
     const suspensoesRelevantesMap = new Map();
-    // O Map garante que cada suspensão (pela data) seja adicionada apenas uma vez, evitando duplicatas.
-    todosDecretosParaUI.forEach(suspensao => {
+    suspensoesParaUI.forEach(suspensao => {
         suspensoesRelevantesMap.set(suspensao.data.toISOString().split('T')[0], suspensao);
     });
-    let suspensoesRelevantes = Array.from(suspensoesRelevantesMap.values()).sort((a, b) => a.data - b.data);
+    const suspensoesRelevantes = Array.from(suspensoesRelevantesMap.values()).sort((a, b) => a.data - b.data);
 
     return {
-        dataPublicacao: dataPublicacaoComDecreto,
-        inicioPrazo: inicioDoPrazoComDecreto,
+        dataPublicacao: dataPublicacaoSemDecreto,
+        inicioPrazo: inicioDoPrazoSemDecreto,
         semDecreto: resultadoSemDecreto,
-        comDecreto: { ...resultadoSemDecreto }, // Cenário 2 começa igual ao 1
+        comDecreto: resultadoComDecretoInicial,
         suspensoesComprovaveis: suspensoesRelevantes,
-        prazo: prazoNumerico, tipo: 'crime',
-        diasProrrogados: resultadoSemDecreto.diasProrrogados
+        prazo: prazoNumerico,
+        tipo: 'crime'
     };
-  };
+};
