@@ -34,11 +34,11 @@ const calcularPrazoCrimeComprovavel = (dataPublicacaoComDecreto, inicioDoPrazoCo
         if (filtroComprovavel(dia.tipo)) suspensoesParaUI.push(dia);
     });
 
-    // CORREÇÃO: Garante que, se o próprio dia do vencimento (antes da prorrogação) for uma suspensão,
+    // CORREÇÃO: Garante que, se o próprio dia do vencimento (após a prorrogação inicial) for uma suspensão,
     // ele também seja adicionado à lista para comprovação.
-    const suspensaoNoFim = getMotivoDiaNaoUtil(resultadoSemDecreto.prazoFinal, true);
-    if (suspensaoNoFim && filtroComprovavel(suspensaoNoFim.tipo)) {
-        suspensoesParaUI.push({ data: new Date(resultadoSemDecreto.prazoFinal.getTime()), ...suspensaoNoFim });
+    const suspensaoNoFimProrrogado = getMotivoDiaNaoUtil(resultadoSemDecreto.prazoFinalProrrogado, true);
+    if (suspensaoNoFimProrrogado && filtroComprovavel(suspensaoNoFimProrrogado.tipo)) {
+        suspensoesParaUI.push({ data: new Date(resultadoSemDecreto.prazoFinalProrrogado.getTime()), ...suspensaoNoFimProrrogado });
     }
 
     const suspensoesRelevantesMap = new Map();

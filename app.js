@@ -495,8 +495,10 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
 
     // 2. Calcula a data final "bruta" somando os dias corridos.
     const dataFinalBruta = new Date(inicioAjustado.getTime());
-    const diasASomar = prazo > 0 ? prazo - 1 : 0;
-    dataFinalBruta.setDate(dataFinalBruta.getDate() + diasASomar);
+    // CORREÇÃO: Soma os dias de suspensão comprovados no início ao prazo.
+    const diasDeSuspensaoNoInicio = diasNaoUteisDoInicio.filter(d => comprovados.has(d.data.toISOString().split('T')[0])).length;
+    const diasASomar = (prazo > 0 ? prazo - 1 : 0) + diasDeSuspensaoNoInicio;
+    dataFinalBruta.setDate(dataFinalBruta.getDate() + diasASomar);    
     
     // Após o loop principal, verifica se a data final caiu em um dia não útil e prorroga se necessário.
     let prazoFinalAjustado = dataFinalBruta;
@@ -507,17 +509,19 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
     // A prorrogação por decreto/instabilidade também deve depender da comprovação,
     // que é o que acontece quando esta função é chamada a partir do `handleComprovacaoChange`.
     while (
-        (infoDiaFinalNaoUtil = getMotivoDiaNaoUtil(prazoFinalAjustado, considerarDecretosNaProrrogacao, 'feriado') ||
+        (infoDiaFinalNaoUtil = getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'feriado') ||
                                getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'recesso') ||
                                (comprovados.has(prazoFinalAjustado.toISOString().split('T')[0]) && (getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'decreto') || getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'instabilidade')))
         ) || prazoFinalAjustado.getDay() === 0 || prazoFinalAjustado.getDay() === 6
     ) {
         if (infoDiaFinalNaoUtil) diasProrrogados.push({ data: new Date(prazoFinalAjustado.getTime()), ...infoDiaFinalNaoUtil });
         prazoFinalAjustado.setDate(prazoFinalAjustado.getDate() + 1);
+        // Ao avançar o dia, resetamos a variável para que o loop reavalie a nova data.
+        infoDiaFinalNaoUtil = null; 
     }
 
     // Retorna os dias que foram comprovados e causaram a dilação, os dias que causaram a prorrogação final, e os dias potenciais para a UI.
-    return { prazoFinal: prazoFinalAjustado, diasNaoUteis: [...diasNaoUteisEncontrados, ...diasProrrogados], diasProrrogados: diasProrrogados, diasPotenciaisComprovaveis: [...diasPotenciaisComprovaveis, ...diasNaoUteisDoInicio], diasNaoUteisDoInicio: diasNaoUteisDoInicio };
+    return { prazoFinal: dataFinalBruta, prazoFinalProrrogado: prazoFinalAjustado, diasNaoUteis: [...diasNaoUteisEncontrados, ...diasProrrogados], diasProrrogados: diasProrrogados, diasPotenciaisComprovaveis: [...diasPotenciaisComprovaveis, ...diasNaoUteisDoInicio], diasNaoUteisDoInicio: diasNaoUteisDoInicio };
   };
 
     const logUsage = () => {
@@ -564,6 +568,13 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
         const prazoNumerico = prazoSelecionado;
         
         const { proximoDia: dataPublicacaoComDecreto, suspensoesEncontradas: suspensoesPublicacaoComDecreto } = getProximoDiaUtilParaPublicacao(inicioDisponibilizacao, true);
+
+        // CORREÇÃO: Verifica se a própria data de disponibilização é um dia com suspensão comprovável.
+        const suspensaoNaDisponibilizacao = getMotivoDiaNaoUtil(inicioDisponibilizacao, true, 'decreto') || getMotivoDiaNaoUtil(inicioDisponibilizacao, true, 'instabilidade');
+        if (suspensaoNaDisponibilizacao) {
+            suspensoesPublicacaoComDecreto.unshift({ data: new Date(inicioDisponibilizacao.getTime()), ...suspensaoNaDisponibilizacao });
+        }
+
         const { proximoDia: inicioDoPrazoComDecreto, suspensoesEncontradas: suspensoesInicioComDecreto } = getProximoDiaUtilParaPublicacao(dataPublicacaoComDecreto, true);
         const diasNaoUteisDoInicioComDecreto = [...suspensoesPublicacaoComDecreto, ...suspensoesInicioComDecreto];
 
@@ -639,12 +650,12 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
             novoResultadoComDecreto = calcularPrazoFinalDiasCorridos(inicioPrazoOriginal, prazo, novosComprovados, true);
             
             // LÓGICA DA CASCATA: Verifica se o novo prazo final também é uma suspensão comprovável.
-            const novaSuspensaoNoFim = getMotivoDiaNaoUtil(novoResultadoComDecreto.prazoFinal, true, 'todos');
+            const novaSuspensaoNoFim = getMotivoDiaNaoUtil(novoResultadoComDecreto.prazoFinalProrrogado, true, 'todos');
             const filtroComprovavel = (tipo) => tipo === 'decreto' || tipo === 'instabilidade' || tipo === 'feriado_cnj' || tipo === 'suspensao_outubro';
             
             const novasSuspensoesComprovaveis = new Set(prev.suspensoesComprovaveis.map(s => s.data.toISOString().split('T')[0]));
-            if (novaSuspensaoNoFim && filtroComprovavel(novaSuspensaoNoFim.tipo) && !novasSuspensoesComprovaveis.has(novoResultadoComDecreto.prazoFinal.toISOString().split('T')[0])) {
-                prev.suspensoesComprovaveis.push({ data: new Date(novoResultadoComDecreto.prazoFinal.getTime()), ...novaSuspensaoNoFim });
+            if (novaSuspensaoNoFim && filtroComprovavel(novaSuspensaoNoFim.tipo) && !novasSuspensoesComprovaveis.has(novoResultadoComDecreto.prazoFinalProrrogado.toISOString().split('T')[0])) {
+                prev.suspensoesComprovaveis.push({ data: new Date(novoResultadoComDecreto.prazoFinalProrrogado.getTime()), ...novaSuspensaoNoFim });
             }
 
             return {
