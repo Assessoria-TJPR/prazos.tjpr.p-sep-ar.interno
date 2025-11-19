@@ -20,21 +20,16 @@ const calcularPrazoCrimeComprovavel = (dataPublicacaoComDecreto, inicioDoPrazoCo
 
     // Identifica suspensões comprováveis: as do início e todas as que causaram a prorrogação do prazo final.
     const filtroComprovavel = (tipo) => tipo === 'decreto' || tipo === 'instabilidade' || tipo === 'feriado_cnj' || tipo === 'suspensao_outubro';
-    // CORREÇÃO: A lista inicial deve ser filtrada para incluir apenas itens comprováveis.
-    // Feriados nacionais não precisam de comprovação.
+    
+    // CORREÇÃO: Inicia a lista de suspensões com os itens comprováveis encontrados no início do prazo.
     const suspensoesParaUI = diasNaoUteisDoInicioComDecreto.filter(s => filtroComprovavel(s.tipo));
-
-    const suspensaoNoInicio = getMotivoDiaNaoUtil(inicioDoPrazoSemDecreto, true);
-    if (suspensaoNoInicio && filtroComprovavel(suspensaoNoInicio.tipo)) {
-        suspensoesParaUI.push({ data: new Date(inicioDoPrazoSemDecreto.getTime()), ...suspensaoNoInicio });
-    }
 
     // Adiciona todos os dias da prorrogação inicial à lista de comprováveis.
     (resultadoSemDecreto.diasProrrogados || []).forEach(dia => {
         if (filtroComprovavel(dia.tipo)) suspensoesParaUI.push(dia);
     });
 
-    // CORREÇÃO: Garante que, se o próprio dia do vencimento (após a prorrogação inicial) for uma suspensão,
+    // Garante que, se o próprio dia do vencimento (após a prorrogação inicial) for uma suspensão,
     // ele também seja adicionado à lista para comprovação.
     const suspensaoNoFimProrrogado = getMotivoDiaNaoUtil(resultadoSemDecreto.prazoFinalProrrogado, true);
     if (suspensaoNoFimProrrogado && filtroComprovavel(suspensaoNoFimProrrogado.tipo)) {
@@ -42,7 +37,7 @@ const calcularPrazoCrimeComprovavel = (dataPublicacaoComDecreto, inicioDoPrazoCo
     }
 
     const suspensoesRelevantesMap = new Map();
-    suspensoesParaUI.forEach(suspensao => {
+    suspensoesParaUI.forEach(suspensao => { // Usa a lista corrigida
         suspensoesRelevantesMap.set(suspensao.data.toISOString().split('T')[0], suspensao);
     });
     const suspensoesRelevantes = Array.from(suspensoesRelevantesMap.values()).sort((a, b) => a.data - b.data);

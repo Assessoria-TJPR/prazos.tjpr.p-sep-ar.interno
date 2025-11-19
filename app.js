@@ -576,6 +576,18 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
         }
 
         const { proximoDia: inicioDoPrazoComDecreto, suspensoesEncontradas: suspensoesInicioComDecreto } = getProximoDiaUtilParaPublicacao(dataPublicacaoComDecreto, true);
+
+        // CORREÇÃO: Verifica se a própria data de publicação é um dia com suspensão comprovável.
+        const suspensaoNaPublicacao = getMotivoDiaNaoUtil(dataPublicacaoComDecreto, true, 'decreto') || getMotivoDiaNaoUtil(dataPublicacaoComDecreto, true, 'instabilidade');
+        if (suspensaoNaPublicacao) {
+            suspensoesInicioComDecreto.unshift({ data: new Date(dataPublicacaoComDecreto.getTime()), ...suspensaoNaPublicacao });
+        }
+
+        // CORREÇÃO: Verifica se a própria data de início do prazo é um dia com suspensão comprovável.
+        const suspensaoNoInicio = getMotivoDiaNaoUtil(inicioDoPrazoComDecreto, true, 'decreto') || getMotivoDiaNaoUtil(inicioDoPrazoComDecreto, true, 'instabilidade');
+        if (suspensaoNoInicio) {
+            suspensoesInicioComDecreto.push({ data: new Date(inicioDoPrazoComDecreto.getTime()), ...suspensaoNoInicio });
+        }
         const diasNaoUteisDoInicioComDecreto = [...suspensoesPublicacaoComDecreto, ...suspensoesInicioComDecreto];
 
         // Agrupa as funções auxiliares para passá-las para as funções de regras
@@ -647,7 +659,7 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
                 comDecreto: novoResultadoComDecreto,
             };
         } else { // Para 'crime', o recálculo é sempre em dias corridos.
-            novoResultadoComDecreto = calcularPrazoFinalDiasCorridos(inicioPrazoOriginal, prazo, novosComprovados, true);
+            novoResultadoComDecreto = calcularPrazoFinalDiasCorridos(novoInicioDoPrazo, prazo, novosComprovados, true);
             
             // LÓGICA DA CASCATA: Verifica se o novo prazo final também é uma suspensão comprovável.
             const novaSuspensaoNoFim = getMotivoDiaNaoUtil(novoResultadoComDecreto.prazoFinalProrrogado, true, 'todos');
