@@ -729,6 +729,35 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
     analisarTempestividade();
   }, [dataInterposicao, resultado]); // Removido diasComprovados para evitar re-execução desnecessária
 
+  // Efeito para enviar o resultado de volta para o sistema externo (Triagem) via postMessage
+  useEffect(() => {
+    if (resultado) {
+        const dadosExportacao = {
+            type: 'RESULTADO_CALCULO',
+            payload: {
+                numeroProcesso,
+                materia: tipoPrazo,
+                prazoDias: prazoSelecionado,
+                dataDisponibilizacao,
+                dataPublicacao: resultado.dataPublicacao,
+                inicioPrazo: resultado.inicioPrazo,
+                prazoFinal: resultado.comDecreto?.prazoFinal,
+                tempestividade,
+                dataInterposicao
+            }
+        };
+
+        // Clona e serializa para garantir formato compatível (Dates viram Strings ISO)
+        const mensagem = JSON.parse(JSON.stringify(dadosExportacao));
+
+        // Envia para a janela pai (se Iframe) ou opener (se nova aba)
+        const target = window.opener || (window.parent !== window ? window.parent : null);
+        if (target) {
+            target.postMessage(mensagem, '*');
+        }
+    }
+  }, [resultado, tempestividade, numeroProcesso, tipoPrazo, prazoSelecionado, dataDisponibilizacao, dataInterposicao]);
+
   useEffect(() => {
       if (db) {
           const unsubscribe = db.collection('configuracoes').doc('minutas').onSnapshot(doc => {
@@ -3714,8 +3743,24 @@ const TopBar = ({ onMenuClick, title }) => {
 };
 
 const CalculatorApp = () => {
-    const [numeroProcesso, setNumeroProcesso] = useState('');
+    // Inicializa lendo da URL se existir (?processo=...)
+    const [numeroProcesso, setNumeroProcesso] = useState(() => {
+        const params = new URLSearchParams(window.location.search);
+        return params.get('processo') || '';
+    });
     const { currentArea } = useAuth(); // Usaremos o contexto para gerenciar a área atual
+
+    // Permite receber o número via postMessage (para uso em Iframe)
+    useEffect(() => {
+        const handleMessage = (event) => {
+            // Verifica se a mensagem tem o formato esperado
+            if (event.data && event.data.type === 'SET_PROCESSO') {
+                setNumeroProcesso(event.data.numero);
+            }
+        };
+        window.addEventListener('message', handleMessage);
+        return () => window.removeEventListener('message', handleMessage);
+    }, []);
     
     return (
         <div className="max-w-4xl mx-auto animate-fade-in space-y-8">
