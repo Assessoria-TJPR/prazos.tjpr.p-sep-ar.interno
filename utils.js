@@ -51,3 +51,25 @@ const agruparDiasConsecutivos = (dias) => {
     if (grupoRecesso) agrupados.push(grupoRecesso);
     return agrupados.map(item => item.tipo === 'recesso' ? { ...item, tipo: 'recesso_grouped', motivo: `Recesso de ${formatarData(item.inicio)} até ${formatarData(item.fim)}` } : item);
 };
+
+/**
+ * Registra uma ação no log de auditoria do sistema.
+ * @param {object} db - Instância do Firestore.
+ * @param {object} user - Objeto do usuário atual (auth.currentUser).
+ * @param {string} action - Nome da ação (ex: 'EDITAR_CALENDARIO').
+ * @param {string} details - Detalhes da ação.
+ */
+const logAudit = async (db, user, action, details) => {
+    if (!db || !user) return;
+    try {
+        await db.collection('audit_logs').add({
+            action,
+            details,
+            performedBy: user.uid,
+            performedByEmail: user.email,
+            timestamp: firebase.firestore.FieldValue.serverTimestamp()
+        });
+    } catch (e) {
+        console.error("Erro ao registrar auditoria:", e);
+    }
+};

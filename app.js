@@ -1,5 +1,5 @@
 const { useState, useEffect, useCallback, createContext, useContext, useRef, useMemo } = React;
-const { Bar, HorizontalBar } = window.ReactChartjs2;
+const { Bar, HorizontalBar, Pie } = window.ReactChartjs2;
 const usePagination = (data, itemsPerPage) => {
     const [currentPage, setCurrentPage] = useState(1);
     const totalPages = Math.ceil(data.length / itemsPerPage);
@@ -88,13 +88,14 @@ const SettingsProvider = ({ children }) => {
                 const feriados = {};
                 const decretos = {};
                 const instabilidades = {};
+                // Nota: O campo 'link' agora é suportado nos objetos de feriado/decreto
 
                 // 1. Processa feriados nacionais recorrentes
                 if (calendarConfig.feriadosNacionaisRecorrentes) {
                     calendarConfig.feriadosNacionaisRecorrentes.forEach(feriado => {
                         // Formata a data para YYYY-MM-DD
                         const dataStr = `${anoCorrente}-${String(feriado.mes).padStart(2, '0')}-${String(feriado.dia).padStart(2, '0')}`;
-                        feriados[dataStr] = feriado.motivo;
+                        feriados[dataStr] = { motivo: feriado.motivo, tipo: 'feriado', link: feriado.link };
                     });
                 }
 
@@ -105,13 +106,13 @@ const SettingsProvider = ({ children }) => {
                     if (item.data && item.motivo && item.tipo) {
                         switch (item.tipo) {
                             case 'feriado':
-                                feriados[item.data] = item.motivo;
+                                feriados[item.data] = { motivo: item.motivo, tipo: 'feriado', link: item.link };
                                 break;
                             case 'decreto':
-                                decretos[item.data] = item.motivo;
+                                decretos[item.data] = { motivo: item.motivo, tipo: 'decreto', link: item.link };
                                 break;
                             case 'instabilidade':
-                                instabilidades[item.data] = item.motivo;
+                                instabilidades[item.data] = { motivo: item.motivo, tipo: 'instabilidade', link: item.link };
                                 break;
                         }
                     }
@@ -301,6 +302,7 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
   const [dataInterposicao, setDataInterposicao] = useState('');
   const [tempestividade, setTempestividade] = useState(null);
   const [error, setError] = useState('');
+  const [customMinutaTypes, setCustomMinutaTypes] = useState([]);
   const { user, userData } = useAuth();
   const { feriadosMap, decretosMap, instabilidadeMap, recessoForense, calendarLoading } = settings;
 
@@ -319,7 +321,8 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
   const getMotivoDiaNaoUtil = (date, considerarDecretos, tipo = 'todos', comprovados = new Set()) => {
     const dateString = date.toISOString().split('T')[0];
     if (tipo === 'todos' || tipo === 'feriado') {
-        if (feriadosMap[dateString]) return { motivo: feriadosMap[dateString], tipo: 'feriado' };
+        // Agora feriadosMap pode conter objetos com link
+        if (feriadosMap[dateString]) return typeof feriadosMap[dateString] === 'object' ? feriadosMap[dateString] : { motivo: feriadosMap[dateString], tipo: 'feriado' };
     }
     if (considerarDecretos && (tipo === 'todos' || tipo === 'decreto')) {
         if (decretosMap[dateString]) {
@@ -332,7 +335,7 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
     }
     // A instabilidade é tratada separadamente, mas pode ser verificada aqui se necessário.
     if (considerarDecretos && (tipo === 'todos' || tipo === 'instabilidade')) {
-        if (instabilidadeMap[dateString]) return { motivo: instabilidadeMap[dateString], tipo: 'instabilidade' };
+        if (instabilidadeMap[dateString]) return typeof instabilidadeMap[dateString] === 'object' ? instabilidadeMap[dateString] : { motivo: instabilidadeMap[dateString], tipo: 'instabilidade' };
     }
     const month = date.getMonth() + 1;
     const day = date.getDate();
@@ -726,6 +729,17 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
     analisarTempestividade();
   }, [dataInterposicao, resultado]); // Removido diasComprovados para evitar re-execução desnecessária
 
+  useEffect(() => {
+      if (db) {
+          const unsubscribe = db.collection('configuracoes').doc('minutas').onSnapshot(doc => {
+              if (doc.exists && doc.data().tipos) {
+                  setCustomMinutaTypes(doc.data().tipos.filter(t => t.id !== 'exemplo_didatico'));
+              }
+          });
+          return () => unsubscribe();
+      }
+  }, []);
+
   // --- Funções de Geração de Minutas (conforme o código fornecido) ---
 
   // Template para o documento Word
@@ -909,6 +923,43 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
     );
   };
 
+  const gerarMinutaGenerica = async (tipo) => {
+    if (!resultado) return;
+    const { dataPublicacao, inicioPrazo, comDecreto } = resultado;
+    
+    const dataDispStr = formatarData(new Date(dataDisponibilizacao + 'T00:00:00'));
+    const dataPubStr = formatarData(dataPublicacao);
+    const inicioPrazoStr = formatarData(inicioPrazo);
+    const prazoFinalStr = formatarData(comDecreto.prazoFinal);
+    const dataInterposicaoStr = dataInterposicao ? formatarData(new Date(dataInterposicao + 'T00:00:00')) : '[Data Interposição]';
+
+    const placeholders = {
+        '{{numeroProcesso}}': numeroProcesso || '[Nº Processo]',
+        '{{dataDisponibilizacao}}': dataDispStr,
+        '{{dataPublicacao}}': dataPubStr,
+        '{{inicioPrazo}}': inicioPrazoStr,
+        '{{prazoDias}}': prazoSelecionado,
+        '{{prazoFinal}}': prazoFinalStr,
+        '{{dataInterposicao}}': dataInterposicaoStr,
+        '{{movAcordao}}': '<span style="color: red;">[Mov. Acórdão]</span>',
+        '{{camara}}': '<span style="color: red;">[Nº da Câmara]</span>',
+        '{{recursoApelacao}}': '<span style="color: red;">[Tipo e Mov. do Recurso]</span>',
+        '{{movIntimacao}}': '<span style="color: red;">[Mov. Intimação]</span>',
+        '{{movDespacho}}': '<span style="color: red;">[Mov. Despacho]</span>',
+        '{{movCertidao}}': '<span style="color: red;">[Mov. Certidão]</span>',
+    };
+
+    const template = await getMinutaContent(tipo.id);
+    const corpoMinuta = replacePlaceholders(template, placeholders);
+
+    generateDocFromHtml(
+        corpoMinuta,
+        tipo.id,
+        placeholders,
+        `Minuta_${tipo.nome.replace(/[^a-zA-Z0-9]/g, '_')}_${numeroProcesso.replace(/\D/g, '') || 'processo'}.doc`
+    );
+  };
+
   return (
     <div className="bg-white dark:bg-slate-800 p-6 sm:p-8 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
         <UserIDWatermark overlay={true} />
@@ -1054,7 +1105,7 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
                                     </div>
                                 )}
                                 {tempestividade === 'puramente_intempestivo' && (
-                                    <div className="mt-4"><button onClick={gerarMinutaIntempestividade} className="w-full md:w-auto flex justify-center items-center bg-gradient-to-br from-red-500 to-red-600 text-white font-semibold py-2 px-5 rounded-lg hover:from-red-600 hover:to-red-700 transition-all duration-300 shadow-md">Baixar Minuta (Intempestivo)</button></div>
+                                    <div className="mt-4"><button onClick={gerarMinutaIntempestividade} className="w-full md:w-auto flex justify-center items-center bg-gradient-to-br from-red-500 to-red-600 text-white font-semibold py-2 px-5 rounded-lg hover:from-red-600 hover:to-red-700 transition-all duration-300 shadow-md animate-pulse ring-4 ring-red-300 border-red-500">Baixar Minuta (Intempestivo)</button></div>
                                 )} 
                                 {tempestividade === 'intempestivo_falta_decreto' && (
                                     <div className="mt-4 space-y-4">
@@ -1066,16 +1117,31 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
                                             <div className="flex gap-3">
                                                 {resultado.tipo === 'civel' ? (
                                                     <>
-                                                        <button onClick={gerarMinutaIntimacaoDecreto} className="flex-1 md:flex-auto justify-center flex items-center bg-gradient-to-br from-sky-500 to-sky-600 text-white font-semibold py-2 px-4 rounded-lg hover:from-sky-600 hover:to-sky-700 transition-all duration-300 shadow-md text-sm">Intimação Decreto</button>
+                                                        <button onClick={gerarMinutaIntimacaoDecreto} className="flex-1 md:flex-auto justify-center flex items-center bg-gradient-to-br from-sky-500 to-sky-600 text-white font-semibold py-2 px-4 rounded-lg hover:from-sky-600 hover:to-sky-700 transition-all duration-300 shadow-md text-sm animate-pulse ring-4 ring-sky-300">Intimação Decreto</button>
                                                         <button onClick={gerarMinutaFaltaDecreto} className="flex-1 md:flex-auto justify-center flex items-center bg-gradient-to-br from-orange-500 to-orange-600 text-white font-semibold py-2 px-4 rounded-lg hover:from-orange-600 hover:to-orange-700 transition-all duration-300 shadow-md text-sm">Intempestivo Falta Decreto</button>
                                                     </>
                                                 ) : (
-                                                    <button onClick={gerarMinutaIntimacaoDecretoCrime} className="flex-1 md:flex-auto justify-center flex items-center bg-gradient-to-br from-sky-500 to-sky-600 text-white font-semibold py-2 px-4 rounded-lg hover:from-sky-600 hover:to-sky-700 transition-all duration-300 shadow-md text-sm">Intimação Decreto (Crime)</button>
+                                                    <button onClick={gerarMinutaIntimacaoDecretoCrime} className="flex-1 md:flex-auto justify-center flex items-center bg-gradient-to-br from-sky-500 to-sky-600 text-white font-semibold py-2 px-4 rounded-lg hover:from-sky-600 hover:to-sky-700 transition-all duration-300 shadow-md text-sm animate-pulse ring-4 ring-sky-300">Intimação Decreto (Crime)</button>
                                                 )}
                                             </div>
                                         </div>
                                     </div>
                                 )}
+                            </div>
+                        )}
+
+                        {/* Seção de Minutas Personalizadas */}
+                        {customMinutaTypes.length > 0 && (
+                            <div className="mt-6 border-t border-slate-300 dark:border-slate-600 pt-4 animate-fade-in">
+                                <h3 className="text-lg font-bold text-slate-700 dark:text-slate-200 mb-3">Outras Minutas Disponíveis</h3>
+                                <div className="flex flex-wrap gap-3">
+                                    {customMinutaTypes.map(tipo => (
+                                        <button key={tipo.id} onClick={() => gerarMinutaGenerica(tipo)} className="px-4 py-2 text-sm font-semibold bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-200 dark:hover:bg-slate-600 transition-colors shadow-sm flex items-center gap-2">
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clipRule="evenodd" /></svg>
+                                            {tipo.nome}
+                                        </button>
+                                    ))}
+                                </div>
                             </div>
                         )}
                     </>
@@ -1145,10 +1211,106 @@ const DiaNaoUtilItem = ({ dia, as = 'li' }) => {
             <div className="flex-grow">
                 {dia.tipo === 'recesso_grouped' 
                     ? <span className="text-sm">{dia.motivo}</span> 
-                    : <span className="text-sm"><strong className="font-semibold text-slate-900 dark:text-white">{formatarData(dia.data)}:</strong> {dia.motivo}</span>}
+                    : <span className="text-sm">
+                        <strong className="font-semibold text-slate-900 dark:text-white">{formatarData(dia.data)}:</strong> {dia.motivo}
+                        {dia.link && <a href={dia.link} target="_blank" rel="noopener noreferrer" className="ml-2 text-blue-600 hover:underline text-xs font-semibold">(Ver Decreto)</a>}
+                      </span>}
             </div>
             {labelText && <span className={`ml-3 flex-shrink-0 text-xs font-semibold px-2.5 py-0.5 rounded-full ${labelClasses}`}>{labelText}</span>}
         </Tag>
+    );
+};
+
+const PrivacyPolicyModal = ({ onClose }) => {
+    return (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[70] p-4" onClick={onClose}>
+            <div className="bg-white dark:bg-slate-800 w-full max-w-2xl rounded-2xl shadow-2xl flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
+                <div className="flex justify-between items-center p-6 border-b border-slate-200 dark:border-slate-700">
+                    <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Política de Privacidade e Termos de Uso</h2>
+                    <button onClick={onClose} className="text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 transition">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                    </button>
+                </div>
+                <div className="p-6 space-y-4 overflow-y-auto text-slate-700 dark:text-slate-300 text-sm leading-relaxed">
+                    <h3 className="text-lg font-bold text-slate-900 dark:text-white">1. Coleta de Dados</h3>
+                    <p>Para o funcionamento desta ferramenta (Calculadora de Prazos e Painel Administrativo), coletamos os seguintes dados pessoais:</p>
+                    <ul className="list-disc pl-5 space-y-1">
+                        <li><strong>Identificação:</strong> Nome, E-mail e Setor de lotação.</li>
+                        <li><strong>Dados de Uso:</strong> Registros de cálculos realizados, números de processos consultados, data e hora das ações.</li>
+                        <li><strong>Técnicos:</strong> Endereço IP e User-Agent (navegador) para fins de segurança e auditoria.</li>
+                    </ul>
+
+                    <h3 className="text-lg font-bold text-slate-900 dark:text-white mt-4">2. Finalidade</h3>
+                    <p>Os dados são utilizados estritamente para:</p>
+                    <ul className="list-disc pl-5 space-y-1">
+                        <li>Autenticação e controle de acesso ao sistema.</li>
+                        <li>Geração de histórico de cálculos para o próprio usuário.</li>
+                        <li>Auditoria e estatísticas de uso para a administração do sistema (TJPR).</li>
+                        <li>Melhoria contínua da ferramenta através da análise de erros reportados.</li>
+                    </ul>
+
+                    <h3 className="text-lg font-bold text-slate-900 dark:text-white mt-4">3. Armazenamento e Segurança</h3>
+                    <p>Os dados são armazenados em nuvem utilizando os serviços do Google Firebase, com regras de segurança que restringem o acesso apenas a usuários autorizados e administradores do sistema.</p>
+
+                    <h3 className="text-lg font-bold text-slate-900 dark:text-white mt-4">4. Seus Direitos (LGPD)</h3>
+                    <p>Conforme a Lei Geral de Proteção de Dados (Lei nº 13.709/2018), você tem direito a:</p>
+                    <ul className="list-disc pl-5 space-y-1">
+                        <li>Acessar seus dados (disponível no Perfil e Histórico).</li>
+                        <li>Corrigir dados incompletos ou desatualizados.</li>
+                        <li>Solicitar a exclusão de sua conta e dados pessoais (disponível na opção "Excluir Conta" no perfil).</li>
+                    </ul>
+
+                    <h3 className="text-lg font-bold text-slate-900 dark:text-white mt-4">5. Cookies e Armazenamento Local</h3>
+                    <p>Utilizamos armazenamento local (LocalStorage) para salvar suas preferências de tema e configurações da calculadora. Não utilizamos cookies de rastreamento publicitário.</p>
+                </div>
+                <div className="p-6 border-t border-slate-200 dark:border-slate-700">
+                    <button onClick={onClose} className="w-full bg-blue-600 text-white font-bold py-3 rounded-xl hover:bg-blue-700 transition-all">Entendi</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const CookieConsent = () => {
+    const [visible, setVisible] = useState(false);
+
+    useEffect(() => {
+        const consent = localStorage.getItem('lgpd_consent');
+        if (!consent) {
+            setVisible(true);
+        }
+    }, []);
+
+    const handleAccept = () => {
+        localStorage.setItem('lgpd_consent', 'true');
+        setVisible(false);
+    };
+
+    if (!visible) return null;
+
+    return (
+        <div className="fixed bottom-0 left-0 right-0 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 p-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)] z-[80] animate-fade-in">
+            <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
+                <div className="text-sm text-slate-600 dark:text-slate-300">
+                    <p><strong>Este sistema utiliza dados para funcionamento.</strong></p>
+                    <p>Utilizamos armazenamento local para salvar suas preferências e coletamos dados de uso para fins de auditoria e melhoria, em conformidade com a LGPD. Ao continuar, você concorda com nossa Política de Privacidade.</p>
+                </div>
+                <div className="flex gap-3 flex-shrink-0">
+                    <button 
+                        onClick={() => document.dispatchEvent(new CustomEvent('openPrivacyPolicy'))}
+                        className="px-4 py-2 text-sm font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
+                    >
+                        Ler Política
+                    </button>
+                    <button 
+                        onClick={handleAccept}
+                        className="px-6 py-2 text-sm font-bold bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
+                    >
+                        Concordar e Fechar
+                    </button>
+                </div>
+            </div>
+        </div>
     );
 };
 
@@ -1167,6 +1329,8 @@ const LoginPage = () => {
     const [rememberedUser, setRememberedUser] = useState(null);
     const [setores, setSetores] = useState([]); // Novo estado para a lista de setores
     const [isCreatingNewSector, setIsCreatingNewSector] = useState(false);
+    const [acceptTerms, setAcceptTerms] = useState(false);
+    const [showPrivacy, setShowPrivacy] = useState(false);
 
     // Busca os setores do Firestore quando o modo de registro é ativado
     useEffect(() => {
@@ -1239,6 +1403,11 @@ const LoginPage = () => {
                 // Validação do setor na tela de registro
                 if (password !== confirmPassword) {
                     setError("As senhas não coincidem.");
+                    return;
+                }
+
+                if (!acceptTerms) {
+                    setError("Você precisa concordar com a Política de Privacidade e Termos de Uso para se registrar.");
                     return;
                 }
 
@@ -1350,6 +1519,7 @@ const LoginPage = () => {
         const newIsLogin = !isLogin;
         setIsLogin(newIsLogin);
         setError('');
+        setAcceptTerms(false);
         if (!newIsLogin) { // Se estiver mudando para a tela de registro
             fetchSetores();
         }
@@ -1420,6 +1590,15 @@ const LoginPage = () => {
                                     <span className="font-medium">Importante:</span> Por segurança, não utilize a mesma senha do seu e-mail do TJPR ou de outros sistemas.
                                 </div>
                             )}
+                            {!isLogin && (
+                                <div className="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
+                                    <input type="checkbox" checked={acceptTerms} onChange={(e) => setAcceptTerms(e.target.checked)} className="mt-1 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
+                                    <label>
+                                        Li e concordo com a <a href="#" onClick={(e) => { e.preventDefault(); setShowPrivacy(true); }} className="text-blue-600 hover:underline">Política de Privacidade e Termos de Uso</a>, incluindo a coleta de dados para fins de auditoria.
+                                    </label>
+                                </div>
+                            )}
+
                             <div className="flex items-center justify-between text-sm">
                                 <label className="flex items-center gap-2 text-slate-600 dark:text-slate-300"><input type="checkbox" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"/>Lembrar-me</label>
                                 <a href="#" onClick={(e) => { e.preventDefault(); setIsResettingPassword(true); setError(''); }} className="font-medium text-blue-600 hover:text-blue-500">Esqueceu a senha?</a>
@@ -1436,6 +1615,7 @@ const LoginPage = () => {
                     </>
                 )}
                 </div>
+                {showPrivacy && <PrivacyPolicyModal onClose={() => setShowPrivacy(false)} />}
             </div>
     )
 };
@@ -1619,114 +1799,6 @@ const Avatar = ({ user, userData, size = 'h-8 w-8' }) => {
     );
 };
 
-const MinutasAdminPage = () => {
-    const { user, userData } = useAuth();
-    const [selectedType, setSelectedType] = useState('intempestividade');
-    const [selectedSectorId, setSelectedSectorId] = useState(userData?.setorId || '');
-    const [content, setContent] = useState('');
-    const [loading, setLoading] = useState(false);
-    const [saving, setSaving] = useState(false);
-    const [previewMode, setPreviewMode] = useState(false);
-    const [setores, setSetores] = useState([]);
-
-    const MINUTA_TYPES = [
-        { id: 'intempestividade', label: 'Intempestividade (Cível)' },
-        { id: 'intimacao_decreto', label: 'Intimação Decreto (Cível)' },
-        { id: 'intimacao_decreto_crime', label: 'Intimação Decreto (Crime)' },
-        { id: 'falta_decreto', label: 'Falta de Decreto (Cível)' },
-    ];
-
-    useEffect(() => {
-        if (userData?.role === 'admin') {
-            const fetchSetores = async () => {
-                try {
-                    const snap = await db.collection('setores').orderBy('nome').get();
-                    const lista = snap.docs.map(d => ({id: d.id, ...d.data()}));
-                    setSetores(lista);
-                    if (!selectedSectorId && lista.length > 0) setSelectedSectorId(lista[0].id);
-                } catch (e) { console.error(e); }
-            };
-            fetchSetores();
-        } else {
-            setSelectedSectorId(userData?.setorId);
-        }
-    }, [userData]);
-
-    useEffect(() => {
-        if (selectedSectorId && selectedType) {
-            loadMinuta();
-        }
-    }, [selectedSectorId, selectedType]);
-
-    const loadMinuta = async () => {
-        setLoading(true);
-        try {
-            const docId = `${selectedSectorId}_${selectedType}`;
-            const doc = await db.collection('minutas').doc(docId).get();
-            if (doc.exists) {
-                setContent(doc.data().conteudo);
-            } else {
-                setContent(typeof MINUTAS_PADRAO !== 'undefined' ? (MINUTAS_PADRAO[selectedType] || '') : '');
-            }
-        } catch (error) {
-            console.error("Erro ao carregar minuta:", error);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const handleSave = async () => {
-        if (!selectedSectorId) return alert("Setor não definido.");
-        setSaving(true);
-        try {
-            const docId = `${selectedSectorId}_${selectedType}`;
-            await db.collection('minutas').doc(docId).set({
-                conteudo: content,
-                updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-                updatedBy: user.uid
-            });
-            alert("Minuta salva com sucesso!");
-        } catch (error) {
-            console.error("Erro ao salvar:", error);
-            alert("Erro ao salvar.");
-        } finally {
-            setSaving(false);
-        }
-    };
-
-    return (
-        <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 space-y-6 animate-fade-in">
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                <div>
-                    <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">Gerenciar Minutas</h2>
-                    <p className="text-sm text-slate-500 dark:text-slate-400">Edite os modelos de despacho para o seu setor.</p>
-                </div>
-                <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto">
-                    {userData?.role === 'admin' && (
-                        <select value={selectedSectorId} onChange={(e) => setSelectedSectorId(e.target.value)} className="px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none">
-                            <option value="" disabled>Selecione o Setor</option>
-                            {setores.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
-                        </select>
-                    )}
-                    <select value={selectedType} onChange={(e) => setSelectedType(e.target.value)} className="px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none">
-                        {MINUTA_TYPES.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
-                    </select>
-                </div>
-            </div>
-            {loading ? <div className="text-center py-8 text-slate-500">Carregando...</div> : (
-                <div className="space-y-4">
-                    <div className="flex justify-end gap-2">
-                        <button onClick={() => setPreviewMode(!previewMode)} className="px-3 py-1 text-sm bg-slate-100 dark:bg-slate-700 rounded hover:bg-slate-200 dark:hover:bg-slate-600 transition">{previewMode ? 'Editar' : 'Visualizar'}</button>
-                    </div>
-                    {previewMode ? <div className="p-4 border border-slate-200 dark:border-slate-700 rounded-lg min-h-[300px] prose dark:prose-invert max-w-none" dangerouslySetInnerHTML={{__html: content}} /> : <textarea value={content} onChange={e => setContent(e.target.value)} className="w-full h-[400px] p-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg font-mono text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="HTML da minuta..." />}
-                    <div className="flex justify-end"><button onClick={handleSave} disabled={saving} className="px-6 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition disabled:opacity-50">{saving ? 'Salvando...' : 'Salvar Alterações'}</button></div>
-                    <p className="text-xs text-slate-400 text-center">Use <code>{'{{variavel}}'}</code> para campos dinâmicos.</p>
-                </div>
-            )}
-        </div>
-    );
-};
-
 const BugReportsPage = () => {
     const [reports, setReports] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -1738,12 +1810,14 @@ const BugReportsPage = () => {
         const fetchReports = async () => {
             setLoading(true);
             try {
-                let query = db.collection('bug_reports').orderBy('createdAt', 'desc');
-                if (filterStatus !== 'todos') {
-                    query = query.where('status', '==', filterStatus);
-                }
+                // Alterado para buscar tudo e filtrar na memória, evitando erro de índice composto no Firestore
+                const query = db.collection('bug_reports').orderBy('createdAt', 'desc');
                 const snapshot = await query.get();
-                const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                let data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+                if (filterStatus !== 'todos') {
+                    data = data.filter(report => report.status === filterStatus);
+                }
                 setReports(data);
             } catch (error) {
                 console.error("Erro ao buscar chamados:", error);
@@ -1852,7 +1926,7 @@ const BugReportsPage = () => {
 const AdminPage = ({ setCurrentArea }) => {
      const { user } = useAuth();
      // Estado para controlar a visão dentro da página de Admin: 'stats', 'calendar', 'users'
-     const [adminSection, setAdminSection] = useState('stats'); // 'stats', 'calendar' ou 'users'
+     const [adminSection, setAdminSection] = useState('stats'); // 'stats', 'calendar', 'users', 'audit'
 
      const [stats, setStats] = useState({ total: 0, perMateria: {}, perPrazo: {}, byDay: {} });
      const [statsView, setStatsView] = useState('calculadora'); // 'calculadora' ou 'djen_consulta'
@@ -1873,6 +1947,68 @@ const AdminPage = ({ setCurrentArea }) => {
      const [expandedUserSectors, setExpandedUserSectors] = useState(new Set());
      const [setores, setSetoresAdmin] = useState([]); // This was a typo, corrected in a previous step but good to double check.
      const [newSectorName, setNewSectorName] = useState('');
+     const [showDeleteModal, setShowDeleteModal] = useState(false);
+     const [deleteRange, setDeleteRange] = useState({ start: '', end: '' });
+     const [auditLogs, setAuditLogs] = useState([]);
+     const [broadcastMessage, setBroadcastMessage] = useState({ mensagem: '', ativo: false, tipo: 'info' });
+     const [isSavingBroadcast, setIsSavingBroadcast] = useState(false);
+
+     const handleDeleteClick = () => {
+         setShowDeleteModal(true);
+     };
+
+     const handleConfirmDelete = async () => {
+         if (!deleteRange.start && !deleteRange.end) {
+             alert("Por favor, selecione pelo menos uma data.");
+             return;
+         }
+
+         const start = deleteRange.start ? new Date(deleteRange.start + 'T00:00:00') : new Date(0);
+         const end = deleteRange.end ? new Date(deleteRange.end + 'T23:59:59.999') : new Date();
+
+         // Usa filteredData se houver filtros ativos, caso contrário usa allData.
+         const sourceData = filteredData.length > 0 ? filteredData : allData;
+
+         const toDelete = sourceData.filter(item => {
+             if (!item.timestamp) return false;
+             const d = item.timestamp.toDate();
+             return d >= start && d <= end;
+         });
+
+         if (toDelete.length === 0) {
+             alert("Nenhum registro encontrado no período selecionado.");
+             return;
+         }
+
+         if (window.confirm(`ATENÇÃO: Você está prestes a excluir ${toDelete.length} registros permanentemente.\nPeríodo: ${deleteRange.start || 'Início'} até ${deleteRange.end || 'Hoje'}.\n\nDeseja continuar?`)) {
+             setLoading(true);
+             try {
+                 const batchSize = 500;
+                 const chunks = [];
+                 for (let i = 0; i < toDelete.length; i += batchSize) chunks.push(toDelete.slice(i, i + batchSize));
+
+                 for (const chunk of chunks) {
+                     const batch = db.batch();
+                     chunk.forEach(doc => batch.delete(db.collection('usageStats').doc(doc.id)));
+                     await batch.commit();
+                 }
+                 
+                 const deletedIds = new Set(toDelete.map(d => d.id));
+                 setAllData(prev => prev.filter(d => !deletedIds.has(d.id)));
+                 setFilteredData(prev => prev.filter(d => !deletedIds.has(d.id)));
+                 
+                 alert("Registros excluídos com sucesso.");
+                 setShowDeleteModal(false);
+                 await logAudit(db, user, 'EXCLUIR_REGISTROS_USO', `De ${deleteRange.start} até ${deleteRange.end}. Qtd: ${toDelete.length}`);
+                 setDeleteRange({ start: '', end: '' });
+             } catch (err) {
+                 console.error("Erro ao excluir:", err);
+                 alert("Erro ao excluir registros.");
+             } finally {
+                 setLoading(false);
+             }
+         }
+     };
 
     useEffect(() => {
         let isMounted = true;
@@ -1882,9 +2018,10 @@ const AdminPage = ({ setCurrentArea }) => {
         const loadAdminData = async () => {
             try {
                 // 1. Busca usuários e setores em paralelo
-                const [usersList, _] = await Promise.all([
+                const [usersList, _, broadcastDoc] = await Promise.all([
                     fetchAllUsersForManagement(),
-                    fetchSetores()
+                    fetchSetores(),
+                    db.collection('configuracoes').doc('aviso_global').get()
                 ]);
                 if (!isMounted) return;
 
@@ -1904,6 +2041,10 @@ const AdminPage = ({ setCurrentArea }) => {
                 const enrichedData = usageData.map(d => ({...d, userName: usersMap[d.userId]?.displayName || usersMap[d.userId]?.email || d.userEmail }));
                 
                 setAllData(enrichedData);
+
+                if (broadcastDoc.exists) {
+                    setBroadcastMessage(broadcastDoc.data());
+                }
 
             } catch (err) { console.error("Firebase query error:", err); }
             finally { if(isMounted) setLoading(false); }
@@ -1977,6 +2118,7 @@ const AdminPage = ({ setCurrentArea }) => {
     const handleDeleteSector = async (sectorId) => {
         if (window.confirm("Tem certeza que deseja excluir este setor? Esta ação não pode ser desfeita.")) {
             await db.collection('setores').doc(sectorId).delete();
+            await logAudit(db, user, 'EXCLUIR_SETOR', `ID: ${sectorId}`);
             fetchSetores(); // Recarrega a lista
         }
     };
@@ -1986,6 +2128,7 @@ const AdminPage = ({ setCurrentArea }) => {
         if (!newSectorName.trim()) return;
         try {
             await db.collection('setores').add({ nome: newSectorName.trim() });
+            await logAudit(db, user, 'CRIAR_SETOR', `Nome: ${newSectorName}`);
             setNewSectorName('');
             fetchSetores(); // Recarrega a lista de setores
         } catch (err) {
@@ -2071,6 +2214,7 @@ const AdminPage = ({ setCurrentArea }) => {
                 // seria necessária uma Cloud Function com o Admin SDK.
                 await db.collection('users').doc(userToDelete.id).delete();
                 alert("Usuário excluído com sucesso.");
+                await logAudit(db, user, 'EXCLUIR_USUARIO', `Email: ${userToDelete.email}`);
                 fetchAllUsersForManagement(); // Recarrega a lista de usuários
             } catch (err) {
                 console.error("Erro ao excluir usuário:", err);
@@ -2095,6 +2239,7 @@ const AdminPage = ({ setCurrentArea }) => {
         }
         // Atualiza o documento do usuário com a nova role e setorId
         await db.collection('users').doc(userId).update(data);
+        await logAudit(db, user, 'ALTERAR_PERMISSOES', `User: ${userId}, Role: ${data.role}, Setor: ${data.setorId}`);
     };
 
     const handleCloseUserManagementModal = () => {
@@ -2154,6 +2299,7 @@ const AdminPage = ({ setCurrentArea }) => {
             total: dataForView.length,
             perMateria: dataForView.reduce((acc, curr) => { if(curr.materia) acc[curr.materia] = (acc[curr.materia] || 0) + 1; return acc; }, {}),
             perPrazo: dataForView.reduce((acc, curr) => { if(curr.prazo) acc[curr.prazo] = (acc[curr.prazo] || 0) + 1; return acc; }, {}),
+            perSector: {} // Será calculado abaixo
         };
         
         const today = new Date();
@@ -2166,6 +2312,16 @@ const AdminPage = ({ setCurrentArea }) => {
         }
         dataForView.forEach(item => { const dateString = item.timestamp ? formatarData(item.timestamp.toDate()) : ''; if (dateString in last7Days) { last7Days[dateString]++; } });
         summary.byDay = last7Days;
+
+        // Cálculo por Setor
+        const sectorCounts = {};
+        dataForView.forEach(item => {
+            const user = allUsersForManagement.find(u => u.id === item.userId);
+            const sectorId = user?.setorId || 'unknown';
+            const sectorName = setores.find(s => s.id === sectorId)?.nome || (sectorId === 'unknown' ? 'Sem Setor' : 'Desconhecido');
+            sectorCounts[sectorName] = (sectorCounts[sectorName] || 0) + 1;
+        });
+        summary.perSector = sectorCounts;
 
         setStats(summary);
         setFilteredData(dataForView);
@@ -2216,7 +2372,17 @@ const AdminPage = ({ setCurrentArea }) => {
             total: usageData.length,
             perMateria: usageData.reduce((acc, curr) => { acc[curr.materia] = (acc[curr.materia] || 0) + 1; return acc; }, {}),
             perPrazo: usageData.reduce((acc, curr) => { acc[curr.prazo] = (acc[curr.prazo] || 0) + 1; return acc; }, {}),
+            perSector: {}
         };
+
+        const sectorCounts = {};
+        usageData.forEach(item => {
+            const user = allUsersForManagement.find(u => u.id === item.userId);
+            const sectorId = user?.setorId || 'unknown';
+            const sectorName = setores.find(s => s.id === sectorId)?.nome || (sectorId === 'unknown' ? 'Sem Setor' : 'Desconhecido');
+            sectorCounts[sectorName] = (sectorCounts[sectorName] || 0) + 1;
+        });
+        summary.perSector = sectorCounts;
 
         // Lógica para o gráfico dos últimos 7 dias
         const today = new Date();
@@ -2243,6 +2409,103 @@ const AdminPage = ({ setCurrentArea }) => {
         setFilters({...filters, [e.target.name]: e.target.value });
     };
     
+    const handleBulkExport = async () => {
+        if (!window.JSZip) {
+            alert("Biblioteca JSZip não carregada. Por favor, recarregue a página.");
+            return;
+        }
+        
+        const dataToExport = filteredData.length > 0 ? filteredData : allData;
+        if (dataToExport.length === 0) {
+            alert("Sem dados para exportar.");
+            return;
+        }
+
+        try {
+            const zip = new window.JSZip();
+            const grouped = {};
+
+            dataToExport.forEach(item => {
+                const userName = item.userName || item.userEmail || 'Desconhecido';
+                // Sanitiza o nome da pasta
+                const safeName = userName.replace(/[^a-z0-9ãáàâéêíóôõúçñ -]/gi, '_').trim();
+                
+                if (!grouped[safeName]) grouped[safeName] = { cnj: [], calc: [] };
+                
+                if (item.type === 'djen_consulta') {
+                    grouped[safeName].cnj.push(item);
+                } else {
+                    grouped[safeName].calc.push(item);
+                }
+            });
+
+            for (const [user, types] of Object.entries(grouped)) {
+                const userFolder = zip.folder(user);
+                
+                if (types.cnj.length > 0) {
+                    const ws = XLSX.utils.json_to_sheet(types.cnj.map(i => ({
+                        'Data': i.timestamp ? formatarData(i.timestamp.toDate()) : '',
+                        'Processo': i.numeroProcesso,
+                        'Tipo': 'Consulta DJEN'
+                    })));
+                    const csv = XLSX.utils.sheet_to_csv(ws);
+                    userFolder.file("pesquisa_cnj.csv", csv);
+                }
+                
+                if (types.calc.length > 0) {
+                    const ws = XLSX.utils.json_to_sheet(types.calc.map(i => ({
+                        'Data': i.timestamp ? formatarData(i.timestamp.toDate()) : '',
+                        'Processo': i.numeroProcesso,
+                        'Matéria': i.materia,
+                        'Prazo': i.prazo,
+                        'Tipo': 'Calculadora'
+                    })));
+                    const csv = XLSX.utils.sheet_to_csv(ws);
+                    userFolder.file("calculo_crime_civel.csv", csv);
+                }
+            }
+
+            const content = await zip.generateAsync({ type: "blob" });
+            saveAs(content, "extracao_dados_usuarios.zip");
+        } catch (err) {
+            console.error("Erro na exportação ZIP:", err);
+            alert("Erro ao gerar arquivo ZIP.");
+        }
+    };
+
+    const handleBulkDelete = async () => {
+        const dataToDelete = filteredData.length > 0 ? filteredData : allData;
+        
+        if (dataToDelete.length === 0) {
+            alert("Não há registros para excluir.");
+            return;
+        }
+
+        const isAllData = dataToDelete.length === allData.length;
+        const confirmMessage = isAllData
+            ? `ATENÇÃO: Você está prestes a excluir TODO o histórico de uso (${dataToDelete.length} registros).\n\nIsso liberará espaço no banco de dados, mas os dados serão perdidos permanentemente.\n\nDeseja continuar?`
+            : `Tem certeza que deseja excluir os ${dataToDelete.length} registros filtrados?\n\nEsta ação não pode ser desfeita.`;
+
+        if (!window.confirm(confirmMessage)) return;
+        if (isAllData && !window.confirm("Confirmação final: Deseja realmente apagar TODO o histórico?")) return;
+
+        setLoading(true);
+        try {
+            const batchSize = 500;
+            const chunks = [];
+            for (let i = 0; i < dataToDelete.length; i += batchSize) chunks.push(dataToDelete.slice(i, i + batchSize));
+
+            for (const chunk of chunks) {
+                const batch = db.batch();
+                chunk.forEach(doc => batch.delete(db.collection('usageStats').doc(doc.id)));
+                await batch.commit();
+            }
+            alert("Registros excluídos com sucesso.");
+            const deletedIds = new Set(dataToDelete.map(d => d.id));
+            setAllData(prev => prev.filter(item => !deletedIds.has(item.id)));
+        } catch (err) { console.error("Erro ao excluir:", err); alert("Erro ao excluir registros."); } finally { setLoading(false); }
+    };
+
     const handleExport = () => {
         const dataToExport = (selectedUserForStats ? selectedUserForStats.data : filteredData).map(item => ({
             'ID Utilizador': item.userId,
@@ -2259,11 +2522,53 @@ const AdminPage = ({ setCurrentArea }) => {
         XLSX.writeFile(workbook, "relatorio_calculadora_prazos.xlsx");
     };
 
-    const topUsers = useMemo(() => Object.entries(
-        viewData.reduce((acc, curr) => {
-            if (curr.userName || curr.userEmail) acc[curr.userName || curr.userEmail] = (acc[curr.userName || curr.userEmail] || 0) + 1;
-            return acc;
-        }, {})).sort(([, a], [, b]) => b - a).slice(0, 10), [viewData]);
+    const handleSaveBroadcast = async () => {
+        setIsSavingBroadcast(true);
+        try {
+            await db.collection('configuracoes').doc('aviso_global').set(broadcastMessage);
+            await logAudit(db, user, 'ATUALIZAR_BROADCAST', `Ativo: ${broadcastMessage.ativo}, Msg: ${broadcastMessage.mensagem}`);
+            alert("Aviso global atualizado!");
+        } catch (e) {
+            console.error(e);
+            alert("Erro ao salvar aviso.");
+        } finally {
+            setIsSavingBroadcast(false);
+        }
+    };
+
+    useEffect(() => {
+        if (adminSection === 'audit') {
+            const fetchAudit = async () => {
+                setLoading(true);
+                const snap = await db.collection('audit_logs').orderBy('timestamp', 'desc').limit(50).get();
+                setAuditLogs(snap.docs.map(d => ({id: d.id, ...d.data()})));
+                setLoading(false);
+            };
+            fetchAudit();
+        }
+    }, [adminSection]);
+
+    // ATUALIZAÇÃO: Top 10 filtrado apenas pelo Mês Atual e com lógica de medalhas
+    const topUsers = useMemo(() => {
+        const now = new Date();
+        const currentMonth = now.getMonth();
+        const currentYear = now.getFullYear();
+
+        // Filtra apenas dados do mês corrente
+        const monthlyData = viewData.filter(item => {
+            if (!item.timestamp) return false;
+            const d = item.timestamp.toDate();
+            return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+        });
+
+        return Object.entries(
+            monthlyData.reduce((acc, curr) => {
+                const name = curr.userName || curr.userEmail;
+                if (name) acc[name] = (acc[name] || 0) + 1;
+                return acc;
+            }, {})
+        ).sort(([, a], [, b]) => b - a).slice(0, 10);
+    }, [viewData]);
 
     // CORREÇÃO: O hook de paginação é chamado incondicionalmente no topo do componente.
     // Ele vai operar sobre `filteredData` ou `selectedUserForStats.data` dependendo do contexto.
@@ -2274,6 +2579,14 @@ const AdminPage = ({ setCurrentArea }) => {
     const chartDataPrazo = { labels: ['5 Dias', '15 Dias'], datasets: [{ data: [stats.perPrazo[5] || 0, stats.perPrazo[15] || 0], backgroundColor: ['#10B981', '#3B82F6'] }] };
     const chartDataByDay = { labels: Object.keys(stats.byDay || {}).reverse(), datasets: [{ label: 'Cálculos por Dia', data: Object.values(stats.byDay || {}).reverse(), backgroundColor: 'rgba(79, 70, 229, 0.8)' }] };
     const chartOptions = { legend: { display: false }, maintainAspectRatio: false, scales: { xAxes: [{ ticks: { beginAtZero: true } }] }};
+    
+    const chartDataSector = {
+        labels: Object.keys(stats.perSector || {}),
+        datasets: [{
+            data: Object.values(stats.perSector || {}),
+            backgroundColor: ['#6366F1', '#F59E0B', '#10B981', '#EF4444', '#8B5CF6', '#EC4899', '#06B6D4']
+        }]
+    };
 
     if(loading && adminSection === 'stats') return <div className="text-center p-8"><p>A carregar dados...</p></div>
 
@@ -2329,6 +2642,7 @@ const AdminPage = ({ setCurrentArea }) => {
                     {(adminUserData.role === 'admin' || adminUserData.role === 'setor_admin') && <button onClick={() => setAdminSection('minutas')} className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors ${adminSection === 'minutas' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>Gerir Minutas</button>}
                     {adminUserData.role === 'admin' && <button onClick={() => setAdminSection('calendar')} className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors ${adminSection === 'calendar' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>Gerir Calendário</button>}
                     {adminUserData.role === 'admin' && <button onClick={() => setAdminSection('chamados')} className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors ${adminSection === 'chamados' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>Chamados</button>}
+                    {adminUserData.role === 'admin' && <button onClick={() => setAdminSection('audit')} className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors ${adminSection === 'audit' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>Auditoria</button>}
                 </div>
             </div>
 
@@ -2336,17 +2650,30 @@ const AdminPage = ({ setCurrentArea }) => {
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
             {/* Coluna Lateral */}
             <div className="lg:col-span-1 bg-white/60 dark:bg-slate-800/60 backdrop-blur-xl p-6 rounded-2xl shadow-lg border border-slate-200/50 dark:border-slate-700/50 self-start">
-                <h3 className="font-semibold text-lg mb-4 text-slate-800 dark:text-slate-100">Top 10 - {statsView === 'calculadora' ? 'Calculadora' : 'Consulta DJEN'}</h3>
+                <h3 className="font-semibold text-lg mb-1 text-slate-800 dark:text-slate-100">Top 10 do Mês</h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mb-4 uppercase tracking-wider font-bold">{statsView === 'calculadora' ? 'Calculadora' : 'Consulta DJEN'}</p>
+                
                 {topUsers.length > 0 ? (
                     <ul className="space-y-2 text-left">
-                        {topUsers.map(([name, count], index) => (
-                            <li key={name} className="flex items-center justify-between p-2 bg-slate-100/70 dark:bg-slate-900/50 rounded-md text-sm">
-                                <span className="font-medium truncate" title={name}>{index + 1}. {name}</span>
-                                <span className="font-bold text-indigo-600 dark:text-indigo-400 flex-shrink-0 ml-2">{count}</span>
-                            </li>
-                        ))}
+                        {topUsers.map(([name, count], index) => {
+                            // Lógica de Gamificação: Medalhas para o Top 3
+                            let medal = null;
+                            if (index === 0) medal = '🥇';
+                            if (index === 1) medal = '🥈';
+                            if (index === 2) medal = '🥉';
+
+                            return (
+                                <li key={name} className={`flex items-center justify-between p-2 rounded-md text-sm ${index < 3 ? 'bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800' : 'bg-slate-100/70 dark:bg-slate-900/50'}`}>
+                                    <span className="font-medium truncate flex items-center gap-2" title={name}>
+                                        <span className="w-5 text-center">{medal || `${index + 1}.`}</span> 
+                                        {name}
+                                    </span>
+                                    <span className={`font-bold flex-shrink-0 ml-2 ${index < 3 ? 'text-indigo-700 dark:text-indigo-300' : 'text-slate-600 dark:text-slate-400'}`}>{count}</span>
+                                </li>
+                            );
+                        })}
                     </ul>
-                ) : <p className="text-sm text-slate-500 dark:text-slate-400">Nenhum dado de utilização ainda.</p>}
+                ) : <p className="text-sm text-slate-500 dark:text-slate-400">Nenhum dado registrado neste mês.</p>}
             </div>
 
             {/* Conteúdo Principal */}
@@ -2402,6 +2729,28 @@ const AdminPage = ({ setCurrentArea }) => {
                         </div>
                     </div>
                 </div>
+
+                {/* Gráfico de Setores */}
+                {adminUserData.role === 'admin' && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="p-4 bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 h-64">
+                             <h3 className="font-semibold text-center mb-2 text-slate-800 dark:text-slate-100">Utilização por Setor</h3>
+                             <Pie data={chartDataSector} options={{ responsive: true, maintainAspectRatio: false }}/>
+                        </div>
+                        <div className="p-4 bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
+                            <h3 className="font-semibold text-center mb-4 text-slate-800 dark:text-slate-100">Aviso Global (Broadcast)</h3>
+                            <div className="space-y-3">
+                                <textarea value={broadcastMessage.mensagem} onChange={e => setBroadcastMessage({...broadcastMessage, mensagem: e.target.value})} placeholder="Mensagem para todos os usuários..." className="w-full p-2 border rounded-md text-sm dark:bg-slate-900 dark:border-slate-600" rows="3"></textarea>
+                                <div className="flex items-center gap-2">
+                                    <input type="checkbox" checked={broadcastMessage.ativo} onChange={e => setBroadcastMessage({...broadcastMessage, ativo: e.target.checked})} id="broadcast-active" />
+                                    <label htmlFor="broadcast-active" className="text-sm">Ativar Aviso</label>
+                                </div>
+                                <button onClick={handleSaveBroadcast} disabled={isSavingBroadcast} className="w-full bg-blue-600 text-white py-2 rounded-md text-sm font-bold hover:bg-blue-700 disabled:opacity-50">Salvar Aviso</button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
                 <span className="text-sm text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-900/50 px-3 py-1.5 rounded-lg">Total de Usos: <strong className="font-bold text-lg text-slate-700 dark:text-slate-200">{viewData.length}</strong></span>
             </div>
             
@@ -2439,6 +2788,14 @@ const AdminPage = ({ setCurrentArea }) => {
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
                         Baixar Relatório
                     </button>
+                    <button onClick={handleBulkExport} disabled={filteredData.length === 0} className="px-4 py-2 text-sm font-semibold bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" clipRule="evenodd" /></svg>
+                        Extração Completa (ZIP)
+                    </button>
+                    <button onClick={handleDeleteClick} disabled={filteredData.length === 0 && allData.length === 0} className="px-4 py-2 text-sm font-semibold bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
+                        Excluir Registros
+                    </button>
                 </div>
             </div>
 
@@ -2456,37 +2813,6 @@ const AdminPage = ({ setCurrentArea }) => {
                              <Bar data={chartDataByDay} options={{ responsive: true, maintainAspectRatio: false }}/>
                         </div>
                      <div>
-                        <h3 className="text-lg font-semibold mb-2">Resultados Filtrados ({filteredData.length})</h3>
-                        <div className="overflow-x-auto bg-slate-100/70 dark:bg-slate-900/50 rounded-lg">
-                            <table className="w-full text-sm text-left">
-                                <thead className="text-xs text-slate-700 dark:text-slate-300 uppercase bg-slate-200/50 dark:bg-slate-800/50">
-                                    <tr><th className="px-4 py-3">Utilizador</th><th className="px-4 py-3">Tipo</th><th className="px-4 py-3">Nº Processo</th><th className="px-4 py-3">Detalhes</th><th className="px-4 py-3 text-right">Data</th></tr>
-                                </thead>
-                                <tbody>
-                                {paginatedData.map(item => (
-                                    <tr key={item.id} className="border-b border-slate-200/50 dark:border-slate-700/50"><td className="px-4 py-4 font-medium break-words"><a href="#" onClick={(e) => {e.preventDefault(); handleUserClick(item.userEmail)}} className="text-indigo-600 hover:underline">{item.userName || item.userEmail}</a></td>
-                                        <td className="px-4 py-4 capitalize">{(item.type || 'calculadora').split('_')[0]}</td>
-                                        <td className="px-4 py-4 break-words">{item.numeroProcesso}</td>
-                                        <td className="px-4 py-4">{item.materia ? `${item.materia}, ${item.prazo} dias` : 'N/A'}</td> 
-                                        <td className="px-4 py-4 text-right">{item.timestamp ? formatarData(item.timestamp.toDate()) : ''}</td>
-                                    </tr>
-                                ))}
-                                </tbody>
-                            </table>
-                            {statsView === 'calculadora' && (
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-8 pt-6 border-t border-slate-100 dark:border-slate-700">
-                                    <div className="h-48">
-                                        <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4 text-center">Por Matéria</h4>
-                                        <HorizontalBar data={chartDataMateria} options={{...chartOptions, maintainAspectRatio: false}}/>
-                                    </div>
-                                    <div className="h-48">
-                                        <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4 text-center">Por Prazo</h4>
-                                        <HorizontalBar data={chartDataPrazo} options={{...chartOptions, maintainAspectRatio: false}}/>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-
                         {/* Table */}
                         <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
                             <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-slate-50 dark:bg-slate-900/30">
@@ -2545,6 +2871,30 @@ const AdminPage = ({ setCurrentArea }) => {
         )}
         {adminSection === 'chamados' && (
             <BugReportsPage />
+        )}
+        {adminSection === 'audit' && (
+            <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
+                <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/30">
+                    <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">Logs de Auditoria (Últimos 50)</h3>
+                </div>
+                <div className="overflow-x-auto">
+                    <table className="w-full text-sm text-left">
+                        <thead className="text-xs text-slate-500 uppercase bg-slate-50 dark:bg-slate-900/50 border-b border-slate-100 dark:border-slate-700">
+                            <tr><th className="px-6 py-3">Data</th><th className="px-6 py-3">Ação</th><th className="px-6 py-3">Usuário</th><th className="px-6 py-3">Detalhes</th></tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
+                            {auditLogs.map(log => (
+                                <tr key={log.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/30">
+                                    <td className="px-6 py-4 whitespace-nowrap">{log.timestamp ? new Date(log.timestamp.toDate()).toLocaleString() : ''}</td>
+                                    <td className="px-6 py-4 font-bold text-slate-700 dark:text-slate-300">{log.action}</td>
+                                    <td className="px-6 py-4">{log.performedByEmail}</td>
+                                    <td className="px-6 py-4 text-slate-500 truncate max-w-xs" title={log.details}>{log.details}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
         )}
         {adminSection === 'minutas' && (
             <MinutasAdminPage />
@@ -2707,6 +3057,30 @@ const AdminPage = ({ setCurrentArea }) => {
             onClose={handleCloseUserManagementModal}
             onSave={handleSaveUserPermissions}
         />
+    )}
+    {showDeleteModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
+            <div className="bg-white dark:bg-slate-800 w-full max-w-md rounded-2xl shadow-2xl p-6 border border-slate-200 dark:border-slate-700">
+                <h3 className="text-xl font-bold text-slate-800 dark:text-slate-100 mb-4">Excluir Registros por Período</h3>
+                <p className="text-sm text-slate-600 dark:text-slate-300 mb-4">Selecione o intervalo de datas dos registros que deseja excluir permanentemente.</p>
+                
+                <div className="space-y-4">
+                    <div>
+                        <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Data Inicial</label>
+                        <input type="date" value={deleteRange.start} onChange={e => setDeleteRange({...deleteRange, start: e.target.value})} className="w-full p-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-200" />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Data Final</label>
+                        <input type="date" value={deleteRange.end} onChange={e => setDeleteRange({...deleteRange, end: e.target.value})} className="w-full p-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-200" />
+                    </div>
+                </div>
+
+                <div className="flex justify-end gap-3 mt-6">
+                    <button onClick={() => setShowDeleteModal(false)} className="px-4 py-2 text-sm font-semibold bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-200 dark:hover:bg-slate-600">Cancelar</button>
+                    <button onClick={handleConfirmDelete} className="px-4 py-2 text-sm font-semibold bg-red-600 text-white rounded-lg hover:bg-red-700">Excluir</button>
+                </div>
+            </div>
+        </div>
     )}
         </div>
      );
@@ -3100,6 +3474,24 @@ const ProfileModal = ({ user, userData, onClose, onUpdate }) => {
     const [error, setError] = useState('');
     const [message, setMessage] = useState('');
 
+    const handleDeleteAccount = async () => {
+        const confirmMsg = "ATENÇÃO: Tem certeza que deseja excluir sua conta?\n\nEsta ação é irreversível. Todos os seus dados pessoais e histórico de acesso serão removidos permanentemente do sistema.\n\nDigite 'EXCLUIR' para confirmar:";
+        const userInput = window.prompt(confirmMsg);
+        
+        if (userInput === 'EXCLUIR') {
+            try {
+                // Deleta o documento do usuário no Firestore
+                await db.collection('users').doc(user.uid).delete();
+                // Deleta o usuário da autenticação
+                await user.delete();
+                // O AuthProvider vai detectar o logout/delete e redirecionar
+            } catch (err) {
+                console.error("Erro ao excluir conta:", err);
+                alert("Erro ao excluir conta. Pode ser necessário fazer login novamente antes de realizar esta ação (medida de segurança do Firebase).");
+            }
+        }
+    };
+
     const handleSave = async () => {
         if (!displayName.trim() || !avatarColor) {
             setError('O nome não pode ficar em branco.');
@@ -3179,6 +3571,13 @@ const ProfileModal = ({ user, userData, onClose, onUpdate }) => {
                     <button onClick={handleSave} disabled={isSaving} className="w-full flex justify-center items-center bg-gradient-to-br from-indigo-500 to-indigo-600 text-white font-semibold py-3 px-4 rounded-lg hover:from-indigo-600 hover:to-indigo-700 transition-all duration-300 shadow-md disabled:opacity-50">
                         {isSaving ? 'Salvando...' : 'Salvar Alterações'}
                     </button>
+                    
+                    <div className="pt-2">
+                        <button onClick={handleDeleteAccount} className="w-full flex justify-center items-center text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 text-sm font-semibold py-2 px-4 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-all duration-300">
+                            Excluir Minha Conta
+                        </button>
+                    </div>
+
                     <div className="border-t border-slate-200 dark:border-slate-700 pt-4">
                         <h3 className="text-lg font-semibold text-slate-700 dark:text-slate-200 mb-2">Outras Opções</h3>
                         <button onClick={() => document.dispatchEvent(new CustomEvent('openSettings'))} className="w-full flex justify-center items-center bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold py-2 px-4 rounded-lg hover:bg-slate-300 dark:hover:bg-slate-600 transition-all duration-300">
@@ -3193,21 +3592,40 @@ const ProfileModal = ({ user, userData, onClose, onUpdate }) => {
 };
 
 const Sidebar = ({ isOpen, setIsOpen, isCollapsed, toggleCollapse }) => {
-    const { user, userData, openCalendario, currentArea, setCurrentArea, isAdmin } = useAuth();
+    const { user, userData, openCalendario, currentArea, setCurrentArea, isAdmin, isSetorAdmin } = useAuth();
     const { openBugReport } = useContext(BugReportContext);
+    const [deferredPrompt, setDeferredPrompt] = useState(null);
+
+    useEffect(() => {
+        const handler = (e) => {
+            e.preventDefault();
+            setDeferredPrompt(e);
+        };
+        window.addEventListener('beforeinstallprompt', handler);
+        return () => window.removeEventListener('beforeinstallprompt', handler);
+    }, []);
+
+    const handleInstallClick = async () => {
+        if (!deferredPrompt) return;
+        deferredPrompt.prompt();
+        const { outcome } = await deferredPrompt.userChoice;
+        if (outcome === 'accepted') {
+            setDeferredPrompt(null);
+        }
+    };
 
     const menuItems = [
         { id: 'Calculadora', label: 'Calculadora', icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg> },
-        { id: 'Admin', label: 'Administração', icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>, condition: isAdmin || userData?.role === 'setor_admin' },
+        { id: 'Admin', label: 'Administração', icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>, condition: !!(isAdmin || isSetorAdmin) },
     ];
 
     return (
         <>
             {/* Overlay Mobile */}
-            {isOpen && <div className="fixed inset-0 bg-black/50 z-40 lg:hidden" onClick={() => setIsOpen(false)}></div>}
+            {isOpen && <div className="fixed inset-0 bg-black/50 z-[55] lg:hidden" onClick={() => setIsOpen(false)}></div>}
 
             {/* Sidebar Container */}
-            <aside className={`fixed lg:static inset-y-0 left-0 z-50 ${isCollapsed ? 'w-20' : 'w-64'} bg-slate-900 text-white transform transition-all duration-300 ease-in-out ${isOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0 flex flex-col`}>
+            <aside className={`fixed lg:static inset-y-0 left-0 z-[60] ${isCollapsed ? 'w-20' : 'w-64'} bg-slate-900 text-white transform transition-all duration-300 ease-in-out ${isOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0 flex flex-col`}>
                 {/* Logo Area */}
                 <div className={`h-16 flex items-center ${isCollapsed ? 'justify-center' : 'justify-between px-6'} border-b border-slate-800 bg-slate-900`}>
                     <div className="flex items-center">
@@ -3226,7 +3644,7 @@ const Sidebar = ({ isOpen, setIsOpen, isCollapsed, toggleCollapse }) => {
                 {/* Navigation */}
                 <nav className="flex-1 px-3 py-6 space-y-1 overflow-y-auto overflow-x-hidden">
                     {menuItems.map(item => (
-                        (!item.condition || item.condition === true) && (
+                        (item.condition !== false) && (
                             <button
                                 key={item.id}
                                 onClick={() => { setCurrentArea(item.id); setIsOpen(false); }}
@@ -3249,6 +3667,12 @@ const Sidebar = ({ isOpen, setIsOpen, isCollapsed, toggleCollapse }) => {
                             <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 ${isCollapsed ? '' : 'mr-3'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
                             {!isCollapsed && 'Reportar Problema'}
                         </button>
+                        {deferredPrompt && (
+                            <button onClick={handleInstallClick} className={`w-full flex items-center ${isCollapsed ? 'justify-center px-2' : 'px-3'} py-2 text-sm font-medium text-green-400 rounded-lg hover:bg-slate-800 hover:text-green-300 transition-colors mt-2`} title={isCollapsed ? 'Instalar App' : ''}>
+                                <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 ${isCollapsed ? '' : 'mr-3'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                                {!isCollapsed && 'Instalar App'}
+                            </button>
+                        )}
                     </div>
                 </nav>
 
@@ -3278,7 +3702,7 @@ const Sidebar = ({ isOpen, setIsOpen, isCollapsed, toggleCollapse }) => {
 
 const TopBar = ({ onMenuClick, title }) => {
     return (
-        <header className="h-16 bg-white dark:bg-slate-800 shadow-sm flex items-center justify-between px-4 lg:px-8 z-20">
+        <header className="h-16 bg-white dark:bg-slate-800 shadow-sm flex items-center justify-between px-4 lg:px-8 relative z-20">
             <div className="flex items-center">
                 <button onClick={onMenuClick} className="lg:hidden p-2 rounded-md text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700 mr-2">
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>
@@ -3394,6 +3818,24 @@ const BugReportProvider = ({ children }) => {
         </BugReportContext.Provider>
     );
 };
+
+const GlobalAlert = () => {
+    const [msg, setMsg] = useState(null);
+    useEffect(() => {
+        if (!db) return;
+        const unsubscribe = db.collection('configuracoes').doc('aviso_global').onSnapshot(doc => {
+            if (doc.exists && doc.data().ativo) {
+                setMsg(doc.data());
+            } else {
+                setMsg(null);
+            }
+        });
+        return () => unsubscribe();
+    }, []);
+    if (!msg) return null;
+    return <div className="bg-indigo-600 text-white text-center py-2 px-4 font-bold text-sm shadow-md animate-fade-in relative z-30">{msg.mensagem}</div>;
+};
+
 // --- Componente Principal ---
 const App = () => {
   const { user, userData, isAdmin, loading, refreshUser, currentArea, setCurrentArea } = useAuth();
@@ -3403,19 +3845,23 @@ const App = () => {
   const [showChangelog, setShowChangelog] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false);
 
   useEffect(() => {
     // Adiciona o estilo de animação ao head do documento uma única vez.
     const openCalendarioHandler = () => setShowCalendario(true);
     const openProfileHandler = () => setShowProfile(true);
     const openSettingsHandler = () => setShowSettings(true);
+    const openPrivacyHandler = () => setShowPrivacyPolicy(true);
     document.addEventListener('openCalendario', openCalendarioHandler);
     document.addEventListener('openProfile', openProfileHandler);
     document.addEventListener('openSettings', openSettingsHandler);
+    document.addEventListener('openPrivacyPolicy', openPrivacyHandler);
     return () => {
         document.removeEventListener('openCalendario', openCalendarioHandler);
         document.removeEventListener('openProfile', openProfileHandler);
         document.removeEventListener('openSettings', openSettingsHandler);
+        document.removeEventListener('openPrivacyPolicy', openPrivacyHandler);
     };
   }, []);
 
@@ -3461,6 +3907,7 @@ const App = () => {
         <Sidebar isOpen={isSidebarOpen} setIsOpen={setIsSidebarOpen} isCollapsed={isSidebarCollapsed} toggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)} />
         
         <div className="flex-1 flex flex-col overflow-hidden relative">
+            <GlobalAlert />
             <TopBar onMenuClick={() => setIsSidebarOpen(true)} title={currentArea === 'Calculadora' ? 'Calculadora de Prazos' : 'Painel Administrativo'} />
             
             <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
@@ -3482,6 +3929,8 @@ const App = () => {
         {showCalendario && <CalendarioModal onClose={() => setShowCalendario(false)} />}
         {showProfile && <ProfileModal user={user} userData={userData} onClose={() => setShowProfile(false)} onUpdate={refreshUser} />} 
         {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
+        {showPrivacyPolicy && <PrivacyPolicyModal onClose={() => setShowPrivacyPolicy(false)} />}
+        <CookieConsent />
         <UserIDWatermark isSidebarCollapsed={isSidebarCollapsed} />
     </div>
   );

@@ -1,7 +1,7 @@
 const { useState, useEffect, useCallback, useContext, useRef } = React;
 
 const MinutasAdminPage = () => {
-    const { userData, isAdmin, isSetorAdmin } = useAuth();
+    const { user, userData, isAdmin, isSetorAdmin } = useAuth();
     const [setores, setSetores] = useState([]);
     const [tiposMinuta, setTiposMinuta] = useState([]);
     const [novoTipoMinutaNome, setNovoTipoMinutaNome] = useState('');
@@ -11,6 +11,7 @@ const MinutasAdminPage = () => {
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
+    const [selectedTipoMinutaId, setSelectedTipoMinutaId] = useState('');
 
     const editorRefs = useRef({});
 
@@ -28,6 +29,7 @@ const MinutasAdminPage = () => {
                 conteudo: conteudo,
                 lastUpdated: firebase.firestore.FieldValue.serverTimestamp(),
             }, { merge: true });
+            await logAudit(db, user, 'EDITAR_MINUTA', `Tipo: ${tipoId}, Setor: ${selectedSetorId}`);
             setSuccess(`Minuta salva com sucesso!`);
             setTimeout(() => setSuccess(''), 3000);
         } catch (err) {
@@ -66,6 +68,9 @@ const MinutasAdminPage = () => {
                     tiposList.unshift({ id: 'exemplo_didatico', nome: 'Exemplo Didático (Modelo)' });
                 }
                 setTiposMinuta(tiposList);
+                if (tiposList.length > 0) {
+                    setSelectedTipoMinutaId(tiposList[0].id);
+                }
 
                 const initialSetorId = isSetorAdmin ? userData.setorId : (setoresList[0]?.id || '');
                 setSelectedSetorId(initialSetorId);
@@ -131,7 +136,13 @@ const MinutasAdminPage = () => {
     
             // ATUALIZAÇÃO: Em vez de recarregar a página, atualiza o estado local.
             const novoTipo = { id: id, nome: novoTipoMinutaNome.trim() };
-            setTiposMinuta(prevTipos => [novoTipo, ...prevTipos].sort((a, b) => a.nome.localeCompare(b.nome)));
+            setTiposMinuta(prevTipos => {
+                const exemplo = prevTipos.find(t => t.id === 'exemplo_didatico');
+                const outros = prevTipos.filter(t => t.id !== 'exemplo_didatico');
+                const novosOutros = [novoTipo, ...outros].sort((a, b) => a.nome.localeCompare(b.nome));
+                return exemplo ? [exemplo, ...novosOutros] : novosOutros;
+            });
+            setSelectedTipoMinutaId(id);
             setNovoTipoMinutaNome('');
             setSuccess('Novo tipo de minuta adicionado com sucesso!');
             setTimeout(() => setSuccess(''), 3000);
@@ -153,7 +164,13 @@ const MinutasAdminPage = () => {
                     transaction.update(configRef, { tipos: novosTipos });
                 });
                 // ATUALIZAÇÃO: Em vez de recarregar a página, atualiza o estado local.
-                setTiposMinuta(prevTipos => prevTipos.filter(t => t.id !== tipoId));
+                setTiposMinuta(prevTipos => {
+                    const newTipos = prevTipos.filter(t => t.id !== tipoId);
+                    if (selectedTipoMinutaId === tipoId && newTipos.length > 0) {
+                        setSelectedTipoMinutaId(newTipos[0].id);
+                    }
+                    return newTipos;
+                });
                 setSuccess('Tipo de minuta excluído com sucesso!');
             } catch (err) {
                 setError("Falha ao excluir o tipo de minuta.");
@@ -164,9 +181,32 @@ const MinutasAdminPage = () => {
 
     // Novo componente de editor de texto rico, sem dependências externas
     const SimpleRichEditor = ({ initialValue, onRef }) => {
+        const internalRef = useRef(null);
+
+        const setRefs = useCallback((el) => {
+            internalRef.current = el;
+            if (onRef) onRef(el);
+        }, [onRef]);
+
         const handleCommand = (command, value = null) => {
             document.execCommand(command, false, value);
-            onRef.current.focus();
+            if (internalRef.current) internalRef.current.focus();
+        };
+
+        const insertPlaceholder = (placeholder) => {
+            if (internalRef.current) {
+                internalRef.current.focus();
+                const success = document.execCommand('insertText', false, placeholder);
+                if (!success) {
+                    const selection = window.getSelection();
+                    if (selection.rangeCount) {
+                        const range = selection.getRangeAt(0);
+                        range.deleteContents();
+                        range.insertNode(document.createTextNode(placeholder));
+                        range.collapse(false);
+                    }
+                }
+            }
         };
 
         const toolbarButtons = [
@@ -182,21 +222,52 @@ const MinutasAdminPage = () => {
             { command: 'insertOrderedList', icon: '1.', title: 'Lista (números)' },
         ];
 
+        const placeholders = [
+            { label: 'Nº Processo', value: '{{numeroProcesso}}' },
+            { label: 'Data Disp.', value: '{{dataDisponibilizacao}}' },
+            { label: 'Data Pub.', value: '{{dataPublicacao}}' },
+            { label: 'Início Prazo', value: '{{inicioPrazo}}' },
+            { label: 'Prazo (dias)', value: '{{prazoDias}}' },
+            { label: 'Prazo Final', value: '{{prazoFinal}}' },
+            { label: 'Data Interp.', value: '{{dataInterposicao}}' },
+            { label: 'Mov. Acórdão', value: '{{movAcordao}}' },
+            { label: 'Câmara', value: '{{camara}}' },
+            { label: 'Recurso', value: '{{recursoApelacao}}' },
+            { label: 'Mov. Intimação', value: '{{movIntimacao}}' },
+            { label: 'Mov. Despacho', value: '{{movDespacho}}' },
+            { label: 'Mov. Certidão', value: '{{movCertidao}}' },
+        ];
+
         return (
             <div className="border border-slate-300 dark:border-slate-600 rounded-lg">
-                <div className="flex flex-wrap items-center gap-1 p-2 border-b border-slate-300 dark:border-slate-600 bg-slate-200/70 dark:bg-slate-800/70 rounded-t-lg">
-                    {toolbarButtons.map(({ command, icon, title }) => (
-                        <button key={command} title={title} onClick={() => handleCommand(command)} type="button" className="w-8 h-8 rounded text-slate-700 dark:text-slate-200 hover:bg-slate-300 dark:hover:bg-slate-600 font-bold text-lg">
-                            {icon}
-                        </button>
-                    ))}
+                <div className="p-2 border-b border-slate-300 dark:border-slate-600 bg-slate-100 dark:bg-slate-800 rounded-t-lg">
+                    <div className="flex flex-wrap items-center gap-1 mb-2">
+                        {toolbarButtons.map(({ command, icon, title }) => (
+                            <button key={command} title={title} onClick={() => handleCommand(command)} type="button" className="w-8 h-8 rounded text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 font-bold text-lg flex items-center justify-center transition-colors">
+                                {icon}
+                            </button>
+                        ))}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-200 dark:border-slate-700">
+                        <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Inserir Campo:</span>
+                        {placeholders.map(ph => (
+                            <button 
+                                key={ph.value} 
+                                onClick={() => insertPlaceholder(ph.value)}
+                                className="px-2 py-1 text-xs font-medium bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded hover:bg-indigo-50 dark:hover:bg-indigo-900/30 text-slate-700 dark:text-slate-200 transition-colors shadow-sm"
+                                title={`Inserir ${ph.label}`}
+                            >
+                                {ph.label}
+                            </button>
+                        ))}
+                    </div>
                 </div>
                 <div
-                    ref={onRef}
+                    ref={setRefs}
                     contentEditable={true}
                     dangerouslySetInnerHTML={{ __html: initialValue }}
-                    className="p-4 h-96 overflow-y-auto focus:outline-none bg-white dark:bg-slate-800/50"
-                    style={{ fontFamily: 'Arial, sans-serif', fontSize: '16pt' }}
+                    className="p-6 h-96 overflow-y-auto focus:outline-none bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200"
+                    style={{ fontFamily: 'Arial, sans-serif', fontSize: '14pt', lineHeight: '1.5' }}
                 ></div>
             </div>
         );
@@ -217,54 +288,82 @@ const MinutasAdminPage = () => {
                 </ol>
             </div>
 
-            {userData.role === 'admin' && (
-                <div className="p-4 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg space-y-4">
-                    <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Adicionar Novo Tipo de Minuta</h3>
-                    <form onSubmit={handleAddTipoMinuta} className="flex items-center gap-2">
-                        <input type="text" placeholder="Nome do novo tipo (ex: Agravo Interno)" value={novoTipoMinutaNome} onChange={e => setNovoTipoMinutaNome(e.target.value)} className="flex-grow p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700" />
-                        <button type="submit" className="px-4 py-2 text-sm font-semibold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">Adicionar</button>
-                    </form>
-                </div>
-            )}
-            
-            {isAdmin && (
-                <div>
-                    <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Selecione o Setor</label>
-                    <select value={selectedSetorId} onChange={e => setSelectedSetorId(e.target.value)} className="w-full md:w-1/2 p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700">
-                        {setores.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
-                    </select>
-                </div>
-            )}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {(isAdmin || isSetorAdmin) && (
+                    <div className="p-4 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg space-y-2">
+                        <h3 className="text-sm font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">Criar Novo Modelo de Minuta</h3>
+                        <form onSubmit={handleAddTipoMinuta} className="flex items-center gap-2">
+                            <input type="text" placeholder="Nome (ex: Agravo Interno)" value={novoTipoMinutaNome} onChange={e => setNovoTipoMinutaNome(e.target.value)} className="flex-grow p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700" />
+                            <button type="submit" className="px-3 py-2 text-sm font-semibold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">Criar</button>
+                        </form>
+                    </div>
+                )}
+                
+                {isAdmin && (
+                    <div className="p-4 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg space-y-2">
+                        <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">Selecione o Setor</label>
+                        <select value={selectedSetorId} onChange={e => setSelectedSetorId(e.target.value)} className="w-full p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700">
+                            {setores.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
+                        </select>
+                    </div>
+                )}
+            </div>
 
             {loading ? (
                 <p className="text-center text-slate-500 dark:text-slate-400">Carregando minutas...</p>
             ) : error ? (
                 <p className="text-red-500">{error}</p>
             ) : (
-                <div className="space-y-8">
-                    {tiposMinuta.map(tipo => minutasCache[selectedSetorId] && (
-                        <div key={tipo.id} className="p-4 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg">
-                            <div className="flex justify-between items-center mb-4">
-                                <h3 className="text-xl font-bold text-slate-800 dark:text-slate-100">{tipo.nome}</h3>
-                                {/* O botão de excluir só aparece para tipos de minuta que não são o exemplo e para admins globais */}
+                <div className="flex flex-col lg:flex-row gap-6 mt-4">
+                    {/* Sidebar: List of Types */}
+                    <div className="lg:w-1/4 flex flex-col gap-2">
+                        {tiposMinuta.map(tipo => (
+                            <button
+                                key={tipo.id}
+                                onClick={() => setSelectedTipoMinutaId(tipo.id)}
+                                className={`w-full text-left px-4 py-3 rounded-lg transition-all flex justify-between items-center group ${
+                                    selectedTipoMinutaId === tipo.id 
+                                    ? 'bg-indigo-600 text-white shadow-md transform scale-[1.02]' 
+                                    : 'bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700'
+                                }`}
+                            >
+                                <span className="truncate font-medium text-sm">{tipo.nome}</span>
                                 {isAdmin && tipo.id !== 'exemplo_didatico' && (
-                                    <button onClick={() => handleDeleteTipoMinuta(tipo.id)} title="Excluir este tipo de minuta" className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 px-2 text-xl font-bold">&times;</button>
+                                    <span 
+                                        onClick={(e) => { e.stopPropagation(); handleDeleteTipoMinuta(tipo.id); }} 
+                                        title="Excluir" 
+                                        className={`px-2 rounded hover:bg-red-500 hover:text-white transition-colors ${selectedTipoMinutaId === tipo.id ? 'text-indigo-200' : 'text-slate-400'}`}
+                                    >
+                                        &times;
+                                    </span>
                                 )}
+                            </button>
+                        ))}
+                    </div>
+
+                    {/* Editor Area */}
+                    <div className="lg:w-3/4">
+                        {tiposMinuta.map(tipo => minutasCache[selectedSetorId] && (
+                            <div key={tipo.id} className={`${selectedTipoMinutaId === tipo.id ? 'block animate-fade-in' : 'hidden'} bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden`}>
+                                <div className="p-4 border-b border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/30 flex justify-between items-center">
+                                    <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">{tipo.nome}</h3>
+                                    {tipo.id !== 'exemplo_didatico' && (
+                                        <button onClick={() => handleSave(tipo.id)} disabled={saving} className="px-4 py-2 text-sm font-semibold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 shadow-sm transition-all flex items-center gap-2">
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
+                                            {saving ? 'Salvando...' : 'Salvar Alterações'}
+                                        </button>
+                                    )}
+                                </div>
+                                <div className="p-4">
+                                    <SimpleRichEditor
+                                        initialValue={minutasCache[selectedSetorId][tipo.id]}
+                                        onRef={el => editorRefs.current[tipo.id] = el}
+                                    />
+                                </div>
                             </div>
-                            <SimpleRichEditor
-                                initialValue={minutasCache[selectedSetorId][tipo.id]}
-                                onRef={el => editorRefs.current[tipo.id] = el}
-                            />
-                            {/* O botão de salvar só aparece para minutas que não são o exemplo */}
-                            {tipo.id !== 'exemplo_didatico' && (
-                            <div className="mt-4 flex justify-end gap-4">
-                                <button onClick={() => handleSave(tipo.id)} disabled={saving} className="px-4 py-2 text-sm font-semibold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50">
-                                    {saving ? 'Salvando...' : 'Salvar Minuta'}
-                                </button>
-                            </div>
-                            )}
-                        </div>
-                    ))}
+                        ))}
+                        {tiposMinuta.length === 0 && <p className="text-center text-slate-500 mt-10">Nenhum tipo de minuta disponível.</p>}
+                    </div>
                 </div>
             )}
             {success && <div className="fixed bottom-4 right-4 p-4 text-sm text-white bg-green-600 rounded-lg shadow-lg animate-fade-in">{success}</div>}

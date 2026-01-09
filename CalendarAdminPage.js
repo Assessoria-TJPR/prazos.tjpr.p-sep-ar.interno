@@ -2,13 +2,14 @@ const { useState, useEffect, useCallback, useContext } = React;
 
 const CalendarioAdminPage = () => {
     const { refreshCalendar } = useContext(SettingsContext);
+    const { user } = useAuth();
     const [config, setConfig] = useState(null);
     const [allEntries, setAllEntries] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [isSaving, setIsSaving] = useState(false);
     const [editando, setEditando] = useState(null); // Guarda o item sendo editado
-    const [novaEntrada, setNovaEntrada] = useState({ data: '', motivo: '', tipo: 'feriado' });
+    const [novaEntrada, setNovaEntrada] = useState({ data: '', motivo: '', tipo: 'feriado', link: '' });
 
     const fetchCalendarConfig = useCallback(async () => {
         setLoading(true);
@@ -29,12 +30,12 @@ const CalendarioAdminPage = () => {
             // Adiciona feriados recorrentes
             data.feriadosNacionaisRecorrentes?.forEach(f => {
                 const dataStr = `${year}-${String(f.mes).padStart(2, '0')}-${String(f.dia).padStart(2, '0')}`;
-                entries.push({ id: dataStr, data: dataStr, motivo: f.motivo, tipo: 'feriado', isRecurring: true });
+                entries.push({ id: dataStr, data: dataStr, motivo: f.motivo, tipo: 'feriado', isRecurring: true, link: f.link || '' });
             });
             // Adiciona exceções anuais
             Object.keys(data.excecoesAnuais || {}).forEach(yearKey => {
                 data.excecoesAnuais[yearKey].forEach(e => {
-                    entries.push({ id: e.data, data: e.data, motivo: e.motivo, tipo: e.tipo, isRecurring: false });
+                    entries.push({ id: e.data, data: e.data, motivo: e.motivo, tipo: e.tipo, isRecurring: false, link: e.link || '' });
                 });
             });
             
@@ -84,12 +85,13 @@ const CalendarioAdminPage = () => {
         if (!updatedConfig.excecoesAnuais[year]) {
             updatedConfig.excecoesAnuais[year] = [];
         }
-        updatedConfig.excecoesAnuais[year].push({ data: item.data, motivo: item.motivo, tipo: item.tipo });
+        updatedConfig.excecoesAnuais[year].push({ data: item.data, motivo: item.motivo, tipo: item.tipo, link: item.link || '' });
         updatedConfig.excecoesAnuais[year].sort((a, b) => new Date(a.data) - new Date(b.data));
 
         try {
             await db.collection('configuracoes').doc('calendario').set(updatedConfig);
-            setNovaEntrada({ data: '', motivo: '', tipo: 'feriado' });
+            await logAudit(db, user, editando ? 'EDITAR_CALENDARIO' : 'ADICIONAR_CALENDARIO', `Data: ${item.data}, Motivo: ${item.motivo}`);
+            setNovaEntrada({ data: '', motivo: '', tipo: 'feriado', link: '' });
             setEditando(null);
             await fetchCalendarConfig(); // Recarrega tudo
             await refreshCalendar();
@@ -119,6 +121,7 @@ const CalendarioAdminPage = () => {
 
         try {
             await db.collection('configuracoes').doc('calendario').set(updatedConfig);
+            await logAudit(db, user, 'EXCLUIR_CALENDARIO', `Data: ${itemToDelete.data}, Motivo: ${itemToDelete.motivo}`);
             await fetchCalendarConfig();
             await refreshCalendar();
         } catch (err) {
@@ -170,6 +173,17 @@ const CalendarioAdminPage = () => {
                                 value={editando.motivo} 
                                 onChange={handleInputChange} 
                                 required 
+                                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Link do Decreto (Opcional)</label>
+                            <input 
+                                type="url" 
+                                name="link" 
+                                value={editando.link || ''} 
+                                onChange={handleInputChange} 
+                                placeholder="https://..."
                                 className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition"
                             />
                         </div>
@@ -240,6 +254,17 @@ const CalendarioAdminPage = () => {
                                 onChange={handleInputChange} 
                                 required 
                                 placeholder="Ex: Feriado Municipal"
+                                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Link do Decreto (Opcional)</label>
+                            <input 
+                                type="url" 
+                                name="link" 
+                                value={novaEntrada.link || ''} 
+                                onChange={handleInputChange} 
+                                placeholder="https://..."
                                 className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition"
                             />
                         </div>
