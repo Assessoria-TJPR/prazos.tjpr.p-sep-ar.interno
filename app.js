@@ -62,6 +62,9 @@ const SettingsProvider = ({ children }) => {
         calendarLoading: true,
     });
 
+    // CORREÇÃO: Usar useAuth para monitorar o estado do usuário
+    const { user } = useAuth();
+
     useEffect(() => {
         const savedSettings = localStorage.getItem('appSettings');
         if (savedSettings) {
@@ -131,7 +134,7 @@ const SettingsProvider = ({ children }) => {
 
             } catch (error) { console.error("Erro ao carregar calendário da coleção:", error); updateSettings({ calendarLoading: false }); }
         }
-    }, [db]); // A dependência agora é `db`, que é estável.
+    }, [db, user]); // CORREÇÃO: Adicionado 'user' como dependência para rejeitar a busca após login
 
     const updateSettings = (newSettings) => {
         const updated = { ...settings, ...newSettings };
@@ -140,11 +143,11 @@ const SettingsProvider = ({ children }) => {
     };
 
     useEffect(() => {
-        // Carrega os dados do calendário do Firestore assim que `db` estiver disponível.
-        if (db) {
+        // Carrega os dados do calendário do Firestore assim que `db` estiver disponível E o usuário estiver logado.
+        if (db && user) {
             fetchCalendarData();
         }
-    }, [db, fetchCalendarData]);
+    }, [db, user, fetchCalendarData]);
 
     useEffect(() => {
         // Aplica o tema
@@ -4185,11 +4188,11 @@ const App = () => {
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(
-    <SettingsProvider>
-        <AuthProvider>
+    <AuthProvider>
+        <SettingsProvider>
             <BugReportProvider>
                 <App />
             </BugReportProvider>
-        </AuthProvider>
-    </SettingsProvider>
+        </SettingsProvider>
+    </AuthProvider>
 );
