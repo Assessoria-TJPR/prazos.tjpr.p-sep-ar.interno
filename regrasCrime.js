@@ -16,24 +16,35 @@ const calcularPrazoCrime = (dataPublicacaoComDecreto, inicioDoPrazoComDecreto, p
         return { dataPublicacao: dataPublicacaoComDecreto, inicioPrazo: inicioDoPrazoComDecreto, semDecreto: resultadoEspecial, comDecreto: resultadoEspecial, suspensoesComprovaveis: [], prazo: prazoNumerico, tipo: 'crime' };
     }
 
-    // Calcula cenário SEM decreto (apenas feriados)
+    // Calcula cenário SEM decreto (apenas feriados e recessos)
+    // Para Crime, decretos NÃO adiam o início do prazo (prazo de dias corridos começa mesmo em dia de decreto)
     const { proximoDia: dataPublicacaoSemDecreto } = getProximoDiaUtilParaPublicacao(inicioDisponibilizacao, false);
-    const { proximoDia: inicioDoPrazoSemDecreto } = getProximoDiaUtilParaPublicacao(dataPublicacaoSemDecreto, false);
+
+    // CORREÇÃO CRIME: Para Crime com prazo em dias corridos, o início do prazo é o 
+    // MESMO DIA da publicação. Decretos nesse dia NÃO adiam o início, apenas aparecem
+    // como comprováveis para o usuário dilatar se necessário.
+    const inicioDoPrazoSemDecreto = new Date(dataPublicacaoSemDecreto.getTime());
+
+    // Verificar se o dia de início do prazo tem decreto (para mostrar como comprovável)
+    const decretoNoInicioDoPrazo = getMotivoDiaNaoUtil(inicioDoPrazoSemDecreto, true, 'decreto') ||
+        getMotivoDiaNaoUtil(inicioDoPrazoSemDecreto, true, 'instabilidade');
+
     // Para 'crime', o cálculo base é em dias corridos, mas 'semDecreto' ignora decretos/instabilidades.
     // 'false' no último parametro indica para ignorar decretos.
     const resultadoSemDecreto = calcularPrazoFinalDiasCorridos(inicioDoPrazoSemDecreto, prazoNumerico, new Set(), false);
 
-    // Calcula cenário COM decreto (inclui decretos/instabilidades já conhecidos no início)
-    // 'true' indica para considerar decretos.
-    const resultadoComDecretoInicial = calcularPrazoFinalDiasCorridos(inicioDoPrazoComDecreto, prazoNumerico, new Set(), true);
+    // Cenário COM decreto: Se o usuário marcar o decreto, usamos o inicioDoPrazoComDecreto original
+    // Por enquanto, o cenário inicial é igual ao semDecreto
+    const resultadoComDecretoInicial = { ...resultadoSemDecreto };
 
     // Identifica suspensões comprováveis
     const filtroComprovavel = (tipo) => tipo === 'decreto' || tipo === 'instabilidade' || tipo === 'feriado_cnj' || tipo === 'suspensao_outubro';
 
-    // 1. Adiciona suspensões comprováveis do início do prazo (que afetam o cálculo inicial)
-    // CASCATA: Pega apenas a PRIMEIRA suspensão do início.
-    const primeiraSuspensaoInicio = diasNaoUteisDoInicioComDecreto.find(s => filtroComprovavel(s.tipo));
-    const suspensoesParaUI = primeiraSuspensaoInicio ? [primeiraSuspensaoInicio] : [];
+    // 1. Se houver decreto/instabilidade no dia de início do prazo, adiciona como comprovável
+    const suspensoesParaUI = [];
+    if (decretoNoInicioDoPrazo && filtroComprovavel(decretoNoInicioDoPrazo.tipo)) {
+        suspensoesParaUI.push({ data: new Date(inicioDoPrazoSemDecreto.getTime()), ...decretoNoInicioDoPrazo });
+    }
 
     // 2. Procura a PRIMEIRA suspensão comprovável no prazo final (prorrogado)
     // Não adiciona TODAS as suspensões da prorrogação, apenas a primeira que afeta o final

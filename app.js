@@ -1723,8 +1723,8 @@ const LoginPage = () => {
     };
 
     return (
-        <div className="flex items-center justify-center h-full">
-            <div className="w-full max-w-md p-10 space-y-8 bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-800">
+        <div className="flex items-center justify-center h-full p-4">
+            <div className="w-full max-w-md p-6 sm:p-10 space-y-6 sm:space-y-8 bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-800">
                 {rememberedUser && isLogin ? (
                     <>
                         <div className="p-3 text-sm text-blue-800 rounded-lg bg-blue-50 dark:bg-gray-800 dark:text-blue-400" role="alert">
@@ -1736,7 +1736,7 @@ const LoginPage = () => {
                         </div>
                         <form onSubmit={handleSubmit} className="space-y-4">
                             <input type="password" placeholder="Palavra-passe" value={password} onChange={e => setPassword(e.target.value)} required autoFocus className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition" />
-                            <div className="flex items-center justify-between text-sm">
+                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-sm">
                                 <label className="flex items-center gap-2 text-slate-600 dark:text-slate-300"><input type="checkbox" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500" />Lembrar-me</label>
                                 <a href="#" onClick={(e) => { e.preventDefault(); setIsResettingPassword(true); setError(''); }} className="font-medium text-blue-600 hover:text-blue-500">Esqueceu a senha?</a>
                             </div>
@@ -1775,8 +1775,8 @@ const LoginPage = () => {
                             </>
                             )}
                             <div className="flex items-center border border-slate-200 dark:border-slate-700 rounded-xl bg-slate-50 dark:bg-slate-800 focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500 transition overflow-hidden">
-                                <input type="text" placeholder="seu.usuario" value={email} onChange={e => setEmail(e.target.value)} required className="w-full px-4 py-3 bg-transparent border-0 outline-none" />
-                                <span className="px-4 py-3 bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 border-l border-slate-200 dark:border-slate-600">
+                                <input type="text" placeholder="seu.usuario" value={email} onChange={e => setEmail(e.target.value)} required className="flex-1 min-w-0 px-4 py-3 bg-transparent border-0 outline-none" />
+                                <span className="px-2 sm:px-4 py-3 bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 border-l border-slate-200 dark:border-slate-600 text-xs sm:text-sm whitespace-nowrap">
                                     @tjpr.jus.br
                                 </span>
                             </div>
@@ -1796,7 +1796,7 @@ const LoginPage = () => {
                                 </div>
                             )}
 
-                            <div className="flex items-center justify-between text-sm">
+                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-sm">
                                 <label className="flex items-center gap-2 text-slate-600 dark:text-slate-300"><input type="checkbox" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500" />Lembrar-me</label>
                                 <a href="#" onClick={(e) => { e.preventDefault(); setIsResettingPassword(true); setError(''); }} className="font-medium text-blue-600 hover:text-blue-500">Esqueceu a senha?</a>
                             </div>
