@@ -43,9 +43,9 @@ const TJPRLoginPage = () => {
     };
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-tjpr-navy-900 via-tjpr-navy-800 to-tjpr-navy-700 flex items-center justify-center p-4">
+        <div className="h-screen overflow-y-auto bg-gradient-to-br from-tjpr-navy-900 via-tjpr-navy-800 to-tjpr-navy-700 flex items-center justify-center p-4 sm:p-8">
             {/* Background Pattern */}
-            <div className="absolute inset-0 opacity-10">
+            <div className="absolute inset-0 opacity-10 pointer-events-none">
                 <div className="absolute inset-0" style={{
                     backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)',
                     backgroundSize: '40px 40px'
@@ -53,16 +53,16 @@ const TJPRLoginPage = () => {
             </div>
 
             {/* Login Card */}
-            <div className="relative w-full max-w-md">
+            <div className="relative w-full max-w-md my-auto">
                 <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl overflow-hidden">
                     {/* Header com Logo */}
-                    <div className="bg-gradient-to-r from-tjpr-navy-800 to-tjpr-navy-700 px-8 py-12 text-center">
+                    <div className="bg-gradient-to-r from-tjpr-navy-800 to-tjpr-navy-700 px-6 sm:px-8 py-8 sm:py-12 text-center">
                         <img
                             src="Logo.png"
                             alt="TJPR"
-                            className="h-20 mx-auto mb-4 filter brightness-0 invert"
+                            className="h-16 sm:h-20 mx-auto mb-4 filter brightness-0 invert"
                         />
-                        <h1 className="text-2xl font-bold text-white mb-2">
+                        <h1 className="text-xl sm:text-2xl font-bold text-white mb-2">
                             Módulo de Prazos
                         </h1>
                         <p className="text-sm text-tjpr-navy-500">
@@ -74,7 +74,7 @@ const TJPRLoginPage = () => {
                     </div>
 
                     {/* Form */}
-                    <div className="p-8">
+                    <div className="p-6 sm:p-8">
                         <form onSubmit={handleLogin} className="space-y-6">
                             {error && (
                                 <div className="bg-red-50 dark:bg-red-900/20 border-l-4 border-tjpr-error p-4 rounded">
@@ -136,16 +136,6 @@ const TJPRLoginPage = () => {
                                 )}
                             </TJPRButton>
                         </form>
-
-                        {/* Footer Links */}
-                        <div className="mt-6 text-center space-y-2">
-                            <p className="text-xs text-gray-500 dark:text-gray-400">
-                                Problemas para acessar?{' '}
-                                <a href="#" className="text-tjpr-navy-700 hover:text-tjpr-navy-600 font-medium">
-                                    Entre em contato com o suporte
-                                </a>
-                            </p>
-                        </div>
                     </div>
                 </div>
 
