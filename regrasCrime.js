@@ -18,7 +18,8 @@ const calcularPrazoCrime = (dataPublicacaoComDecreto, inicioDoPrazoComDecreto, p
 
     // Calcula cenário SEM decreto (apenas feriados e recessos)
     // Para Crime, decretos NÃO adiam o início do prazo (prazo de dias corridos começa mesmo em dia de decreto)
-    const { proximoDia: dataPublicacaoSemDecreto } = getProximoDiaUtilParaPublicacao(inicioDisponibilizacao, false);
+    // Capturamos as suspensões encontradas durante o cálculo da publicação
+    const { proximoDia: dataPublicacaoSemDecreto, suspensoesEncontradas: suspensoesNaPublicacao } = getProximoDiaUtilParaPublicacao(inicioDisponibilizacao, false);
 
     // CORREÇÃO CRIME: Para Crime com prazo em dias corridos, o início do prazo é o 
     // MESMO DIA da publicação. Decretos nesse dia NÃO adiam o início, apenas aparecem
@@ -38,12 +39,26 @@ const calcularPrazoCrime = (dataPublicacaoComDecreto, inicioDoPrazoComDecreto, p
     const resultadoComDecretoInicial = { ...resultadoSemDecreto };
 
     // Identifica suspensões comprováveis
-    const filtroComprovavel = (tipo) => tipo === 'decreto' || tipo === 'instabilidade' || tipo === 'feriado_cnj' || tipo === 'suspensao_outubro';
+    // Para Crime, feriados nacionais também devem ser comprováveis
+    const filtroComprovavel = (tipo) => tipo === 'decreto' || tipo === 'instabilidade' || tipo === 'feriado_cnj' || tipo === 'suspensao_outubro' || tipo === 'feriado';
 
-    // 1. Se houver decreto/instabilidade no dia de início do prazo, adiciona como comprovável
+    // 1. Adiciona suspensões que afetaram a data de publicação (feriados e decretos entre disponibilização e publicação)
     const suspensoesParaUI = [];
+    if (suspensoesNaPublicacao && suspensoesNaPublicacao.length > 0) {
+        suspensoesNaPublicacao.forEach(s => {
+            if (filtroComprovavel(s.tipo)) {
+                suspensoesParaUI.push(s);
+            }
+        });
+    }
+
+    // 2. Se houver decreto/instabilidade no dia de início do prazo, adiciona como comprovável
     if (decretoNoInicioDoPrazo && filtroComprovavel(decretoNoInicioDoPrazo.tipo)) {
-        suspensoesParaUI.push({ data: new Date(inicioDoPrazoSemDecreto.getTime()), ...decretoNoInicioDoPrazo });
+        const dataInicioStr = inicioDoPrazoSemDecreto.toISOString().split('T')[0];
+        // Só adiciona se ainda não estiver na lista (evita duplicatas)
+        if (!suspensoesParaUI.some(s => s.data.toISOString().split('T')[0] === dataInicioStr)) {
+            suspensoesParaUI.push({ data: new Date(inicioDoPrazoSemDecreto.getTime()), ...decretoNoInicioDoPrazo });
+        }
     }
 
     // 2. Procura a PRIMEIRA suspensão comprovável no prazo final (prorrogado)
