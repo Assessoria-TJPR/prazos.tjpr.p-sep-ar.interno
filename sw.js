@@ -45,6 +45,11 @@ self.addEventListener('activate', event => {
 
 // Fetch - Estratégia Network First (sempre busca a versão mais recente)
 self.addEventListener('fetch', event => {
+  // Ignora requisições que não sejam http/https (ex: chrome-extension)
+  if (!event.request.url.startsWith('http')) return;
+  // Ignora requisições que não sejam GET (POST não pode ser cacheado)
+  if (event.request.method !== 'GET') return;
+
   event.respondWith(
     fetch(event.request)
       .then(response => {
