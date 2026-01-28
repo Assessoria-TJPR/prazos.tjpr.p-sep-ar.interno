@@ -1,17 +1,41 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Modulo Prazos - P-SEP-AR - TJPR</title>
-    <!-- Previne o erro 404 de favicon.ico no console -->
     <link rel="icon" href="data:,">
     <link rel="manifest" href="manifest.json">
+
+    <!-- Google Material Icons -->
+    <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
+
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="style.css">
     <script>
         tailwind.config = {
-            darkMode: 'class', // Ativa o modo escuro via classe no HTML
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        'tjpr-navy': {
+                            900: '#0D1B2A',
+                            800: '#1B263B',
+                            700: '#415A77',
+                            600: '#778DA9',
+                            500: '#90A9C9',
+                        },
+                        'tjpr-gold': '#D4AF37',
+                        'tjpr-success': '#2E7D32',
+                        'tjpr-warning': '#F57C00',
+                        'tjpr-error': '#C62828',
+                    },
+                    fontFamily: {
+                        'sans': ['Inter', 'system-ui', 'sans-serif'],
+                    },
+                }
+            }
         }
     </script>
     <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
@@ -21,18 +45,18 @@
     <!-- React Image Crop -->
     <link rel="stylesheet" href="https://unpkg.com/react-image-crop/dist/ReactCrop.css" />
     <script src="https://unpkg.com/react-image-crop/dist/ReactCrop.umd.js"></script>
-    
+
     <!-- SDKs do Firebase -->
     <script src="https://www.gstatic.com/firebasejs/9.15.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.15.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.15.0/firebase-firestore-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.15.0/firebase-storage-compat.js"></script>
-    
+
     <!-- Chart.js e SheetJS (para gráficos e Excel) -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.9.4/Chart.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/react-chartjs-2@2.11.2/dist/react-chartjs-2.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-    
+
     <!-- Biblioteca para gerar DOCX -->
     <!-- Bibliotecas de geração de DOCX removidas para usar abordagem de HTML para DOC -->
     <!-- Biblioteca para salvar arquivos (alternativa robusta para download) -->
@@ -42,7 +66,9 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
 
 </head>
-<body class="bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 overflow-hidden font-sans antialiased selection:bg-blue-500 selection:text-white">
+
+<body
+    class="bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 overflow-hidden font-sans antialiased selection:bg-blue-500 selection:text-white">
     <!-- 
         A classe `overflow-hidden` no body impede a barra de rolagem do navegador,
         deixando o controle de rolagem para o componente React.
@@ -62,7 +88,11 @@
     <script src="CalendarAdminPage.js" type="text/babel"></script>
     <!-- Os arquivos de Estatísticas e Usuários serão criados a seguir -->
     <script src="BugReportsPage.js" type="text/babel"></script>
-    
+
+    <!-- Componentes do Design System TJPR -->
+    <script src="components.js" type="text/babel"></script>
+    <script src="login.js" type="text/babel"></script>
+
     <script src="app.js" type="text/babel" data-type="module"></script>
     <script>
         if ('serviceWorker' in navigator) {
@@ -78,4 +108,5 @@
         }
     </script>
 </body>
+
 </html>

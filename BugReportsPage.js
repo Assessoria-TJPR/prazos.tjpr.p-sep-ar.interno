@@ -41,7 +41,7 @@ const BugReportsPage = () => {
             if (!db) return;
             try {
                 await db.collection('bug_reports').doc(chamadoId).delete();
-                fetchChamados(); // Recarrega a lista
+                fetchChamados();
             } catch (err) {
                 console.error("Erro ao excluir chamado:", err);
                 alert("Falha ao excluir o chamado.");
@@ -77,45 +77,120 @@ const BugReportsPage = () => {
         }
     };
 
-    if (loading) return <p>Carregando chamados...</p>;
-    if (error) return <p className="text-red-500">{error}</p>;
+    if (loading) {
+        return (
+            <TJPRCard title="Caixa de Chamados de Problemas" icon="bug_report">
+                <div className="text-center py-8">
+                    <span className="material-icons text-4xl text-gray-400 animate-spin">refresh</span>
+                    <p className="mt-2 text-gray-600 dark:text-gray-400">Carregando chamados...</p>
+                </div>
+            </TJPRCard>
+        );
+    }
+
+    if (error) {
+        return (
+            <TJPRCard title="Caixa de Chamados de Problemas" icon="bug_report">
+                <div className="bg-red-50 dark:bg-red-900/20 border-l-4 border-tjpr-error p-4 rounded">
+                    <div className="flex items-center gap-2">
+                        <span className="material-icons text-tjpr-error">error</span>
+                        <p className="text-sm text-tjpr-error font-medium">{error}</p>
+                    </div>
+                </div>
+            </TJPRCard>
+        );
+    }
 
     return (
-        <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-xl p-6 sm:p-8 rounded-2xl shadow-lg border border-slate-200/50 dark:border-slate-700/50">
-            <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100 mb-6">Caixa de Chamados de Problemas</h2>
+        <TJPRCard
+            title="Caixa de Chamados de Problemas"
+            subtitle={`${chamados.length} ${chamados.length === 1 ? 'chamado encontrado' : 'chamados encontrados'}`}
+            icon="bug_report"
+        >
             <div className="space-y-4">
                 {chamados.length === 0 ? (
-                    <p className="text-slate-500 dark:text-slate-400">Nenhum chamado encontrado.</p>
+                    <div className="text-center py-12">
+                        <span className="material-icons text-6xl text-gray-300 dark:text-gray-700">check_circle</span>
+                        <p className="mt-4 text-gray-500 dark:text-gray-400">Nenhum chamado encontrado.</p>
+                        <p className="text-sm text-gray-400 dark:text-gray-500">Tudo certo por aqui! 🎉</p>
+                    </div>
                 ) : (
                     chamados.map(chamado => (
-                        <div key={chamado.id} className={`p-4 rounded-lg border ${chamado.status === 'aberto' ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800' : 'bg-slate-100 dark:bg-slate-900/30 border-slate-200 dark:border-slate-700'}`}>
-                            <div className="flex justify-between items-start">
+                        <div key={chamado.id} className={`p-5 rounded-lg border transition-all duration-200 ${chamado.status === 'aberto'
+                                ? 'bg-amber-50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-800 hover:shadow-md'
+                                : 'bg-gray-50 dark:bg-gray-900/30 border-gray-200 dark:border-gray-700 hover:shadow-sm'
+                            }`}>
+                            {/* Header do Chamado */}
+                            <div className="flex justify-between items-start mb-4">
                                 <div>
-                                    <p className="text-sm text-slate-500 dark:text-slate-400">Reportado por: <span className="font-medium text-slate-700 dark:text-slate-200">{chamado.reporterName}</span></p>
-                                    <p className="text-xs text-slate-400 dark:text-slate-500">Em: {chamado.createdAt ? formatarData(new Date(chamado.createdAt.toDate())) : 'Data indisponível'}</p>
+                                    <div className="flex items-center gap-2 mb-1">
+                                        <span className="material-icons text-sm text-gray-500">person</span>
+                                        <p className="text-sm font-medium text-gray-700 dark:text-gray-200">{chamado.reporterName}</p>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <span className="material-icons text-xs text-gray-400">schedule</span>
+                                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                                            {chamado.createdAt ? formatarData(new Date(chamado.createdAt.toDate())) : 'Data indisponível'}
+                                        </p>
+                                    </div>
                                 </div>
-                                <span className={`px-3 py-1 text-xs font-semibold rounded-full ${chamado.status === 'aberto' ? 'bg-amber-200 text-amber-800 dark:bg-amber-500/30 dark:text-amber-300' : 'bg-green-200 text-green-800 dark:bg-green-500/30 dark:text-green-300'}`}>
-                                    {chamado.status}
-                                </span>
+                                <TJPRBadge
+                                    variant={chamado.status === 'aberto' ? 'warning' : 'success'}
+                                    icon={chamado.status === 'aberto' ? 'pending' : 'check_circle'}
+                                >
+                                    {chamado.status === 'aberto' ? 'Aberto' : 'Resolvido'}
+                                </TJPRBadge>
                             </div>
-                            <p className="mt-4 text-slate-800 dark:text-slate-100 bg-slate-100 dark:bg-slate-800/50 p-3 rounded-md">{chamado.description}</p>
-                            <div className="mt-4 flex flex-wrap gap-4 items-center">
-                                <button onClick={() => viewScreenshot(chamado.screenshotBase64)} className="text-sm font-semibold text-indigo-600 hover:underline">
+
+                            {/* Descrição do Problema */}
+                            <div className="bg-white dark:bg-gray-800 p-4 rounded-md border border-gray-200 dark:border-gray-700">
+                                <p className="text-sm text-gray-800 dark:text-gray-100 whitespace-pre-wrap">{chamado.description}</p>
+                            </div>
+
+                            {/* Actions */}
+                            <div className="mt-4 flex flex-wrap gap-3 items-center">
+                                <TJPRButton
+                                    onClick={() => viewScreenshot(chamado.screenshotBase64)}
+                                    variant="ghost"
+                                    size="sm"
+                                    icon="image"
+                                >
                                     Ver Screenshot
-                                </button>
+                                </TJPRButton>
+
                                 {chamado.status === 'aberto' ? (
-                                    <button onClick={() => handleUpdateStatus(chamado, 'resolvido')} className="px-3 py-1 text-sm font-semibold bg-green-600 text-white rounded-lg hover:bg-green-700">Marcar como Resolvido</button>
+                                    <TJPRButton
+                                        onClick={() => handleUpdateStatus(chamado, 'resolvido')}
+                                        variant="success"
+                                        size="sm"
+                                        icon="check_circle"
+                                    >
+                                        Marcar como Resolvido
+                                    </TJPRButton>
                                 ) : (
-                                    <button onClick={() => handleUpdateStatus(chamado, 'aberto')} className="px-3 py-1 text-sm font-semibold bg-amber-600 text-white rounded-lg hover:bg-amber-700">Reabrir Chamado</button>
+                                    <TJPRButton
+                                        onClick={() => handleUpdateStatus(chamado, 'aberto')}
+                                        variant="warning"
+                                        size="sm"
+                                        icon="refresh"
+                                    >
+                                        Reabrir Chamado
+                                    </TJPRButton>
                                 )}
-                                <button onClick={() => handleDeleteChamado(chamado.id)} className="text-sm font-semibold text-red-600 hover:underline">
+
+                                <TJPRButton
+                                    onClick={() => handleDeleteChamado(chamado.id)}
+                                    variant="error"
+                                    size="sm"
+                                    icon="delete"
+                                >
                                     Excluir
-                                </button>
+                                </TJPRButton>
                             </div>
                         </div>
                     ))
                 )}
             </div>
-        </div>
+        </TJPRCard>
     );
 };

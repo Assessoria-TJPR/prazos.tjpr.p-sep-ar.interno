@@ -5,6 +5,7 @@ const CalendarioAdminPage = () => {
     const { user } = useAuth();
     const [config, setConfig] = useState(null);
     const [allEntries, setAllEntries] = useState([]);
+    const [selectedYear, setSelectedYear] = useState(String(new Date().getFullYear()));
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [isSaving, setIsSaving] = useState(false);
@@ -25,20 +26,34 @@ const CalendarioAdminPage = () => {
             setConfig(data);
 
             // Processa os dados para uma lista única para a UI
-            const year = new Date().getFullYear();
             const entries = [];
-            // Adiciona feriados recorrentes
-            data.feriadosNacionaisRecorrentes?.forEach(f => {
-                const dataStr = `${year}-${String(f.mes).padStart(2, '0')}-${String(f.dia).padStart(2, '0')}`;
-                entries.push({ id: dataStr, data: dataStr, motivo: f.motivo, tipo: 'feriado', isRecurring: true, link: f.link || '' });
-            });
-            // Adiciona exceções anuais
-            Object.keys(data.excecoesAnuais || {}).forEach(yearKey => {
-                data.excecoesAnuais[yearKey].forEach(e => {
-                    entries.push({ id: e.data, data: e.data, motivo: e.motivo, tipo: e.tipo, isRecurring: false, link: e.link || '' });
+            const anoAtual = new Date().getFullYear();
+            // Define quais anos vamos processar (ex: ano atual e próximo)
+            const anosRelevantes = [String(anoAtual), String(anoAtual + 1)];
+
+            // Adiciona anos que já tenham configuração salva, se não estiverem na lista
+            if (data.excecoesAnuais) {
+                Object.keys(data.excecoesAnuais).forEach(ano => {
+                    if (!anosRelevantes.includes(ano)) anosRelevantes.push(ano);
                 });
+            }
+            anosRelevantes.sort();
+
+            anosRelevantes.forEach(year => {
+                // Adiciona feriados recorrentes para este ano
+                data.feriadosNacionaisRecorrentes?.forEach(f => {
+                    const dataStr = `${year}-${String(f.mes).padStart(2, '0')}-${String(f.dia).padStart(2, '0')}`;
+                    entries.push({ id: dataStr, data: dataStr, motivo: f.motivo, tipo: 'feriado', isRecurring: true, link: f.link || '' });
+                });
+
+                // Adiciona exceções anuais deste ano
+                if (data.excecoesAnuais && data.excecoesAnuais[year]) {
+                    data.excecoesAnuais[year].forEach(e => {
+                        entries.push({ id: e.data, data: e.data, motivo: e.motivo, tipo: e.tipo, isRecurring: false, link: e.link || '' });
+                    });
+                }
             });
-            
+
             entries.sort((a, b) => new Date(a.data) - new Date(b.data));
             setAllEntries(entries);
 
@@ -70,7 +85,7 @@ const CalendarioAdminPage = () => {
         if (editando) {
             // Se for um feriado recorrente, remove da lista de recorrentes
             if (editando.isRecurring) {
-                const [ , month, day] = editando.data.split('-').map(Number);
+                const [, month, day] = editando.data.split('-').map(Number);
                 updatedConfig.feriadosNacionaisRecorrentes = updatedConfig.feriadosNacionaisRecorrentes.filter(f => f.mes !== month || f.dia !== day);
             } else {
                 // Se for uma exceção anual, remove da lista de exceções
@@ -109,7 +124,7 @@ const CalendarioAdminPage = () => {
         setIsSaving(true);
         const updatedConfig = JSON.parse(JSON.stringify(config));
         const year = itemToDelete.data.split('-')[0];
-        const [ , month, day] = itemToDelete.data.split('-').map(Number);
+        const [, month, day] = itemToDelete.data.split('-').map(Number);
 
         if (itemToDelete.isRecurring) {
             updatedConfig.feriadosNacionaisRecorrentes = updatedConfig.feriadosNacionaisRecorrentes.filter(f => f.mes !== month || f.dia !== day);
@@ -155,34 +170,34 @@ const CalendarioAdminPage = () => {
                     <form onSubmit={handleSave} className="space-y-4">
                         <div>
                             <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Data</label>
-                            <input 
-                                type="date" 
-                                name="data" 
-                                value={editando.data} 
-                                onChange={handleInputChange} 
-                                disabled={true} 
-                                required 
+                            <input
+                                type="date"
+                                name="data"
+                                value={editando.data}
+                                onChange={handleInputChange}
+                                disabled={true}
+                                required
                                 className="w-full px-3 py-2 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition opacity-70 cursor-not-allowed"
                             />
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Motivo</label>
-                            <input 
-                                type="text" 
-                                name="motivo" 
-                                value={editando.motivo} 
-                                onChange={handleInputChange} 
-                                required 
+                            <input
+                                type="text"
+                                name="motivo"
+                                value={editando.motivo}
+                                onChange={handleInputChange}
+                                required
                                 className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition"
                             />
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Link do Decreto (Opcional)</label>
-                            <input 
-                                type="url" 
-                                name="link" 
-                                value={editando.link || ''} 
-                                onChange={handleInputChange} 
+                            <input
+                                type="url"
+                                name="link"
+                                value={editando.link || ''}
+                                onChange={handleInputChange}
                                 placeholder="https://..."
                                 className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition"
                             />
@@ -195,13 +210,12 @@ const CalendarioAdminPage = () => {
                                         key={type}
                                         type="button"
                                         onClick={() => handleInputChange({ target: { name: 'tipo', value: type } })}
-                                        className={`px-2 py-2 text-xs font-bold uppercase rounded-lg border transition-all ${
-                                            editando.tipo === type
+                                        className={`px-2 py-2 text-xs font-bold uppercase rounded-lg border transition-all ${editando.tipo === type
                                                 ? type === 'feriado' ? 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800'
-                                                : type === 'decreto' ? 'bg-red-100 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-800'
-                                                : 'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-800'
+                                                    : type === 'decreto' ? 'bg-red-100 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-800'
+                                                        : 'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-800'
                                                 : 'bg-white dark:bg-slate-800 text-slate-500 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700'
-                                        }`}
+                                            }`}
                                     >
                                         {type}
                                     </button>
@@ -228,42 +242,44 @@ const CalendarioAdminPage = () => {
                 <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 sticky top-4">
                     <div className="flex justify-between items-center mb-4">
                         <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">
-                            Adicionar Evento
+                            Adicionar Evento ({selectedYear})
                         </h2>
                     </div>
-                    
+
                     <form onSubmit={handleSave} className="space-y-4">
                         <div>
                             <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Data</label>
-                            <input 
-                                type="date" 
-                                name="data" 
-                                value={novaEntrada.data} 
-                                onChange={handleInputChange} 
-                                disabled={false} 
-                                required 
+                            <input
+                                type="date"
+                                name="data"
+                                value={novaEntrada.data}
+                                onChange={handleInputChange}
+                                disabled={false}
+                                min={`${selectedYear}-01-01`}
+                                max={`${selectedYear}-12-31`}
+                                required
                                 className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition"
                             />
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Motivo</label>
-                            <input 
-                                type="text" 
-                                name="motivo" 
-                                value={novaEntrada.motivo} 
-                                onChange={handleInputChange} 
-                                required 
+                            <input
+                                type="text"
+                                name="motivo"
+                                value={novaEntrada.motivo}
+                                onChange={handleInputChange}
+                                required
                                 placeholder="Ex: Feriado Municipal"
                                 className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition"
                             />
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Link do Decreto (Opcional)</label>
-                            <input 
-                                type="url" 
-                                name="link" 
-                                value={novaEntrada.link || ''} 
-                                onChange={handleInputChange} 
+                            <input
+                                type="url"
+                                name="link"
+                                value={novaEntrada.link || ''}
+                                onChange={handleInputChange}
                                 placeholder="https://..."
                                 className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition"
                             />
@@ -276,13 +292,12 @@ const CalendarioAdminPage = () => {
                                         key={type}
                                         type="button"
                                         onClick={() => handleInputChange({ target: { name: 'tipo', value: type } })}
-                                        className={`px-2 py-2 text-xs font-bold uppercase rounded-lg border transition-all ${
-                                            novaEntrada.tipo === type
+                                        className={`px-2 py-2 text-xs font-bold uppercase rounded-lg border transition-all ${novaEntrada.tipo === type
                                                 ? type === 'feriado' ? 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800'
-                                                : type === 'decreto' ? 'bg-red-100 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-800'
-                                                : 'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-800'
+                                                    : type === 'decreto' ? 'bg-red-100 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-800'
+                                                        : 'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-800'
                                                 : 'bg-white dark:bg-slate-800 text-slate-500 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700'
-                                        }`}
+                                            }`}
                                     >
                                         {type}
                                     </button>
@@ -292,9 +307,9 @@ const CalendarioAdminPage = () => {
 
                         {!editando && error && <div className="p-3 text-xs text-red-600 bg-red-50 dark:bg-red-900/20 rounded-lg">{error}</div>}
 
-                        <button 
-                            type="submit" 
-                            disabled={isSaving} 
+                        <button
+                            type="submit"
+                            disabled={isSaving}
                             className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-md shadow-blue-500/20 transition-all disabled:opacity-50"
                         >
                             {isSaving ? 'Salvando...' : 'Adicionar ao Calendário'}
@@ -305,11 +320,37 @@ const CalendarioAdminPage = () => {
 
             {/* Coluna Direita: Listas */}
             <div className="lg:w-2/3 space-y-6">
+
+                {/* Abas de Ano */}
+                <div className="flex space-x-2 border-b border-slate-200 dark:border-slate-700 pb-2">
+                    {(() => {
+                        const anosDisponiveis = [String(new Date().getFullYear()), String(new Date().getFullYear() + 1)];
+                        // Adiciona outros anos se houver dados (opcional, aqui fixamos 2025/2026 como base)
+                        // Mas vamos pegar do allEntries para ser reativo.
+                        const anosNosDados = [...new Set(allEntries.map(e => e.data.split('-')[0]))].sort();
+                        // Garante que o ano atual e próximo apareçam mesmo sem dados
+                        const anosParaMostrar = [...new Set([...anosNosDados, ...anosDisponiveis])].sort();
+
+                        return anosParaMostrar.map(ano => (
+                            <button
+                                key={ano}
+                                onClick={() => setSelectedYear(ano)}
+                                className={`px-4 py-2 font-bold text-sm rounded-t-lg transition-colors ${selectedYear === ano
+                                        ? 'bg-blue-600 text-white shadow-sm'
+                                        : 'bg-slate-100 text-slate-500 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700'
+                                    }`}
+                            >
+                                {ano}
+                            </button>
+                        ));
+                    })()}
+                </div>
+
                 {loading ? (
                     <div className="flex justify-center p-12"><p className="text-slate-500">Carregando...</p></div>
                 ) : (
                     ['feriado', 'decreto', 'instabilidade'].map(tipo => {
-                        const itemsFiltrados = allEntries.filter(item => item.tipo === tipo);
+                        const itemsFiltrados = allEntries.filter(item => item.tipo === tipo && item.data.startsWith(selectedYear));
                         if (itemsFiltrados.length === 0) return null;
 
                         const configTipo = {

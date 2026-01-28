@@ -35,7 +35,7 @@ const UserUsageCharts = ({ userData }) => {
         return stats;
     }, [userData]);
 
-    const chartData = { labels: ['Mês Anterior', 'Mês Atual'], datasets: [ { label: 'Calculadora', data: [monthlyUsage.last.calculadora, monthlyUsage.current.calculadora], backgroundColor: '#6366F1' }, { label: 'Consulta DJEN', data: [monthlyUsage.last.djen_consulta, monthlyUsage.current.djen_consulta], backgroundColor: '#F59E0B' } ] };
+    const chartData = { labels: ['Mês Anterior', 'Mês Atual'], datasets: [{ label: 'Calculadora', data: [monthlyUsage.last.calculadora, monthlyUsage.current.calculadora], backgroundColor: '#6366F1' }, { label: 'Consulta DJEN', data: [monthlyUsage.last.djen_consulta, monthlyUsage.current.djen_consulta], backgroundColor: '#F59E0B' }] };
     const chartOptions = { responsive: true, maintainAspectRatio: false, scales: { yAxes: [{ ticks: { beginAtZero: true, stepSize: 1 } }] } };
 
     return (
@@ -83,39 +83,43 @@ const SettingsProvider = ({ children }) => {
                 }
 
                 const calendarConfig = doc.data();
-                const anoCorrente = "2025"; // Usaremos 2025 para este exemplo, mas pode ser dinâmico
-
                 const feriados = {};
                 const decretos = {};
                 const instabilidades = {};
                 // Nota: O campo 'link' agora é suportado nos objetos de feriado/decreto
 
-                // 1. Processa feriados nacionais recorrentes
-                if (calendarConfig.feriadosNacionaisRecorrentes) {
-                    calendarConfig.feriadosNacionaisRecorrentes.forEach(feriado => {
-                        // Formata a data para YYYY-MM-DD
-                        const dataStr = `${anoCorrente}-${String(feriado.mes).padStart(2, '0')}-${String(feriado.dia).padStart(2, '0')}`;
-                        feriados[dataStr] = { motivo: feriado.motivo, tipo: 'feriado', link: feriado.link };
-                    });
-                }
+                // Define os anos relevantes: anos configurados + ano atual + próximo ano
+                const anosConfigurados = Object.keys(calendarConfig.excecoesAnuais || {});
+                const anoAtual = new Date().getFullYear();
+                const anosRelevantes = new Set([...anosConfigurados, String(anoAtual), String(anoAtual + 1)]);
 
-                // 2. Processa as exceções anuais (feriados específicos, decretos, instabilidades)
-                // Isso sobrescreverá feriados recorrentes se houver conflito, o que é o esperado.
-                const excecoesDoAno = calendarConfig.excecoesAnuais?.[anoCorrente] || [];
-                excecoesDoAno.forEach(item => {
-                    if (item.data && item.motivo && item.tipo) {
-                        switch (item.tipo) {
-                            case 'feriado':
-                                feriados[item.data] = { motivo: item.motivo, tipo: 'feriado', link: item.link };
-                                break;
-                            case 'decreto':
-                                decretos[item.data] = { motivo: item.motivo, tipo: 'decreto', link: item.link };
-                                break;
-                            case 'instabilidade':
-                                instabilidades[item.data] = { motivo: item.motivo, tipo: 'instabilidade', link: item.link };
-                                break;
-                        }
+                anosRelevantes.forEach(ano => {
+                    // 1. Processa feriados nacionais recorrentes para este ano
+                    if (calendarConfig.feriadosNacionaisRecorrentes) {
+                        calendarConfig.feriadosNacionaisRecorrentes.forEach(feriado => {
+                            // Formata a data para YYYY-MM-DD
+                            const dataStr = `${ano}-${String(feriado.mes).padStart(2, '0')}-${String(feriado.dia).padStart(2, '0')}`;
+                            feriados[dataStr] = { motivo: feriado.motivo, tipo: 'feriado', link: feriado.link };
+                        });
                     }
+
+                    // 2. Processa as exceções anuais (feriados específicos, decretos, instabilidades) para este ano
+                    const excecoesDoAno = calendarConfig.excecoesAnuais?.[ano] || [];
+                    excecoesDoAno.forEach(item => {
+                        if (item.data && item.motivo && item.tipo) {
+                            switch (item.tipo) {
+                                case 'feriado':
+                                    feriados[item.data] = { motivo: item.motivo, tipo: 'feriado', link: item.link };
+                                    break;
+                                case 'decreto':
+                                    decretos[item.data] = { motivo: item.motivo, tipo: 'decreto', link: item.link };
+                                    break;
+                                case 'instabilidade':
+                                    instabilidades[item.data] = { motivo: item.motivo, tipo: 'instabilidade', link: item.link };
+                                    break;
+                            }
+                        }
+                    });
                 });
 
                 // 3. Atualiza o recesso forense
@@ -217,8 +221,8 @@ const AuthProvider = ({ children }) => {
             updateUserAndAdminStatus(auth.currentUser);
         }
     };
-    const value = { 
-        user, 
+    const value = {
+        user,
         userData,
         isAdmin,
         isSetorAdmin,
@@ -273,506 +277,604 @@ const ConsultaAssistidaPJE = ({ numeroProcesso, setNumeroProcesso }) => {
     };
 
     return (
-         <div className="relative bg-white dark:bg-slate-800 p-6 sm:p-8 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 mb-6">
+        <div className="relative bg-white dark:bg-slate-800 p-6 sm:p-8 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 mb-6">
             <UserIDWatermark overlay={true} />
             <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100 mb-1">Consulta de Processo</h2>
             <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">Insira o número para consultar o processo no Diário de Justiça Eletrônico Nacional.</p>
             {alerta && <div className="p-4 mb-4 text-sm text-yellow-800 rounded-lg bg-yellow-50 dark:bg-gray-800 dark:text-yellow-300" role="alert"><span className="font-medium">Atenção!</span> {alerta}</div>}
             <div className="flex items-center gap-2">
-                 <input type="text" value={numeroProcesso} onChange={(e) => { setNumeroProcesso(e.target.value); setAlerta(''); }} placeholder="Número do Processo" className="flex-grow w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition" />
-                 <button onClick={handleConsulta} disabled={!numeroProcesso} className="bg-blue-600 text-white font-bold py-3 px-6 rounded-xl hover:bg-blue-700 transition-all duration-300 shadow-lg shadow-blue-500/30 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none">
+                <input type="text" value={numeroProcesso} onChange={(e) => { setNumeroProcesso(e.target.value); setAlerta(''); }} placeholder="Número do Processo" className="flex-grow w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition" />
+                <button onClick={handleConsulta} disabled={!numeroProcesso} className="bg-blue-600 text-white font-bold py-3 px-6 rounded-xl hover:bg-blue-700 transition-all duration-300 shadow-lg shadow-blue-500/30 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none">
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 inline-block mr-2" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" /></svg>
                     Consultar
-                 </button>
+                </button>
             </div>
-             <p className="mt-4 text-xs text-slate-500 dark:text-slate-400 text-center">Após a consulta, localize a "Data de Disponibilização" para usar na calculadora de prazos abaixo.</p>
+            <p className="mt-4 text-xs text-slate-500 dark:text-slate-400 text-center">Após a consulta, localize a "Data de Disponibilização" para usar na calculadora de prazos abaixo.</p>
         </div>
     );
 };
 
 const CalculadoraDePrazo = ({ numeroProcesso }) => {
-  const { settings, updateSettings } = useContext(SettingsContext);
-  const [prazoSelecionado, setPrazoSelecionado] = useState(settings.defaultPrazo || 15);
-  const [dataDisponibilizacao, setDataDisponibilizacao] = useState('');
-  const [tipoPrazo, setTipoPrazo] = useState(settings.defaultMateria || 'civel');
-  const [showManualPrazoInput, setShowManualPrazoInput] = useState(false);
-  const [resultado, setResultado] = useState(null);
+    const { settings, updateSettings } = useContext(SettingsContext);
+    const [prazoSelecionado, setPrazoSelecionado] = useState(settings.defaultPrazo || 15);
+    const [dataDisponibilizacao, setDataDisponibilizacao] = useState('');
+    const [tipoPrazo, setTipoPrazo] = useState(settings.defaultMateria || 'civel');
+    const [showManualPrazoInput, setShowManualPrazoInput] = useState(false);
+    const [ignorarRecesso, setIgnorarRecesso] = useState(false);
+    const [resultado, setResultado] = useState(null);
 
-  const [diasComprovados, setDiasComprovados] = useState(new Set());
-  const [dataInterposicao, setDataInterposicao] = useState('');
-  const [tempestividade, setTempestividade] = useState(null);
-  const [error, setError] = useState('');
-  const [customMinutaTypes, setCustomMinutaTypes] = useState([]);
-  const { user, userData } = useAuth();
-  const { feriadosMap, decretosMap, instabilidadeMap, recessoForense, calendarLoading } = settings;
+    const [diasComprovados, setDiasComprovados] = useState(new Set());
+    const [dataInterposicao, setDataInterposicao] = useState('');
+    const [tempestividade, setTempestividade] = useState(null);
+    const [error, setError] = useState('');
+    const [customMinutaTypes, setCustomMinutaTypes] = useState([]);
+    const { user, userData } = useAuth();
+    const { feriadosMap, decretosMap, instabilidadeMap, recessoForense, calendarLoading } = settings;
 
-  // Efeito para gerenciar a visibilidade do input manual de prazo
-  useEffect(() => {
-      // Se o tipo de prazo mudar para 'civel', esconde o input manual
-      // e reseta o prazo selecionado para o padrão, caso um valor manual estivesse em uso.
-      if (tipoPrazo === 'civel') {
-          setShowManualPrazoInput(false);
-          if (![5, 15, 30].includes(prazoSelecionado)) {
-              setPrazoSelecionado(settings.defaultPrazo || 15);
-          }
-      }
-  }, [tipoPrazo, prazoSelecionado, settings.defaultPrazo]);
-
-  const getMotivoDiaNaoUtil = (date, considerarDecretos, tipo = 'todos', comprovados = new Set()) => {
-    const dateString = date.toISOString().split('T')[0];
-    if (tipo === 'todos' || tipo === 'feriado') {
-        // Agora feriadosMap pode conter objetos com link
-        if (feriadosMap[dateString]) return typeof feriadosMap[dateString] === 'object' ? feriadosMap[dateString] : { motivo: feriadosMap[dateString], tipo: 'feriado' };
-    }
-    if (considerarDecretos && (tipo === 'todos' || tipo === 'decreto')) {
-        if (decretosMap[dateString]) {
-            // Se for um objeto (regra especial CNJ), retorna o objeto. Senão, cria um.
-            if (typeof decretosMap[dateString] === 'object') {
-                return decretosMap[dateString];
+    // Efeito para gerenciar a visibilidade do input manual de prazo
+    useEffect(() => {
+        // Se o tipo de prazo mudar para 'civel', esconde o input manual
+        // e reseta o prazo selecionado para o padrão, caso um valor manual estivesse em uso.
+        if (tipoPrazo === 'civel') {
+            setShowManualPrazoInput(false);
+            if (![5, 15, 30].includes(prazoSelecionado)) {
+                setPrazoSelecionado(settings.defaultPrazo || 15);
             }
-            return { motivo: decretosMap[dateString], tipo: 'decreto' };
         }
-    }
-    // A instabilidade é tratada separadamente, mas pode ser verificada aqui se necessário.
-    if (considerarDecretos && (tipo === 'todos' || tipo === 'instabilidade')) {
-        if (instabilidadeMap[dateString]) return typeof instabilidadeMap[dateString] === 'object' ? instabilidadeMap[dateString] : { motivo: instabilidadeMap[dateString], tipo: 'instabilidade' };
-    }
-    const month = date.getMonth() + 1;
-    const day = date.getDate();
-    const { janeiro, dezembro } = recessoForense;
-    if (tipo === 'todos' || tipo === 'recesso') {
-        if ((month === 1 && day >= janeiro.inicio && day <= janeiro.fim) || 
-            (month === 12 && day >= dezembro.inicio && day <= dezembro.fim)) 
-            return { motivo: 'Recesso Forense', tipo: 'recesso' };
-    }
-    return null;
-  };
-  
-  const getProximoDiaUtil = (data) => {
-      const proximoDia = new Date(data.getTime());
-      do {
-          proximoDia.setDate(proximoDia.getDate() + 1);
-      } while (proximoDia.getDay() === 0 || proximoDia.getDay() === 6 || getMotivoDiaNaoUtil(proximoDia, true, 'todos'));
-      return proximoDia;
-  };
-
-  const getProximoDiaUtilParaPublicacao = (data, considerarDecretos = true, comprovados = new Set()) => {
-      const suspensoesEncontradas = [];
-      const proximoDia = new Date(data.getTime());
-      // A publicação deve ser o primeiro dia útil após a disponibilização,
-      // prorrogando caso caia em fim de semana, feriado, recesso ou decreto.
-      let motivo;
-      do {
-          proximoDia.setDate(proximoDia.getDate() + 1);
-          motivo = getMotivoDiaNaoUtil(proximoDia, considerarDecretos, 'todos', comprovados);
-          if (motivo && motivo.tipo !== 'instabilidade') {
-              suspensoesEncontradas.push({ data: new Date(proximoDia.getTime()), ...motivo });
-          }
-      } while (proximoDia.getDay() === 0 || proximoDia.getDay() === 6 || (motivo && motivo.tipo !== 'instabilidade'));
-      return { proximoDia, suspensoesEncontradas };
-  };
-
-  /**
-   * Encontra o próximo dia útil, considerando os dias comprovados pelo usuário.
-   * Usado para recalcular o início do prazo quando checkboxes são marcadas.
-   */
-  const getProximoDiaUtilComprovado = (data, comprovados) => {
-      const suspensoesEncontradas = [];
-      const proximoDia = new Date(data.getTime()); // Começa a partir da data fornecida
-      let motivo;
-      do {
-          proximoDia.setDate(proximoDia.getDate() + 1); // Avança para o próximo dia
-          const dataStr = proximoDia.toISOString().split('T')[0];
-          motivo = getMotivoDiaNaoUtil(proximoDia, true, 'todos', comprovados);
-          
-          const eFimDeSemana = proximoDia.getDay() === 0 || proximoDia.getDay() === 6;
-          const eSuspensaoRelevante = motivo && (motivo.tipo === 'feriado' || motivo.tipo === 'recesso' || comprovados.has(dataStr));
-
-          if (eSuspensaoRelevante) {
-              suspensoesEncontradas.push({ data: new Date(proximoDia.getTime()), ...motivo });
-          }
-      } while (proximoDia.getDay() === 0 || proximoDia.getDay() === 6 || (motivo && (motivo.tipo === 'feriado' || motivo.tipo === 'recesso' || comprovados.has(proximoDia.toISOString().split('T')[0]))));
-      return { proximoDia, suspensoesEncontradas };
-  };
-
-  /**
-   * Encontra o próximo dia útil ignorando decretos e instabilidades.
-   * Usado para calcular o cenário base (Cenário 1).
-   */
-  const getProximoDiaUtilSemDecreto = (data, settings, getMotivoDiaNaoUtil) => {
-      const proximoDia = new Date(data.getTime());
-      let motivo;
-      do {
-          proximoDia.setDate(proximoDia.getDate() + 1);
-          motivo = getMotivoDiaNaoUtil(proximoDia, false, 'feriado') || getMotivoDiaNaoUtil(proximoDia, false, 'recesso');
-      } while (proximoDia.getDay() === 0 || proximoDia.getDay() === 6 || motivo);
-      return proximoDia;
-  };
-
-  const calcularPrazoFinalDiasUteis = (inicioDoPrazo, prazo, comprovados = new Set(), considerarDecretosNoMeio = true, considerarInstabilidadesNoMeio = false, considerarDecretosNaProrrogacao = true) => {
-    let diasUteisContados = 0;
-    const diasNaoUteisEncontrados = [];
-    const dataCorrente = new Date(inicioDoPrazo.getTime());
-
-    while (diasUteisContados < prazo) {
-        const dataCorrenteStr = dataCorrente.toISOString().split('T')[0];
-
-        let infoDiaNaoUtil = null;
-
-        const eFeriadoOuRecesso = getMotivoDiaNaoUtil(dataCorrente, true, 'feriado') || getMotivoDiaNaoUtil(dataCorrente, true, 'recesso');
-        const eDecreto = getMotivoDiaNaoUtil(dataCorrente, true, 'decreto');
-        const eInstabilidade = getMotivoDiaNaoUtil(dataCorrente, true, 'instabilidade');
-
-        if (eFeriadoOuRecesso) {
-            infoDiaNaoUtil = eFeriadoOuRecesso;
-        } else if (considerarDecretosNoMeio && eDecreto && comprovados.has(dataCorrenteStr)) {
-            infoDiaNaoUtil = eDecreto;
-        } else if (considerarInstabilidadesNoMeio && eInstabilidade && comprovados.has(dataCorrenteStr)) {
-            infoDiaNaoUtil = eInstabilidade;
+        // Reseta a opção de ignorar recesso ao trocar de matéria
+        if (tipoPrazo === 'civel') {
+            setIgnorarRecesso(false);
         }
-        
-        if (dataCorrente.getDay() === 0 || dataCorrente.getDay() === 6 || infoDiaNaoUtil) {
-            if (infoDiaNaoUtil && (considerarDecretosNoMeio || considerarInstabilidadesNoMeio)) {
-                diasNaoUteisEncontrados.push({ data: new Date(dataCorrente.getTime()), ...infoDiaNaoUtil });
+    }, [tipoPrazo, prazoSelecionado, settings.defaultPrazo]);
+
+    const getMotivoDiaNaoUtil = (date, considerarDecretos, tipo = 'todos', comprovados = new Set()) => {
+        if (!date || isNaN(date.getTime())) return null;
+
+        const dateString = date.toISOString().split('T')[0];
+        if (tipo === 'todos' || tipo === 'feriado') {
+            // Agora feriadosMap pode conter objetos com link
+            if (feriadosMap && feriadosMap[dateString]) return typeof feriadosMap[dateString] === 'object' ? feriadosMap[dateString] : { motivo: feriadosMap[dateString], tipo: 'feriado' };
+        }
+        if (considerarDecretos && (tipo === 'todos' || tipo === 'decreto')) {
+            if (decretosMap && decretosMap[dateString]) {
+                // Se for um objeto (regra especial CNJ), retorna o objeto. Senão, cria um.
+                if (typeof decretosMap[dateString] === 'object') {
+                    return decretosMap[dateString];
+                }
+                return { motivo: decretosMap[dateString], tipo: 'decreto' };
             }
-        } else {
-            diasUteisContados++;
         }
-
-        if (diasUteisContados < prazo) {
-            dataCorrente.setDate(dataCorrente.getDate() + 1);
+        // A instabilidade é tratada separadamente, mas pode ser verificada aqui se necessário.
+        if (considerarDecretos && (tipo === 'todos' || tipo === 'instabilidade')) {
+            if (instabilidadeMap && instabilidadeMap[dateString]) return typeof instabilidadeMap[dateString] === 'object' ? instabilidadeMap[dateString] : { motivo: instabilidadeMap[dateString], tipo: 'instabilidade' };
         }
-    }
+        const month = date.getMonth() + 1;
+        const day = date.getDate();
 
-    let prazoFinalAjustado = dataCorrente;
-    let infoDiaFinalNaoUtil;
-    const diasProrrogados = [];
+        // Proteção para recessoForense
+        if (recessoForense) {
+            const { janeiro, dezembro } = recessoForense;
+            // Se a opção de ignorar recesso estiver marcada (apenas para Crime - Réu Preso/Maria da Penha), retorna null.
+            if ((tipo === 'todos' || tipo === 'recesso') && !ignorarRecesso) {
+                if ((janeiro && month === 1 && day >= janeiro.inicio && day <= janeiro.fim) ||
+                    (dezembro && month === 12 && day >= dezembro.inicio && day <= dezembro.fim))
+                    return { motivo: 'Recesso Forense', tipo: 'recesso' };
+            }
+        }
+        return null;
+    };
 
-    while (
-        (infoDiaFinalNaoUtil = getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'feriado') ||
-                               getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'recesso') ||
-                               (considerarDecretosNaProrrogacao && getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'decreto')?.tipo === 'feriado_cnj') ||
-                               (considerarDecretosNaProrrogacao && comprovados.has(prazoFinalAjustado.toISOString().split('T')[0]) && getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'decreto')) ||
-                               (considerarDecretosNaProrrogacao && getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'instabilidade')) // CORREÇÃO: Instabilidades devem prorrogar o cível também.
-        ) || 
-        prazoFinalAjustado.getDay() === 0 || prazoFinalAjustado.getDay() === 6
-    ) {
-        if (infoDiaFinalNaoUtil) diasProrrogados.push({ data: new Date(prazoFinalAjustado.getTime()), ...infoDiaFinalNaoUtil });
-        prazoFinalAjustado.setDate(prazoFinalAjustado.getDate() + 1);
-    }
-    return { prazoFinal: prazoFinalAjustado, diasNaoUteis: diasNaoUteisEncontrados, diasProrrogados };
-  };
+    const getProximoDiaUtil = (data) => {
+        const proximoDia = new Date(data.getTime());
+        do {
+            proximoDia.setDate(proximoDia.getDate() + 1);
+        } while (proximoDia.getDay() === 0 || proximoDia.getDay() === 6 || getMotivoDiaNaoUtil(proximoDia, true, 'todos'));
+        return proximoDia;
+    };
 
-  const calcularPrazoFinalDiasCorridos = (inicioDoPrazo, prazo, comprovados = new Set(), considerarDecretosNaProrrogacao = true) => {
+    const getProximoDiaUtilParaPublicacao = (data, considerarDecretos = true, comprovados = new Set()) => {
+        const suspensoesEncontradas = [];
+        const proximoDia = new Date(data.getTime());
+        // A publicação deve ser o primeiro dia útil após a disponibilização,
+        // prorrogando caso caia em fim de semana, feriado, recesso ou decreto.
+        let motivo;
+        do {
+            proximoDia.setDate(proximoDia.getDate() + 1);
+            motivo = getMotivoDiaNaoUtil(proximoDia, considerarDecretos, 'todos', comprovados);
+            if (motivo && motivo.tipo !== 'instabilidade') {
+                suspensoesEncontradas.push({ data: new Date(proximoDia.getTime()), ...motivo });
+            }
+        } while (proximoDia.getDay() === 0 || proximoDia.getDay() === 6 || (motivo && motivo.tipo !== 'instabilidade'));
+        return { proximoDia, suspensoesEncontradas };
+    };
+
     /**
-     * Para prazos de 'crime' (dias corridos):
-     * 1. O início do prazo é ajustado para o próximo dia útil (se cair em fim de semana, feriado, etc.).
-     * 2. A data final é calculada somando-se os dias corridos do prazo ao início ajustado.
-     * 3. A data final é prorrogada se cair em um dia não útil (fim de semana, feriado, recesso ou suspensão comprovada).
+     * Encontra o próximo dia útil, considerando os dias comprovados pelo usuário.
+     * Usado para recalcular o início do prazo quando checkboxes são marcadas.
      */
+    const getProximoDiaUtilComprovado = (data, comprovados) => {
+        const suspensoesEncontradas = [];
+        const proximoDia = new Date(data.getTime()); // Começa a partir da data fornecida
+        let motivo;
+        do {
+            proximoDia.setDate(proximoDia.getDate() + 1); // Avança para o próximo dia
+            const dataStr = proximoDia.toISOString().split('T')[0];
+            motivo = getMotivoDiaNaoUtil(proximoDia, true, 'todos', comprovados);
 
-    const diasNaoUteisEncontrados = [];
-    const diasPotenciaisComprovaveis = [];
-    let diasDeSuspensaoComprovadaNoPeriodo = 0;
-    const diasNaoUteisDoInicio = []; // Adicionado para rastrear suspensões no início
-    
-    // 1. Ajusta o início do prazo para o próximo dia útil, se necessário.
-    let inicioAjustado = new Date(inicioDoPrazo.getTime());
-    let infoDiaInicioNaoUtil;
-    // O início do prazo só deve ser prorrogado por decretos/instabilidades se eles estiverem no conjunto 'comprovados'
-    // E se a flag `considerarDecretosNaProrrogacao` for verdadeira.
-    // Feriados e recessos sempre prorrogam.
-    // CORREÇÃO: Usar do-while para garantir que a verificação seja feita pelo menos uma vez para a data de início.
-    do {
-        (infoDiaInicioNaoUtil = getMotivoDiaNaoUtil(inicioAjustado, true, 'feriado') || 
-                               getMotivoDiaNaoUtil(inicioAjustado, true, 'recesso') ||
-                               (considerarDecretosNaProrrogacao && comprovados.has(inicioAjustado.toISOString().split('T')[0]) && (getMotivoDiaNaoUtil(inicioAjustado, true, 'decreto') || getMotivoDiaNaoUtil(inicioAjustado, true, 'instabilidade')))
-        ) ||
-        (inicioAjustado.getDay() === 0 || inicioAjustado.getDay() === 6)
-        ? (() => {
-            if (infoDiaInicioNaoUtil) diasNaoUteisDoInicio.push({ data: new Date(inicioAjustado.getTime()), ...infoDiaInicioNaoUtil });
-            inicioAjustado.setDate(inicioAjustado.getDate() + 1);
-          })()
-        : false; // Condição para sair do loop se não for dia não útil
-    } while (infoDiaInicioNaoUtil || inicioAjustado.getDay() === 0 || inicioAjustado.getDay() === 6);
+            const eFimDeSemana = proximoDia.getDay() === 0 || proximoDia.getDay() === 6;
+            const eSuspensaoRelevante = motivo && (motivo.tipo === 'feriado' || motivo.tipo === 'recesso' || comprovados.has(dataStr));
 
-    // 2. Calcula a data final "bruta" somando os dias corridos.
-    const dataFinalBruta = new Date(inicioAjustado.getTime());
-    // CORREÇÃO: Soma os dias de suspensão comprovados no início ao prazo.
-    const diasDeSuspensaoNoInicio = diasNaoUteisDoInicio.filter(d => comprovados.has(d.data.toISOString().split('T')[0])).length;
-    const diasASomar = (prazo > 0 ? prazo - 1 : 0) + diasDeSuspensaoNoInicio;
-    dataFinalBruta.setDate(dataFinalBruta.getDate() + diasASomar);    
-    
-    // Após o loop principal, verifica se a data final caiu em um dia não útil e prorroga se necessário.
-    let prazoFinalAjustado = dataFinalBruta;
-    let infoDiaFinalNaoUtil;
-    const diasProrrogados = [];
+            if (eSuspensaoRelevante) {
+                suspensoesEncontradas.push({ data: new Date(proximoDia.getTime()), ...motivo });
+            }
+        } while (proximoDia.getDay() === 0 || proximoDia.getDay() === 6 || (motivo && (motivo.tipo === 'feriado' || motivo.tipo === 'recesso' || comprovados.has(proximoDia.toISOString().split('T')[0]))));
+        return { proximoDia, suspensoesEncontradas };
+    };
 
-    // 3. Prorroga o prazo final se ele cair em um dia não útil (fim de semana, feriado, recesso).
-    // A prorrogação por decreto/instabilidade também deve depender da comprovação,
-    // que é o que acontece quando esta função é chamada a partir do `handleComprovacaoChange`.
-    while (
-        (infoDiaFinalNaoUtil = getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'feriado') ||
-                               getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'recesso') ||
-                               (comprovados.has(prazoFinalAjustado.toISOString().split('T')[0]) && (getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'decreto') || getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'instabilidade')))
-        ) || prazoFinalAjustado.getDay() === 0 || prazoFinalAjustado.getDay() === 6
-    ) {
-        if (infoDiaFinalNaoUtil) diasProrrogados.push({ data: new Date(prazoFinalAjustado.getTime()), ...infoDiaFinalNaoUtil });
-        prazoFinalAjustado.setDate(prazoFinalAjustado.getDate() + 1);
-        // Ao avançar o dia, resetamos a variável para que o loop reavalie a nova data.
-        infoDiaFinalNaoUtil = null; 
-    }
+    /**
+     * Encontra o próximo dia útil ignorando decretos e instabilidades.
+     * Usado para calcular o cenário base (Cenário 1).
+     */
+    const getProximoDiaUtilSemDecreto = (data, settings, getMotivoDiaNaoUtil) => {
+        const proximoDia = new Date(data.getTime());
+        let motivo;
+        do {
+            proximoDia.setDate(proximoDia.getDate() + 1);
+            motivo = getMotivoDiaNaoUtil(proximoDia, false, 'feriado') || getMotivoDiaNaoUtil(proximoDia, false, 'recesso');
+        } while (proximoDia.getDay() === 0 || proximoDia.getDay() === 6 || motivo);
+        return proximoDia;
+    };
 
-    // Retorna os dias que foram comprovados e causaram a dilação, os dias que causaram a prorrogação final, e os dias potenciais para a UI.
-    return { prazoFinal: dataFinalBruta, prazoFinalProrrogado: prazoFinalAjustado, diasNaoUteis: [...diasNaoUteisEncontrados, ...diasProrrogados], diasProrrogados: diasProrrogados, diasPotenciaisComprovaveis: [...diasPotenciaisComprovaveis, ...diasNaoUteisDoInicio], diasNaoUteisDoInicio: diasNaoUteisDoInicio };
-  };
+    /**
+     * HELPER PARA CASCATA: Identifica a próxima suspensão comprovável na data fornecida.
+     * Retorna null se a data não tiver suspensão comprovável ou se já estiver comprovada.
+     */
+    const getProximaSuspensaoComprovavel = (dataFinal, comprovados) => {
+        const filtroComprovavel = (tipo) => tipo === 'decreto' || tipo === 'instabilidade' ||
+            tipo === 'feriado_cnj' || tipo === 'suspensao_outubro';
+
+        const dataStr = dataFinal.toISOString().split('T')[0];
+
+        // Se a data já foi comprovada, não adicionar novamente
+        if (comprovados.has(dataStr)) return null;
+
+        // Verificar se a data tem uma suspensão comprovável
+        const suspensao = getMotivoDiaNaoUtil(dataFinal, true, 'todos');
+        if (suspensao && filtroComprovavel(suspensao.tipo)) {
+            return { data: new Date(dataFinal.getTime()), ...suspensao };
+        }
+
+        return null;
+    };
+
+    const calcularPrazoFinalDiasUteis = (inicioDoPrazo, prazo, comprovados = new Set(), considerarDecretosNoMeio = true, considerarInstabilidadesNoMeio = false, considerarDecretosNaProrrogacao = true) => {
+        let diasUteisContados = 0;
+        const diasNaoUteisEncontrados = [];
+        const dataCorrente = new Date(inicioDoPrazo.getTime());
+
+        while (diasUteisContados < prazo) {
+            const dataCorrenteStr = dataCorrente.toISOString().split('T')[0];
+
+            let infoDiaNaoUtil = null;
+
+            const eFeriadoOuRecesso = getMotivoDiaNaoUtil(dataCorrente, true, 'feriado') || getMotivoDiaNaoUtil(dataCorrente, true, 'recesso');
+            const eDecreto = getMotivoDiaNaoUtil(dataCorrente, true, 'decreto');
+            const eInstabilidade = getMotivoDiaNaoUtil(dataCorrente, true, 'instabilidade');
+
+            if (eFeriadoOuRecesso) {
+                infoDiaNaoUtil = eFeriadoOuRecesso;
+            } else if (considerarDecretosNoMeio && eDecreto && comprovados.has(dataCorrenteStr)) {
+                infoDiaNaoUtil = eDecreto;
+            } else if (considerarInstabilidadesNoMeio && eInstabilidade && comprovados.has(dataCorrenteStr)) {
+                infoDiaNaoUtil = eInstabilidade;
+            }
+
+            if (dataCorrente.getDay() === 0 || dataCorrente.getDay() === 6 || infoDiaNaoUtil) {
+                if (infoDiaNaoUtil && (considerarDecretosNoMeio || considerarInstabilidadesNoMeio)) {
+                    diasNaoUteisEncontrados.push({ data: new Date(dataCorrente.getTime()), ...infoDiaNaoUtil });
+                }
+            } else {
+                diasUteisContados++;
+            }
+
+            if (diasUteisContados < prazo) {
+                dataCorrente.setDate(dataCorrente.getDate() + 1);
+            }
+        }
+
+        let prazoFinalAjustado = dataCorrente;
+        let infoDiaFinalNaoUtil;
+        const diasProrrogados = [];
+
+        while (
+            (infoDiaFinalNaoUtil = getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'feriado') ||
+                getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'recesso') ||
+                (considerarDecretosNaProrrogacao && getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'decreto')?.tipo === 'feriado_cnj') ||
+                (considerarDecretosNaProrrogacao && comprovados.has(prazoFinalAjustado.toISOString().split('T')[0]) && getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'decreto')) ||
+                (considerarDecretosNaProrrogacao && getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'instabilidade')) // CORREÇÃO: Instabilidades devem prorrogar o cível também.
+            ) ||
+            prazoFinalAjustado.getDay() === 0 || prazoFinalAjustado.getDay() === 6
+        ) {
+            if (infoDiaFinalNaoUtil) diasProrrogados.push({ data: new Date(prazoFinalAjustado.getTime()), ...infoDiaFinalNaoUtil });
+            prazoFinalAjustado.setDate(prazoFinalAjustado.getDate() + 1);
+        }
+        return { prazoFinal: prazoFinalAjustado, diasNaoUteis: diasNaoUteisEncontrados, diasProrrogados };
+    };
+
+    const calcularPrazoFinalDiasCorridos = (inicioDoPrazo, prazo, comprovados = new Set(), considerarDecretosNaProrrogacao = true) => {
+        /**
+         * Para prazos de 'crime' (dias corridos):
+         * 1. O início do prazo é ajustado para o próximo dia útil (se cair em fim de semana, feriado, etc.).
+         * 2. A data final é calculada somando-se os dias corridos do prazo ao início ajustado.
+         * 3. A data final é prorrogada se cair em um dia não útil (fim de semana, feriado, recesso ou suspensão comprovada).
+         */
+
+        const diasNaoUteisEncontrados = [];
+        const diasPotenciaisComprovaveis = [];
+        let diasDeSuspensaoComprovadaNoPeriodo = 0;
+        const diasNaoUteisDoInicio = []; // Adicionado para rastrear suspensões no início
+
+        // 1. Ajusta o início do prazo para o próximo dia útil, se necessário.
+        let inicioAjustado = new Date(inicioDoPrazo.getTime());
+        let infoDiaInicioNaoUtil;
+        // O início do prazo só deve ser prorrogado por decretos/instabilidades se eles estiverem no conjunto 'comprovados'
+        // E se a flag `considerarDecretosNaProrrogacao` for verdadeira.
+        // Feriados e recessos sempre prorrogam.
+        // CORREÇÃO: Usar do-while para garantir que a verificação seja feita pelo menos uma vez para a data de início.
+        do {
+            (infoDiaInicioNaoUtil = getMotivoDiaNaoUtil(inicioAjustado, true, 'feriado') ||
+                getMotivoDiaNaoUtil(inicioAjustado, true, 'recesso') ||
+                (considerarDecretosNaProrrogacao && comprovados.has(inicioAjustado.toISOString().split('T')[0]) && (getMotivoDiaNaoUtil(inicioAjustado, true, 'decreto') || getMotivoDiaNaoUtil(inicioAjustado, true, 'instabilidade')))
+            ) ||
+                (inicioAjustado.getDay() === 0 || inicioAjustado.getDay() === 6)
+                ? (() => {
+                    if (infoDiaInicioNaoUtil) diasNaoUteisDoInicio.push({ data: new Date(inicioAjustado.getTime()), ...infoDiaInicioNaoUtil });
+                    inicioAjustado.setDate(inicioAjustado.getDate() + 1);
+                })()
+                : false; // Condição para sair do loop se não for dia não útil
+        } while (infoDiaInicioNaoUtil || inicioAjustado.getDay() === 0 || inicioAjustado.getDay() === 6);
+
+        // 2. Calcula a data final "bruta" somando os dias corridos.
+        const dataFinalBruta = new Date(inicioAjustado.getTime());
+        // CORREÇÃO: Soma os dias de suspensão comprovados no início ao prazo.
+        const diasDeSuspensaoNoInicio = diasNaoUteisDoInicio.filter(d => comprovados.has(d.data.toISOString().split('T')[0])).length;
+        const diasASomar = (prazo > 0 ? prazo - 1 : 0) + diasDeSuspensaoNoInicio;
+        dataFinalBruta.setDate(dataFinalBruta.getDate() + diasASomar);
+
+        // Após o loop principal, verifica se a data final caiu em um dia não útil e prorroga se necessário.
+        // CORREÇÃO: Criar uma nova instância de Date para evitar modificar dataFinalBruta
+        let prazoFinalAjustado = new Date(dataFinalBruta.getTime());
+        let infoDiaFinalNaoUtil;
+        const diasProrrogados = [];
+
+        // 3. Prorroga o prazo final se ele cair em um dia não útil (fim de semana, feriado, recesso).
+        // A prorrogação por decreto/instabilidade também deve depender da comprovação,
+        // que é o que acontece quando esta função é chamada a partir do `handleComprovacaoChange`.
+        while (
+            (infoDiaFinalNaoUtil = getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'feriado') ||
+                getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'recesso') ||
+                (comprovados.has(prazoFinalAjustado.toISOString().split('T')[0]) && (getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'decreto') || getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'instabilidade')))
+            ) || prazoFinalAjustado.getDay() === 0 || prazoFinalAjustado.getDay() === 6
+        ) {
+            if (infoDiaFinalNaoUtil) diasProrrogados.push({ data: new Date(prazoFinalAjustado.getTime()), ...infoDiaFinalNaoUtil });
+            prazoFinalAjustado.setDate(prazoFinalAjustado.getDate() + 1);
+            // Ao avançar o dia, resetamos a variável para que o loop reavalie a nova data.
+            infoDiaFinalNaoUtil = null;
+        }
+
+        // Retorna os dias que foram comprovados e causaram a dilação, os dias que causaram a prorrogação final, e os dias potenciais para a UI.
+        return { prazoFinal: dataFinalBruta, prazoFinalProrrogado: prazoFinalAjustado, diasNaoUteis: [...diasNaoUteisEncontrados, ...diasProrrogados], diasProrrogados: diasProrrogados, diasPotenciaisComprovaveis: [...diasPotenciaisComprovaveis, ...diasNaoUteisDoInicio], diasNaoUteisDoInicio: diasNaoUteisDoInicio };
+    };
 
     const logUsage = () => {
-      if (db && user) {
-          db.collection('usageStats').add({
-              userId: user.uid,
-              userEmail: user.email,
-              materia: tipoPrazo,
-              type: 'calculadora',
-              prazo: prazoSelecionado,
-              numeroProcesso: numeroProcesso || 'Não informado',
-              timestamp: firebase.firestore.FieldValue.serverTimestamp()
-          }).catch(err => console.error("Erro ao registrar uso:", err));
-      }
-  }
+        if (db && user) {
+            db.collection('usageStats').add({
+                userId: user.uid,
+                userEmail: user.email,
+                materia: tipoPrazo,
+                type: 'calculadora',
+                prazo: prazoSelecionado,
+                numeroProcesso: numeroProcesso || 'Não informado',
+                timestamp: firebase.firestore.FieldValue.serverTimestamp()
+            }).catch(err => console.error("Erro ao registrar uso:", err));
+        }
+    }
 
     const handleCalcular = () => {
-    console.log("--- Início do Cálculo ---");
-    setError('');
-    setResultado(null);
-    setDataInterposicao('');
-    setTempestividade(null);
-    setDiasComprovados(new Set()); // Reseta os dias comprovados
-    if (!dataDisponibilizacao) {
-        setError('Por favor, preencha a Data de Disponibilização.');
-        return;
-    }
-    try {
-        // Constrói a data adicionando 'T00:00:00' para garantir que seja interpretada como data local, evitando problemas de fuso horário.
-        const inicioDisponibilizacao = new Date(dataDisponibilizacao + 'T00:00:00');
-
-        // Adiciona uma verificação para garantir que a data construída é válida.
-        if (isNaN(inicioDisponibilizacao.getTime())) {
-            throw new Error("A data resultante é inválida.");
-        }
-
-        const dataLimite = new Date('2025-05-16T00:00:00');
-
-        if (inicioDisponibilizacao < dataLimite) {
-            setError('Para datas anteriores a 16/05/2025, a consulta de intimação e a contagem do respectivo prazo devem ser realizadas diretamente no sistema Projudi.');
+        console.log("--- Início do Cálculo ---");
+        setError('');
+        setResultado(null);
+        setDataInterposicao('');
+        setTempestividade(null);
+        setDiasComprovados(new Set()); // Reseta os dias comprovados
+        if (!dataDisponibilizacao) {
+            setError('Por favor, preencha a Data de Disponibilização.');
             return;
         }
-
-        const prazoNumerico = prazoSelecionado;
-        
-        const { proximoDia: dataPublicacaoComDecreto, suspensoesEncontradas: suspensoesPublicacaoComDecreto } = getProximoDiaUtilParaPublicacao(inicioDisponibilizacao, true);
-
-        // CORREÇÃO: Verifica se a própria data de disponibilização é um dia com suspensão comprovável.
-        const suspensaoNaDisponibilizacao = getMotivoDiaNaoUtil(inicioDisponibilizacao, true, 'decreto') || getMotivoDiaNaoUtil(inicioDisponibilizacao, true, 'instabilidade');
-        if (suspensaoNaDisponibilizacao) {
-            suspensoesPublicacaoComDecreto.unshift({ data: new Date(inicioDisponibilizacao.getTime()), ...suspensaoNaDisponibilizacao });
-        }
-
-        const { proximoDia: inicioDoPrazoComDecreto, suspensoesEncontradas: suspensoesInicioComDecreto } = getProximoDiaUtilParaPublicacao(dataPublicacaoComDecreto, true);
-
-        // CORREÇÃO: Verifica se a própria data de publicação é um dia com suspensão comprovável.
-        const suspensaoNaPublicacao = getMotivoDiaNaoUtil(dataPublicacaoComDecreto, true, 'decreto') || getMotivoDiaNaoUtil(dataPublicacaoComDecreto, true, 'instabilidade');
-        if (suspensaoNaPublicacao) {
-            suspensoesInicioComDecreto.unshift({ data: new Date(dataPublicacaoComDecreto.getTime()), ...suspensaoNaPublicacao });
-        }
-
-        // CORREÇÃO: Verifica se a própria data de início do prazo é um dia com suspensão comprovável.
-        const suspensaoNoInicio = getMotivoDiaNaoUtil(inicioDoPrazoComDecreto, true, 'decreto') || getMotivoDiaNaoUtil(inicioDoPrazoComDecreto, true, 'instabilidade');
-        if (suspensaoNoInicio) {
-            suspensoesInicioComDecreto.push({ data: new Date(inicioDoPrazoComDecreto.getTime()), ...suspensaoNoInicio });
-        }
-        const diasNaoUteisDoInicioComDecreto = [...suspensoesPublicacaoComDecreto, ...suspensoesInicioComDecreto];
-
-        // Agrupa as funções auxiliares para passá-las para as funções de regras
-        const helpers = {
-            getProximoDiaUtilParaPublicacao,
-            calcularPrazoFinalDiasUteis,
-            calcularPrazoFinalDiasCorridos,
-            getMotivoDiaNaoUtil,
-            decretosMap
-        };
-
-        // Para 'civel', usa a lógica de dias úteis. Para 'crime', usa a lógica de dias corridos com possibilidade de comprovação.
-        if (tipoPrazo === 'civel') {
-            const resultadoCivel = calcularPrazoCivel(dataPublicacaoComDecreto, inicioDoPrazoComDecreto, prazoNumerico, diasNaoUteisDoInicioComDecreto, inicioDisponibilizacao, helpers);
-            setResultado(resultadoCivel);
-        } else { // tipoPrazo === 'crime'
-            const resultadoCrime = calcularPrazoCrimeComprovavel(dataPublicacaoComDecreto, inicioDoPrazoComDecreto, prazoNumerico, diasNaoUteisDoInicioComDecreto, inicioDisponibilizacao, helpers);
-            setResultado(resultadoCrime);
-        }
-        console.log("Resultado inicial:", resultado);
-        logUsage();
-    } catch(e) {
-        setError('Data inválida. Verifique o valor inserido.');
-    }
-  };
-
-  const handleComprovacaoChange = (dataString, dataDisponibilizacaoAtual) => {
-    console.log("handleComprovacaoChange chamado para:", dataString);
-    let novosComprovados = new Set(diasComprovados);
-    // REGRA CNJ: Agrupa a comprovação de Corpus Christi.
-    if (dataString === DATA_CORPUS_CHRISTI) {
-        novosComprovados = agruparComprovacaoCorpusChristi(novosComprovados);
-    } else {
-        // Comportamento padrão para outros decretos
-        novosComprovados.has(dataString) ? novosComprovados.delete(dataString) : novosComprovados.add(dataString);
-    }
-    console.log("Dias comprovados (após toggle):", Array.from(novosComprovados));
-    setDiasComprovados(novosComprovados);
-
-    // Recalcula o prazo com base nos dias agora comprovados
-    // CORREÇÃO: É mais seguro obter esses valores de dentro da função de atualização do estado
-    // para evitar o uso de um 'resultado' obsoleto (stale closure).
-    
-    setResultado(prev => {
-        if (!dataDisponibilizacaoAtual) return prev; // Proteção para não recalcular sem data
-
-        const { prazo, tipo, semDecreto, inicioPrazo: inicioPrazoOriginal } = prev;
-
-        // Se nenhuma checkbox estiver marcada, o "Cenário 2" deve ser exatamente igual ao "Cenário 1".
-        if (novosComprovados.size === 0) {
-            return {
-                ...prev,
-                comDecreto: { ...semDecreto }, // Restaura o cenário 2
-                inicioPrazo: inicioPrazoOriginal // Restaura o início do prazo original do cálculo inicial
-            };
-        }
-
-        // Se houver checkboxes marcadas, recalcula o prazo considerando os dias comprovados.
-        // CORREÇÃO: O recálculo deve partir da data de disponibilização original para ser preciso.
-        const inicioDisponibilizacao = new Date(dataDisponibilizacaoAtual + 'T00:00:00');
-        const { proximoDia: novaDataPublicacao } = getProximoDiaUtilComprovado(inicioDisponibilizacao, novosComprovados);
-        const { proximoDia: novoInicioDoPrazo } = getProximoDiaUtilComprovado(novaDataPublicacao, novosComprovados); // Correção aqui
-        let novoResultadoComDecreto;
-        
-        if (tipo === 'civel') {
-            novoResultadoComDecreto = calcularPrazoFinalDiasUteis(novoInicioDoPrazo, prazo, novosComprovados, true, true, true);
-            return {
-                ...prev,
-                comDecreto: novoResultadoComDecreto,
-            };
-        } else { // Para 'crime', o recálculo é sempre em dias corridos.
-            novoResultadoComDecreto = calcularPrazoFinalDiasCorridos(novoInicioDoPrazo, prazo, novosComprovados, true);
-            
-            // LÓGICA DA CASCATA: Verifica se o novo prazo final também é uma suspensão comprovável.
-            const novaSuspensaoNoFim = getMotivoDiaNaoUtil(novoResultadoComDecreto.prazoFinalProrrogado, true, 'todos');
-            const filtroComprovavel = (tipo) => tipo === 'decreto' || tipo === 'instabilidade' || tipo === 'feriado_cnj' || tipo === 'suspensao_outubro';
-            
-            const novasSuspensoesComprovaveis = new Set(prev.suspensoesComprovaveis.map(s => s.data.toISOString().split('T')[0]));
-            if (novaSuspensaoNoFim && filtroComprovavel(novaSuspensaoNoFim.tipo) && !novasSuspensoesComprovaveis.has(novoResultadoComDecreto.prazoFinalProrrogado.toISOString().split('T')[0])) {
-                prev.suspensoesComprovaveis.push({ data: new Date(novoResultadoComDecreto.prazoFinalProrrogado.getTime()), ...novaSuspensaoNoFim });
-            }
-
-            return {
-                ...prev,
-                comDecreto: novoResultadoComDecreto,
-                suspensoesComprovaveis: prev.suspensoesComprovaveis.sort((a, b) => a.data - b.data)
-            };
-        }
-    });
-  };
-
-  const analisarTempestividade = () => {
-    if (resultado && dataInterposicao) {
         try {
-            // Converte a data de interposição para um objeto Date em UTC para evitar problemas de fuso horário.
-            const [year, month, day] = dataInterposicao.split('-').map(Number); // '2025-09-05' -> [2025, 9, 5]
-            const dataInterposicaoObj = new Date(Date.UTC(year, month - 1, day)); // Cria a data em UTC
+            // Constrói a data adicionando 'T00:00:00' para garantir que seja interpretada como data local, evitando problemas de fuso horário.
+            const inicioDisponibilizacao = new Date(dataDisponibilizacao + 'T00:00:00');
 
-            // Prazo final do Cenário 1 (sem nenhuma comprovação).
-            const prazoFinalSemDecretoObj = resultado.semDecreto.prazoFinal;
-            const prazoFinalSemDecreto = new Date(Date.UTC(prazoFinalSemDecretoObj.getFullYear(), prazoFinalSemDecretoObj.getMonth(), prazoFinalSemDecretoObj.getDate()));
-
-            // Prazo final do Cenário 2 (considerando as comprovações atuais).
-            const prazoFinalComDecretoObj = resultado.comDecreto.prazoFinal;
-            const prazoFinalComDecreto = new Date(Date.UTC(prazoFinalComDecretoObj.getFullYear(), prazoFinalComDecretoObj.getMonth(), prazoFinalComDecretoObj.getDate()));
-
-            // Calcula a diferença de dias entre a interposição e o prazo final do Cenário 1.
-            const diffTime = dataInterposicaoObj.getTime() - prazoFinalSemDecreto.getTime();
-            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-            // 1. Tempestivo: A interposição ocorreu dentro do prazo recalculado (Cenário 2).
-            if (dataInterposicaoObj.getTime() <= prazoFinalComDecreto.getTime()) {
-                setTempestividade('tempestivo');
-            // 2. Intempestivo por 2 ou mais dias: A interposição ocorreu 2 ou mais dias após o prazo do Cenário 1.
-            // Neste caso, é puramente intempestivo, mesmo que houvesse decretos a comprovar.
-            } else if (diffDays >= 2) {
-                setTempestividade('puramente_intempestivo');
-            // 3. Intempestivo por 1 dia: A interposição ocorreu exatamente 1 dia após o prazo do Cenário 1.
-            // Neste caso, o sistema deve sugerir a intimação para comprovar possíveis suspensões.
-            } else if (diffDays === 1) {
-                setTempestividade('intempestivo_falta_decreto');
-            // 4. Fallback para outros casos de intempestividade.
-            } else {
-                setTempestividade('puramente_intempestivo');
+            // Adiciona uma verificação para garantir que a data construída é válida.
+            if (isNaN(inicioDisponibilizacao.getTime())) {
+                throw new Error("A data resultante é inválida.");
             }
 
+            const dataLimite = new Date('2025-05-16T00:00:00');
+
+            if (inicioDisponibilizacao < dataLimite) {
+                setError('Para datas anteriores a 16/05/2025, a consulta de intimação e a contagem do respectivo prazo devem ser realizadas diretamente no sistema Projudi.');
+                return;
+            }
+
+            const prazoNumerico = prazoSelecionado;
+
+            const { proximoDia: dataPublicacaoComDecreto, suspensoesEncontradas: suspensoesPublicacaoComDecreto } = getProximoDiaUtilParaPublicacao(inicioDisponibilizacao, true);
+
+            // CORREÇÃO: Verifica se a própria data de disponibilização é um dia com suspensão comprovável.
+            const suspensaoNaDisponibilizacao = getMotivoDiaNaoUtil(inicioDisponibilizacao, true, 'decreto') || getMotivoDiaNaoUtil(inicioDisponibilizacao, true, 'instabilidade');
+            if (suspensaoNaDisponibilizacao) {
+                suspensoesPublicacaoComDecreto.unshift({ data: new Date(inicioDisponibilizacao.getTime()), ...suspensaoNaDisponibilizacao });
+            }
+
+            const { proximoDia: inicioDoPrazoComDecreto, suspensoesEncontradas: suspensoesInicioComDecreto } = getProximoDiaUtilParaPublicacao(dataPublicacaoComDecreto, true);
+
+            // CORREÇÃO: Verifica se a própria data de publicação é um dia com suspensão comprovável.
+            const suspensaoNaPublicacao = getMotivoDiaNaoUtil(dataPublicacaoComDecreto, true, 'decreto') || getMotivoDiaNaoUtil(dataPublicacaoComDecreto, true, 'instabilidade');
+            if (suspensaoNaPublicacao) {
+                suspensoesInicioComDecreto.unshift({ data: new Date(dataPublicacaoComDecreto.getTime()), ...suspensaoNaPublicacao });
+            }
+
+            // CORREÇÃO: Verifica se a própria data de início do prazo é um dia com suspensão comprovável.
+            const suspensaoNoInicio = getMotivoDiaNaoUtil(inicioDoPrazoComDecreto, true, 'decreto') || getMotivoDiaNaoUtil(inicioDoPrazoComDecreto, true, 'instabilidade');
+            if (suspensaoNoInicio) {
+                suspensoesInicioComDecreto.push({ data: new Date(inicioDoPrazoComDecreto.getTime()), ...suspensaoNoInicio });
+            }
+            const diasNaoUteisDoInicioComDecreto = [...suspensoesPublicacaoComDecreto, ...suspensoesInicioComDecreto];
+
+            // Agrupa as funções auxiliares para passá-las para as funções de regras
+            const helpers = {
+                getProximoDiaUtilParaPublicacao,
+                calcularPrazoFinalDiasUteis,
+                calcularPrazoFinalDiasCorridos,
+                getMotivoDiaNaoUtil,
+                decretosMap
+            };
+
+            // Para 'civel', usa a lógica de dias úteis. Para 'crime', usa a lógica de dias corridos com possibilidade de comprovação.
+            if (tipoPrazo === 'civel') {
+                const resultadoCivel = calcularPrazoCivel(dataPublicacaoComDecreto, inicioDoPrazoComDecreto, prazoNumerico, diasNaoUteisDoInicioComDecreto, inicioDisponibilizacao, helpers);
+                setResultado(resultadoCivel);
+            } else { // tipoPrazo === 'crime'
+                const resultadoCrime = calcularPrazoCrime(dataPublicacaoComDecreto, inicioDoPrazoComDecreto, prazoNumerico, diasNaoUteisDoInicioComDecreto, inicioDisponibilizacao, helpers);
+                setResultado(resultadoCrime);
+            }
+            console.log("Resultado inicial:", resultado);
+            logUsage();
         } catch (e) {
+            console.error(e);
+            setError(e.message);
+        }
+    };
+
+    const handleComprovacaoChange = (dataString, dataDisponibilizacaoAtual) => {
+        console.log("handleComprovacaoChange chamado para:", dataString);
+        let novosComprovados = new Set(diasComprovados);
+        // REGRA CNJ: Agrupa a comprovação de Corpus Christi.
+        if (dataString === DATA_CORPUS_CHRISTI) {
+            novosComprovados = agruparComprovacaoCorpusChristi(novosComprovados);
+        } else {
+            // Comportamento padrão para outros decretos
+            novosComprovados.has(dataString) ? novosComprovados.delete(dataString) : novosComprovados.add(dataString);
+        }
+        console.log("Dias comprovados (após toggle):", Array.from(novosComprovados));
+        setDiasComprovados(novosComprovados);
+
+        // Recalcula o prazo com base nos dias agora comprovados
+        // CORREÇÃO: É mais seguro obter esses valores de dentro da função de atualização do estado
+        // para evitar o uso de um 'resultado' obsoleto (stale closure).
+
+        setResultado(prev => {
+            if (!dataDisponibilizacaoAtual) return prev; // Proteção para não recalcular sem data
+
+            const { prazo, tipo, semDecreto, inicioPrazo: inicioPrazoOriginal } = prev;
+
+            // Se nenhuma checkbox estiver marcada, o "Cenário 2" deve ser exatamente igual ao "Cenário 1".
+            if (novosComprovados.size === 0) {
+                return {
+                    ...prev,
+                    comDecreto: { ...semDecreto }, // Restaura o cenário 2
+                    inicioPrazo: inicioPrazoOriginal, // Restaura o início do prazo original do cálculo inicial
+                    suspensoesComprovaveis: prev.suspensoesComprovaveis.filter(s => {
+                        // Mantém apenas as suspensões do início e a primeira do final
+                        const dataStr = s.data.toISOString().split('T')[0];
+                        const inicioDisp = new Date(dataDisponibilizacaoAtual + 'T00:00:00');
+                        return s.data <= semDecreto.prazoFinal || s.data <= inicioPrazoOriginal;
+                    })
+                };
+            }
+
+            // Se houver checkboxes marcadas, recalcula o prazo considerando os dias comprovados.
+            // CORREÇÃO: O recálculo deve partir da data de disponibilização original para ser preciso.
+            const inicioDisponibilizacao = new Date(dataDisponibilizacaoAtual + 'T00:00:00');
+            const { proximoDia: novaDataPublicacao } = getProximoDiaUtilComprovado(inicioDisponibilizacao, novosComprovados);
+            const { proximoDia: novoInicioDoPrazo } = getProximoDiaUtilComprovado(novaDataPublicacao, novosComprovados); // Correção aqui
+            let novoResultadoComDecreto;
+
+            if (tipo === 'civel') {
+                novoResultadoComDecreto = calcularPrazoFinalDiasUteis(novoInicioDoPrazo, prazo, novosComprovados, true, true, true);
+
+                // CASCATA CÍVEL: Verifica se surgiram novas suspensões
+                const novasSuspensoesComprovaveis = [...prev.suspensoesComprovaveis];
+                let novaSuspensaoEncontrada = null;
+
+                // Checa Início
+                const suspensaoInicio = getProximaSuspensaoComprovavel(novoInicioDoPrazo, novosComprovados);
+                if (suspensaoInicio) novaSuspensaoEncontrada = suspensaoInicio;
+
+                // Checa Final (se não achou no início)
+                if (!novaSuspensaoEncontrada) {
+                    const suspensaoFinal = getProximaSuspensaoComprovavel(novoResultadoComDecreto.prazoFinal, novosComprovados);
+                    if (suspensaoFinal) novaSuspensaoEncontrada = suspensaoFinal;
+                }
+
+                // Checa Prorrogações do meio
+                if (!novaSuspensaoEncontrada && novoResultadoComDecreto.diasProrrogados) {
+                    for (const dia of novoResultadoComDecreto.diasProrrogados) {
+                        const suspensaoProrrogacao = getProximaSuspensaoComprovavel(dia.data, novosComprovados);
+                        if (suspensaoProrrogacao) {
+                            novaSuspensaoEncontrada = suspensaoProrrogacao;
+                            break;
+                        }
+                    }
+                }
+
+                if (novaSuspensaoEncontrada) {
+                    const dataNovaStr = novaSuspensaoEncontrada.data.toISOString().split('T')[0];
+                    if (!novasSuspensoesComprovaveis.some(s => s.data.toISOString().split('T')[0] === dataNovaStr)) {
+                        novasSuspensoesComprovaveis.push(novaSuspensaoEncontrada);
+                    }
+                }
+
+                return {
+                    ...prev,
+                    comDecreto: novoResultadoComDecreto,
+                    suspensoesComprovaveis: novasSuspensoesComprovaveis.sort((a, b) => a.data - b.data)
+                };
+            } else { // Para 'crime', o recálculo é sempre em dias corridos.
+                novoResultadoComDecreto = calcularPrazoFinalDiasCorridos(novoInicioDoPrazo, prazo, novosComprovados, true);
+
+                const novasSuspensoesComprovaveis = [...prev.suspensoesComprovaveis];
+                let novaSuspensaoEncontrada = null;
+
+                // Checa Início
+                const suspensaoInicio = getProximaSuspensaoComprovavel(novoInicioDoPrazo, novosComprovados);
+                if (suspensaoInicio) novaSuspensaoEncontrada = suspensaoInicio;
+
+                // Checa Final
+                if (!novaSuspensaoEncontrada) {
+                    const novaSuspensao = getProximaSuspensaoComprovavel(novoResultadoComDecreto.prazoFinalProrrogado, novosComprovados);
+                    if (novaSuspensao) novaSuspensaoEncontrada = novaSuspensao;
+                }
+
+                // Checa Prorrogações
+                if (!novaSuspensaoEncontrada && novoResultadoComDecreto.diasProrrogados) {
+                    for (const dia of novoResultadoComDecreto.diasProrrogados) {
+                        const suspensaoProrrogacao = getProximaSuspensaoComprovavel(dia.data, novosComprovados);
+                        if (suspensaoProrrogacao) {
+                            novaSuspensaoEncontrada = suspensaoProrrogacao;
+                            break;
+                        }
+                    }
+                }
+
+                if (novaSuspensaoEncontrada) {
+                    const dataNovaStr = novaSuspensaoEncontrada.data.toISOString().split('T')[0];
+                    if (!novasSuspensoesComprovaveis.some(s => s.data.toISOString().split('T')[0] === dataNovaStr)) {
+                        novasSuspensoesComprovaveis.push(novaSuspensaoEncontrada);
+                    }
+                }
+
+                return {
+                    ...prev,
+                    comDecreto: novoResultadoComDecreto,
+                    suspensoesComprovaveis: novasSuspensoesComprovaveis.sort((a, b) => a.data - b.data)
+                };
+            }
+        });
+    };
+
+    const analisarTempestividade = () => {
+        if (resultado && dataInterposicao) {
+            try {
+                // Converte a data de interposição para um objeto Date em UTC para evitar problemas de fuso horário.
+                const [year, month, day] = dataInterposicao.split('-').map(Number); // '2025-09-05' -> [2025, 9, 5]
+                const dataInterposicaoObj = new Date(Date.UTC(year, month - 1, day)); // Cria a data em UTC
+
+                // Prazo final do Cenário 1 (sem nenhuma comprovação).
+                const prazoFinalSemDecretoObj = resultado.semDecreto.prazoFinal;
+                const prazoFinalSemDecreto = new Date(Date.UTC(prazoFinalSemDecretoObj.getFullYear(), prazoFinalSemDecretoObj.getMonth(), prazoFinalSemDecretoObj.getDate()));
+
+                // Prazo final do Cenário 2 (considerando as comprovações atuais).
+                const prazoFinalComDecretoObj = resultado.comDecreto.prazoFinal;
+                const prazoFinalComDecreto = new Date(Date.UTC(prazoFinalComDecretoObj.getFullYear(), prazoFinalComDecretoObj.getMonth(), prazoFinalComDecretoObj.getDate()));
+
+                // Calcula a diferença de dias entre a interposição e o prazo final do Cenário 1.
+                const diffTime = dataInterposicaoObj.getTime() - prazoFinalSemDecreto.getTime();
+                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+                // 1. Tempestivo: A interposição ocorreu dentro do prazo recalculado (Cenário 2).
+                if (dataInterposicaoObj.getTime() <= prazoFinalComDecreto.getTime()) {
+                    setTempestividade('tempestivo');
+                    // 2. Intempestivo por 2 ou mais dias: A interposição ocorreu 2 ou mais dias após o prazo do Cenário 1.
+                    // Neste caso, é puramente intempestivo, mesmo que houvesse decretos a comprovar.
+                } else if (diffDays >= 2) {
+                    setTempestividade('puramente_intempestivo');
+                    // 3. Intempestivo por 1 dia: A interposição ocorreu exatamente 1 dia após o prazo do Cenário 1.
+                    // Neste caso, o sistema deve sugerir a intimação para comprovar possíveis suspensões.
+                } else if (diffDays === 1) {
+                    setTempestividade('intempestivo_falta_decreto');
+                    // 4. Fallback para outros casos de intempestividade.
+                } else {
+                    setTempestividade('puramente_intempestivo');
+                }
+
+            } catch (e) {
+                setTempestividade(null);
+            }
+        } else {
             setTempestividade(null);
         }
-    } else {
-        setTempestividade(null);
-    }
-  };
+    };
 
-  useEffect(() => {
-    analisarTempestividade();
-  }, [dataInterposicao, resultado]); // Removido diasComprovados para evitar re-execução desnecessária
+    useEffect(() => {
+        analisarTempestividade();
+    }, [dataInterposicao, resultado]); // Removido diasComprovados para evitar re-execução desnecessária
 
-  // Efeito para enviar o resultado de volta para o sistema externo (Triagem) via postMessage
-  useEffect(() => {
-    if (resultado) {
-        const dadosExportacao = {
-            type: 'RESULTADO_CALCULO',
-            payload: {
-                numeroProcesso,
-                materia: tipoPrazo,
-                prazoDias: prazoSelecionado,
-                dataDisponibilizacao,
-                dataPublicacao: resultado.dataPublicacao,
-                inicioPrazo: resultado.inicioPrazo,
-                prazoFinal: resultado.comDecreto?.prazoFinal,
-                tempestividade,
-                dataInterposicao
+    // Efeito para enviar o resultado de volta para o sistema externo (Triagem) via postMessage
+    useEffect(() => {
+        if (resultado) {
+            const dadosExportacao = {
+                type: 'RESULTADO_CALCULO',
+                payload: {
+                    numeroProcesso,
+                    materia: tipoPrazo,
+                    prazoDias: prazoSelecionado,
+                    dataDisponibilizacao,
+                    dataPublicacao: resultado.dataPublicacao,
+                    inicioPrazo: resultado.inicioPrazo,
+                    prazoFinal: resultado.comDecreto?.prazoFinal,
+                    tempestividade,
+                    dataInterposicao
+                }
+            };
+
+            // Clona e serializa para garantir formato compatível (Dates viram Strings ISO)
+            const mensagem = JSON.parse(JSON.stringify(dadosExportacao));
+
+            // Envia para a janela pai (se Iframe) ou opener (se nova aba)
+            const target = window.opener || (window.parent !== window ? window.parent : null);
+            if (target) {
+                target.postMessage(mensagem, '*');
             }
-        };
-
-        // Clona e serializa para garantir formato compatível (Dates viram Strings ISO)
-        const mensagem = JSON.parse(JSON.stringify(dadosExportacao));
-
-        // Envia para a janela pai (se Iframe) ou opener (se nova aba)
-        const target = window.opener || (window.parent !== window ? window.parent : null);
-        if (target) {
-            target.postMessage(mensagem, '*');
         }
-    }
-  }, [resultado, tempestividade, numeroProcesso, tipoPrazo, prazoSelecionado, dataDisponibilizacao, dataInterposicao]);
+    }, [resultado, tempestividade, numeroProcesso, tipoPrazo, prazoSelecionado, dataDisponibilizacao, dataInterposicao]);
 
-  useEffect(() => {
-      if (db) {
-          const unsubscribe = db.collection('configuracoes').doc('minutas').onSnapshot(doc => {
-              if (doc.exists && doc.data().tipos) {
-                  setCustomMinutaTypes(doc.data().tipos.filter(t => t.id !== 'exemplo_didatico'));
-              }
-          });
-          return () => unsubscribe();
-      }
-  }, []);
+    useEffect(() => {
+        if (db) {
+            const unsubscribe = db.collection('configuracoes').doc('minutas').onSnapshot(doc => {
+                if (doc.exists && doc.data().tipos) {
+                    setCustomMinutaTypes(doc.data().tipos.filter(t => t.id !== 'exemplo_didatico'));
+                }
+            });
+            return () => unsubscribe();
+        }
+    }, []);
 
-  // --- Funções de Geração de Minutas (conforme o código fornecido) ---
+    // --- Funções de Geração de Minutas (conforme o código fornecido) ---
 
-  // Template para o documento Word
-  const getDocTemplate = (bodyHtml, pStyle, pCenterStyle) => `
+    // Template para o documento Word
+    const getDocTemplate = (bodyHtml, pStyle, pCenterStyle) => `
       <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
       <head><meta charset='utf-8'><title>Minuta Despacho</title></head>
       <body>
@@ -789,14 +891,14 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
       </html>
   `;
 
-  // Função para gerar um arquivo .doc a partir de um conteúdo HTML
-  const generateDocFromHtml = (bodyHtml, minutaType, placeholders, outputFileName, arUsuario = null) => {
-    try {
-        const pStyle = "text-align: justify; text-indent: 50px; margin-bottom: 1em; font-family: Arial, sans-serif; font-size: 16pt;";
-        const pCenterStyle = "text-align: center; margin: 0; font-family: Arial, sans-serif; font-size: 16pt;";
-        
-        // Adiciona o rodapé padrão
-        const finalHtml = `
+    // Função para gerar um arquivo .doc a partir de um conteúdo HTML
+    const generateDocFromHtml = (bodyHtml, minutaType, placeholders, outputFileName, arUsuario = null) => {
+        try {
+            const pStyle = "text-align: justify; text-indent: 50px; margin-bottom: 1em; font-family: Arial, sans-serif; font-size: 16pt;";
+            const pCenterStyle = "text-align: center; margin: 0; font-family: Arial, sans-serif; font-size: 16pt;";
+
+            // Adiciona o rodapé padrão
+            const finalHtml = `
             ${bodyHtml}
             <br>
             <p style="${pCenterStyle}">Curitiba, data da assinatura digital.</p>
@@ -809,7 +911,7 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
             ` : ''}
         `;
 
-        const sourceHTML = `
+            const sourceHTML = `
             <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
             <head><meta charset='utf-8'><title>Minuta Despacho</title>
             <style>
@@ -823,363 +925,379 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
             </body>
             </html>
         `;
- 
-        const blob = new Blob([sourceHTML], { type: 'application/msword' });
-        saveAs(blob, outputFileName);
-    } catch (err) {
-        console.error("Erro ao gerar documento:", err);
-        setError(`Ocorreu um erro ao gerar o arquivo. Verifique o console ou tente em outro navegador.`);
-    }
-  };
 
-  // Função para buscar a minuta do Firestore ou usar o padrão
-  const getMinutaContent = async (minutaType) => {
-    // Se o usuário for de um setor específico, tenta buscar a minuta personalizada
-    if (userData?.setorId) {
-        const docId = `${userData.setorId}_${minutaType}`;
-        try {
-            const docRef = db.collection('minutas').doc(docId);
-            const doc = await docRef.get();
-            if (doc.exists) {
-                return doc.data().conteudo;
-            }
+            const blob = new Blob([sourceHTML], { type: 'application/msword' });
+            saveAs(blob, outputFileName);
         } catch (err) {
-            console.error(`Erro ao buscar minuta personalizada '${docId}'. Usando padrão.`, err);
+            console.error("Erro ao gerar documento:", err);
+            setError(`Ocorreu um erro ao gerar o arquivo. Verifique o console ou tente em outro navegador.`);
         }
-    }
-    // Se não houver setor, ou se a busca falhar, ou se o documento não existir, usa o padrão.
-    return MINUTAS_PADRAO[minutaType];
-  };
-
-  const replacePlaceholders = (template, placeholders) => {
-    return Object.entries(placeholders).reduce((acc, [key, value]) => acc.replace(new RegExp(key, 'g'), value), template);
-  };
-
-  const gerarMinutaIntempestividade = async () => {
-    const { dataPublicacao, inicioPrazo, prazo, suspensoesComprovaveis } = resultado;
-    const todasSuspensoes = new Set(suspensoesComprovaveis.map(d => d.data.toISOString().split('T')[0]));
-    const prazoFinalMaximo = calcularPrazoFinalDiasUteis(inicioPrazo, prazo, todasSuspensoes, true, true, true).prazoFinal;
-    
-    const dataDispStr = formatarData(new Date(dataDisponibilizacao + 'T00:00:00'));
-    const dataPubStr = formatarData(dataPublicacao);
-    const inicioPrazoStr = formatarData(inicioPrazo);
-    const dataInterposicaoStr = formatarData(new Date(dataInterposicao + 'T00:00:00'));
-
-    const placeholders = {
-        '{{numeroProcesso}}': numeroProcesso || '<span style="color: red;">[Nº Processo]</span>',
-        '{{movAcordao}}': '<span style="color: red;">[Mov. Acórdão]</span>',
-        '{{dataDisponibilizacao}}': dataDispStr,
-        '{{dataPublicacao}}': dataPubStr,
-        '{{inicioPrazo}}': inicioPrazoStr,
-        '{{dataInterposicao}}': dataInterposicaoStr,
-        '{{prazoDias}}': prazoSelecionado,
     };
 
-    const template = await getMinutaContent('intempestividade');
-    const corpoMinuta = replacePlaceholders(template, placeholders);
-
-    generateDocFromHtml(
-        corpoMinuta,
-        'intempestividade',
-        placeholders,
-        `Minuta_Intempestividade_${numeroProcesso.replace(/\D/g, '') || 'processo'}.doc`
-    );
-  };
-
-  const gerarMinutaIntimacaoDecreto = async () => {
-    const arUsuario = window.prompt("Por favor, insira o código AR do usuário (ex: AR1234):", "");
-    if (arUsuario === null || arUsuario.trim() === "") {
-        // Usuário cancelou ou não inseriu nada
-        return;
-    }
-
-    const template = await getMinutaContent('intimacao_decreto');
-    // Esta minuta não tem placeholders, então o corpo é o próprio template.
-    const corpoMinuta = template;
-
-    generateDocFromHtml(
-        corpoMinuta,
-        'intimacao_decreto',
-        {},
-        `Minuta_Intimacao_Decreto_${numeroProcesso.replace(/\D/g, '') || 'processo'}.doc`,
-        arUsuario
-    );
-  };
-
-  const gerarMinutaIntimacaoDecretoCrime = async () => {
-    const arUsuario = window.prompt("Por favor, insira o código AR do usuário (ex: AR1234):", "");
-    if (arUsuario === null || arUsuario.trim() === "") {
-        // Usuário cancelou ou não inseriu nada
-        return;
-    }
-
-    const template = await getMinutaContent('intimacao_decreto_crime');
-
-    generateDocFromHtml(
-        template,
-        'intimacao_decreto_crime',
-        {},
-        `Minuta_Intimacao_Decreto_Crime_${numeroProcesso.replace(/\D/g, '') || 'processo'}.doc`,
-        arUsuario
-    );
-  };
-
-  const gerarMinutaFaltaDecreto = async () => {
-    const { inicioPrazo, semDecreto } = resultado;
-    const dataDispStr = formatarData(new Date(dataDisponibilizacao + 'T00:00:00'));
-    const inicioPrazoStr = formatarData(inicioPrazo);
-    const prazoFinalStr = formatarData(semDecreto.prazoFinal);
-
-    const placeholders = {
-        '{{camara}}': '<span style="color: red;">[Nº da Câmara]</span>',
-        '{{recursoApelacao}}': '<span style="color: red;">[Tipo e Mov. do Recurso]</span>',
-        '{{dataLeitura}}': dataDispStr, // O template usa 'dataLeitura', mas o valor correto é da disponibilização
-        '{{movIntimacao}}': '<span style="color: red;">[Mov. Intimação]</span>',
-        '{{inicioPrazo}}': inicioPrazoStr,
-        '{{prazoFinal}}': prazoFinalStr,
-        '{{movDespacho}}': '<span style="color: red;">[Mov. Despacho]</span>',
-        '{{movCertidao}}': '<span style="color: red;">[Mov. Certidão]</span>',
+    // Função para buscar a minuta do Firestore ou usar o padrão
+    const getMinutaContent = async (minutaType) => {
+        // Se o usuário for de um setor específico, tenta buscar a minuta personalizada
+        if (userData?.setorId) {
+            const docId = `${userData.setorId}_${minutaType}`;
+            try {
+                const docRef = db.collection('minutas').doc(docId);
+                const doc = await docRef.get();
+                if (doc.exists) {
+                    return doc.data().conteudo;
+                }
+            } catch (err) {
+                console.error(`Erro ao buscar minuta personalizada '${docId}'. Usando padrão.`, err);
+            }
+        }
+        // Se não houver setor, ou se a busca falhar, ou se o documento não existir, usa o padrão.
+        return MINUTAS_PADRAO[minutaType];
     };
 
-    const template = await getMinutaContent('falta_decreto');
-    const corpoMinuta = replacePlaceholders(template, placeholders);
-
-    generateDocFromHtml(
-        corpoMinuta,
-        'falta_decreto',
-        placeholders,
-        `Minuta_Intempestivo_Falta_Decreto_${numeroProcesso.replace(/\D/g, '') || 'processo'}.doc`
-    );
-  };
-
-  const gerarMinutaGenerica = async (tipo) => {
-    if (!resultado) return;
-    const { dataPublicacao, inicioPrazo, comDecreto } = resultado;
-    
-    const dataDispStr = formatarData(new Date(dataDisponibilizacao + 'T00:00:00'));
-    const dataPubStr = formatarData(dataPublicacao);
-    const inicioPrazoStr = formatarData(inicioPrazo);
-    const prazoFinalStr = formatarData(comDecreto.prazoFinal);
-    const dataInterposicaoStr = dataInterposicao ? formatarData(new Date(dataInterposicao + 'T00:00:00')) : '[Data Interposição]';
-
-    const placeholders = {
-        '{{numeroProcesso}}': numeroProcesso || '[Nº Processo]',
-        '{{dataDisponibilizacao}}': dataDispStr,
-        '{{dataPublicacao}}': dataPubStr,
-        '{{inicioPrazo}}': inicioPrazoStr,
-        '{{prazoDias}}': prazoSelecionado,
-        '{{prazoFinal}}': prazoFinalStr,
-        '{{dataInterposicao}}': dataInterposicaoStr,
-        '{{movAcordao}}': '<span style="color: red;">[Mov. Acórdão]</span>',
-        '{{camara}}': '<span style="color: red;">[Nº da Câmara]</span>',
-        '{{recursoApelacao}}': '<span style="color: red;">[Tipo e Mov. do Recurso]</span>',
-        '{{movIntimacao}}': '<span style="color: red;">[Mov. Intimação]</span>',
-        '{{movDespacho}}': '<span style="color: red;">[Mov. Despacho]</span>',
-        '{{movCertidao}}': '<span style="color: red;">[Mov. Certidão]</span>',
+    const replacePlaceholders = (template, placeholders) => {
+        return Object.entries(placeholders).reduce((acc, [key, value]) => acc.replace(new RegExp(key, 'g'), value), template);
     };
 
-    const template = await getMinutaContent(tipo.id);
-    const corpoMinuta = replacePlaceholders(template, placeholders);
+    const gerarMinutaIntempestividade = async () => {
+        const { dataPublicacao, inicioPrazo, prazo, suspensoesComprovaveis } = resultado;
+        const todasSuspensoes = new Set(suspensoesComprovaveis.map(d => d.data.toISOString().split('T')[0]));
+        const prazoFinalMaximo = calcularPrazoFinalDiasUteis(inicioPrazo, prazo, todasSuspensoes, true, true, true).prazoFinal;
 
-    generateDocFromHtml(
-        corpoMinuta,
-        tipo.id,
-        placeholders,
-        `Minuta_${tipo.nome.replace(/[^a-zA-Z0-9]/g, '_')}_${numeroProcesso.replace(/\D/g, '') || 'processo'}.doc`
-    );
-  };
+        const dataDispStr = formatarData(new Date(dataDisponibilizacao + 'T00:00:00'));
+        const dataPubStr = formatarData(dataPublicacao);
+        const inicioPrazoStr = formatarData(inicioPrazo);
+        const dataInterposicaoStr = formatarData(new Date(dataInterposicao + 'T00:00:00'));
 
-  return (
-    <div className="bg-white dark:bg-slate-800 p-6 sm:p-8 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
-        <UserIDWatermark overlay={true} />
-        <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100 mb-1">Calculadora de Prazo Final</h2>
-        <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">Calcule o prazo final considerando as regras de contagem para cada matéria.</p>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-          <div>
-            <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">Matéria</label>
-            <div className="flex rounded-xl shadow-sm bg-slate-100 dark:bg-slate-800 p-1">
-              <button onClick={() => setTipoPrazo('civel')} className={`w-full px-4 py-2 text-sm font-bold transition-all duration-200 rounded-lg ${tipoPrazo === 'civel' ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700'}`}>Cível</button>
-              <button onClick={() => setTipoPrazo('crime')} className={`w-full px-4 py-2 text-sm font-bold transition-all duration-200 rounded-lg ${tipoPrazo === 'crime' ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700'}`}>Crime</button>
-            </div>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">Prazo</label>
-            <div className="flex rounded-xl shadow-sm bg-slate-100 dark:bg-slate-800 p-1">
-              <button onClick={() => setPrazoSelecionado(5)} className={`w-full px-4 py-2 text-sm font-bold transition-all duration-200 rounded-lg ${prazoSelecionado == 5 ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700'}`}>5 Dias</button>
-              <button onClick={() => setPrazoSelecionado(15)} className={`w-full px-4 py-2 text-sm font-bold transition-all duration-200 rounded-lg ${prazoSelecionado == 15 ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700'}`}>15 Dias</button>
-              <button onClick={() => setPrazoSelecionado(30)} className={`w-full px-4 py-2 text-sm font-bold transition-all duration-200 rounded-lg ${prazoSelecionado == 30 ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700'}`}>30 Dias</button>
-            </div>
-            {/* O botão para inserir prazo manualmente só aparece para a matéria de Crime */}
-            {tipoPrazo === 'crime' && (
-                <div className="mt-2 text-center">
-                    {!showManualPrazoInput ? (
-                        <button onClick={() => setShowManualPrazoInput(true)} className="text-xs font-medium text-blue-600 hover:text-blue-500 dark:text-blue-400 dark:hover:text-blue-300">
-                            Inserir prazo manualmente
-                        </button>
-                    ) : (
-                        <input type="number" placeholder="Digite o prazo em dias" value={![5, 15, 30].includes(prazoSelecionado) ? prazoSelecionado : ''} onChange={(e) => setPrazoSelecionado(e.target.value ? parseInt(e.target.value, 10) : '')} className="w-full md:w-1/2 mt-1 p-2 text-sm rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 animate-fade-in focus:ring-2 focus:ring-blue-500 outline-none" />
+        const placeholders = {
+            '{{numeroProcesso}}': numeroProcesso || '<span style="color: red;">[Nº Processo]</span>',
+            '{{movAcordao}}': '<span style="color: red;">[Mov. Acórdão]</span>',
+            '{{dataDisponibilizacao}}': dataDispStr,
+            '{{dataPublicacao}}': dataPubStr,
+            '{{inicioPrazo}}': inicioPrazoStr,
+            '{{dataInterposicao}}': dataInterposicaoStr,
+            '{{prazoDias}}': prazoSelecionado,
+        };
+
+        const template = await getMinutaContent('intempestividade');
+        const corpoMinuta = replacePlaceholders(template, placeholders);
+
+        generateDocFromHtml(
+            corpoMinuta,
+            'intempestividade',
+            placeholders,
+            `Minuta_Intempestividade_${numeroProcesso.replace(/\D/g, '') || 'processo'}.doc`
+        );
+    };
+
+    const gerarMinutaIntimacaoDecreto = async () => {
+        const arUsuario = window.prompt("Por favor, insira o código AR do usuário (ex: AR1234):", "");
+        if (arUsuario === null || arUsuario.trim() === "") {
+            // Usuário cancelou ou não inseriu nada
+            return;
+        }
+
+        const template = await getMinutaContent('intimacao_decreto');
+        // Esta minuta não tem placeholders, então o corpo é o próprio template.
+        const corpoMinuta = template;
+
+        generateDocFromHtml(
+            corpoMinuta,
+            'intimacao_decreto',
+            {},
+            `Minuta_Intimacao_Decreto_${numeroProcesso.replace(/\D/g, '') || 'processo'}.doc`,
+            arUsuario
+        );
+    };
+
+    const gerarMinutaIntimacaoDecretoCrime = async () => {
+        const arUsuario = window.prompt("Por favor, insira o código AR do usuário (ex: AR1234):", "");
+        if (arUsuario === null || arUsuario.trim() === "") {
+            // Usuário cancelou ou não inseriu nada
+            return;
+        }
+
+        const template = await getMinutaContent('intimacao_decreto_crime');
+
+        generateDocFromHtml(
+            template,
+            'intimacao_decreto_crime',
+            {},
+            `Minuta_Intimacao_Decreto_Crime_${numeroProcesso.replace(/\D/g, '') || 'processo'}.doc`,
+            arUsuario
+        );
+    };
+
+    const gerarMinutaFaltaDecreto = async () => {
+        const { inicioPrazo, semDecreto } = resultado;
+        const dataDispStr = formatarData(new Date(dataDisponibilizacao + 'T00:00:00'));
+        const inicioPrazoStr = formatarData(inicioPrazo);
+        const prazoFinalStr = formatarData(semDecreto.prazoFinalProrrogado);
+
+        const placeholders = {
+            '{{camara}}': '<span style="color: red;">[Nº da Câmara]</span>',
+            '{{recursoApelacao}}': '<span style="color: red;">[Tipo e Mov. do Recurso]</span>',
+            '{{dataLeitura}}': dataDispStr, // O template usa 'dataLeitura', mas o valor correto é da disponibilização
+            '{{movIntimacao}}': '<span style="color: red;">[Mov. Intimação]</span>',
+            '{{inicioPrazo}}': inicioPrazoStr,
+            '{{prazoFinal}}': prazoFinalStr,
+            '{{movDespacho}}': '<span style="color: red;">[Mov. Despacho]</span>',
+            '{{movCertidao}}': '<span style="color: red;">[Mov. Certidão]</span>',
+        };
+
+        const template = await getMinutaContent('falta_decreto');
+        const corpoMinuta = replacePlaceholders(template, placeholders);
+
+        generateDocFromHtml(
+            corpoMinuta,
+            'falta_decreto',
+            placeholders,
+            `Minuta_Intempestivo_Falta_Decreto_${numeroProcesso.replace(/\D/g, '') || 'processo'}.doc`
+        );
+    };
+
+    const gerarMinutaGenerica = async (tipo) => {
+        if (!resultado) return;
+        const { dataPublicacao, inicioPrazo, comDecreto } = resultado;
+
+        const dataDispStr = formatarData(new Date(dataDisponibilizacao + 'T00:00:00'));
+        const dataPubStr = formatarData(dataPublicacao);
+        const inicioPrazoStr = formatarData(inicioPrazo);
+        const prazoFinalStr = formatarData(comDecreto.prazoFinal);
+        const dataInterposicaoStr = dataInterposicao ? formatarData(new Date(dataInterposicao + 'T00:00:00')) : '[Data Interposição]';
+
+        const placeholders = {
+            '{{numeroProcesso}}': numeroProcesso || '[Nº Processo]',
+            '{{dataDisponibilizacao}}': dataDispStr,
+            '{{dataPublicacao}}': dataPubStr,
+            '{{inicioPrazo}}': inicioPrazoStr,
+            '{{prazoDias}}': prazoSelecionado,
+            '{{prazoFinal}}': prazoFinalStr,
+            '{{dataInterposicao}}': dataInterposicaoStr,
+            '{{movAcordao}}': '<span style="color: red;">[Mov. Acórdão]</span>',
+            '{{camara}}': '<span style="color: red;">[Nº da Câmara]</span>',
+            '{{recursoApelacao}}': '<span style="color: red;">[Tipo e Mov. do Recurso]</span>',
+            '{{movIntimacao}}': '<span style="color: red;">[Mov. Intimação]</span>',
+            '{{movDespacho}}': '<span style="color: red;">[Mov. Despacho]</span>',
+            '{{movCertidao}}': '<span style="color: red;">[Mov. Certidão]</span>',
+        };
+
+        const template = await getMinutaContent(tipo.id);
+        const corpoMinuta = replacePlaceholders(template, placeholders);
+
+        generateDocFromHtml(
+            corpoMinuta,
+            tipo.id,
+            placeholders,
+            `Minuta_${tipo.nome.replace(/[^a-zA-Z0-9]/g, '_')}_${numeroProcesso.replace(/\D/g, '') || 'processo'}.doc`
+        );
+    };
+
+    return (
+        <div className="bg-white dark:bg-slate-800 p-6 sm:p-8 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
+            <UserIDWatermark overlay={true} />
+            <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100 mb-1">Calculadora de Prazo Final</h2>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">Calcule o prazo final considerando as regras de contagem para cada matéria.</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div>
+                    <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">Matéria</label>
+                    <div className="flex rounded-xl shadow-sm bg-slate-100 dark:bg-slate-800 p-1">
+                        <button onClick={() => setTipoPrazo('civel')} className={`w-full px-4 py-2 text-sm font-bold transition-all duration-200 rounded-lg ${tipoPrazo === 'civel' ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700'}`}>Cível</button>
+                        <button onClick={() => setTipoPrazo('crime')} className={`w-full px-4 py-2 text-sm font-bold transition-all duration-200 rounded-lg ${tipoPrazo === 'crime' ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700'}`}>Crime</button>
+                    </div>
+                </div>
+                <div>
+                    <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">Prazo</label>
+                    <div className="flex rounded-xl shadow-sm bg-slate-100 dark:bg-slate-800 p-1">
+                        <button onClick={() => setPrazoSelecionado(5)} className={`w-full px-4 py-2 text-sm font-bold transition-all duration-200 rounded-lg ${prazoSelecionado == 5 ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700'}`}>5 Dias</button>
+                        <button onClick={() => setPrazoSelecionado(15)} className={`w-full px-4 py-2 text-sm font-bold transition-all duration-200 rounded-lg ${prazoSelecionado == 15 ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700'}`}>15 Dias</button>
+                        <button onClick={() => setPrazoSelecionado(30)} className={`w-full px-4 py-2 text-sm font-bold transition-all duration-200 rounded-lg ${prazoSelecionado == 30 ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700'}`}>30 Dias</button>
+                    </div>
+                    {/* O botão para inserir prazo manualmente só aparece para a matéria de Crime */}
+                    {tipoPrazo === 'crime' && (
+                        <div className="mt-2 text-center">
+                            {!showManualPrazoInput ? (
+                                <button onClick={() => setShowManualPrazoInput(true)} className="text-xs font-medium text-blue-600 hover:text-blue-500 dark:text-blue-400 dark:hover:text-blue-300">
+                                    Inserir prazo manualmente
+                                </button>
+                            ) : (
+                                <input type="number" placeholder="Digite o prazo em dias" value={![5, 15, 30].includes(prazoSelecionado) ? prazoSelecionado : ''} onChange={(e) => setPrazoSelecionado(e.target.value ? parseInt(e.target.value, 10) : '')} className="w-full md:w-1/2 mt-1 p-2 text-sm rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 animate-fade-in focus:ring-2 focus:ring-blue-500 outline-none" />
+                            )}
+                        </div>
                     )}
                 </div>
-            )}
-          </div>
-        </div>
-        <div>
-            <label htmlFor="data-disponibilizacao" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Data de Disponibilização</label>
-            <input
-                type="date"
-                id="data-disponibilizacao"
-                value={dataDisponibilizacao}
-                onChange={e => setDataDisponibilizacao(e.target.value)}
-                className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition font-medium text-slate-700 dark:text-slate-200" />
-        </div>
-        <div className="mt-4">
-            <button onClick={handleCalcular} className="w-full flex justify-center items-center bg-blue-600 text-white font-bold py-4 px-6 rounded-xl hover:bg-blue-700 transition-all duration-300 shadow-lg shadow-blue-500/30 transform hover:scale-[1.01]">Calcular Prazo Final</button>
-        </div>
-        <p className="text-xs text-slate-400 dark:text-slate-500 mt-3 text-center">* O cálculo considera o calendário de feriados e recessos do TJPR para 2025.</p>
-        {error && (
-            <div className="mt-4 flex items-start gap-3 text-amber-800 dark:text-amber-300 bg-amber-100/50 dark:bg-amber-900/30 p-4 rounded-lg">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 3.001-1.742 3.001H4.42c-1.53 0-2.493-1.667-1.743-3.001l5.58-9.92zM10 13a1 1 0 110-2 1 1 0 010 2zm-1-8a1 1 0 00-1 1v3a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
-                <p className="text-sm">{error}</p>
+                {/* Opção para ignorar recesso (Réu Preso / Maria da Penha) - Exclusivo Crime */}
+                {tipoPrazo === 'crime' && (
+                    <div className="md:col-span-2 mt-2 flex justify-center">
+                        <label className="flex items-center gap-2 cursor-pointer p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+                            <input
+                                type="checkbox"
+                                checked={ignorarRecesso}
+                                onChange={(e) => setIgnorarRecesso(e.target.checked)}
+                                className="w-5 h-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                            />
+                            <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                                Réu preso ou Lei Maria da Penha (ignorar recesso)
+                            </span>
+                        </label>
+                    </div>
+                )}
             </div>
-        )}
-        {resultado && (
-            <div className="relative mt-6 p-4 border-t border-slate-200 dark:border-slate-700/50 animate-fade-in">
-                {(resultado.tipo === 'civel' || resultado.tipo === 'crime') && (
-                    <>
-                        {resultado.suspensoesComprovaveis.length > 0 ? (
-                         <>
-                            <div className="p-4 mb-4 text-sm text-orange-800 rounded-lg bg-orange-50 dark:bg-gray-800 dark:text-orange-400" role="alert">
-                                <span className="font-medium">Atenção!</span> Foram identificadas suspensões de prazo no período. Marque abaixo as que foram comprovadas nos autos para recalcular o prazo.
-                            </div>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div className="border-r md:pr-4">
-                                    <h3 className="text-lg font-bold text-slate-700 dark:text-slate-200 text-center mb-2">Cenário 1: Sem Decreto</h3>
-                                    <p className="text-center text-slate-600 dark:text-slate-300">O prazo final de {resultado.prazo} dias {resultado.tipo === 'crime' ? 'corridos' : 'úteis'} é:</p> 
-                                    <p className="text-center mt-2 text-2xl font-bold text-blue-600 dark:text-blue-400">{formatarData(resultado.semDecreto.prazoFinal)}</p>
-                                    {resultado.semDecreto.diasNaoUteis.length > 0 && <div className="mt-4 text-left"><p className="text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">Dias não úteis:</p><ul className="text-xs space-y-1"><GroupedDiasNaoUteis dias={resultado.semDecreto.diasNaoUteis} /></ul></div>}
-                                </div>
-                                <div className="border-t md:border-t-0 md:border-l border-slate-200 dark:border-slate-700 md:pl-4 pt-4 md:pt-0">
-                                    <h3 className="text-lg font-bold text-slate-700 dark:text-slate-200 text-center mb-2">Cenário 2: Com Decreto</h3> 
-                                    <p className="text-center text-slate-600 dark:text-slate-300">O prazo final, <strong>comprovando as suspensões</strong>, é:</p> 
-                                    <p className="text-center mt-2 text-2xl font-bold text-green-600 dark:text-green-400">{formatarData(resultado.comDecreto.prazoFinal)}</p>
-                                    {resultado.tipo === 'crime' && resultado.comDecreto.diasNaoUteis.length > 0 && (
-                                        <p className="text-center text-sm text-slate-500 dark:text-slate-400 mt-1">
-                                            (Prazo estendido em {resultado.comDecreto.diasNaoUteis.length} dia{resultado.comDecreto.diasNaoUteis.length > 1 ? 's' : ''} devido a comprovações)
-                                        </p>
-                                    )}
-                                    
-                                    {/* Mostra a seção de comprovação apenas se houver decretos comprováveis */}
-                                    {resultado.suspensoesComprovaveis.length > 0 && (
-                                        <div className="mt-4 text-left border-t border-slate-300 dark:border-slate-600 pt-2">
-                                            <h4 className="text-xs font-semibold text-orange-600 dark:text-orange-400 mb-2">Suspensões que influenciaram na dilação do prazo:</h4>
-                                             <div className="space-y-1">
-                                                 {/* Lógica para agrupar o Feriado CNJ em uma única checkbox */}
-                                                 {resultado.suspensoesComprovaveis.some(d => d.tipo === 'feriado_cnj') && (
-                                                     <label className="flex items-center p-2 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg cursor-pointer hover:bg-slate-200/70 dark:hover:bg-slate-700/50 transition-colors">
-                                                         <input 
-                                                             type="checkbox"
-                                                             // A checkbox é marcada se QUALQUER um dos dias do feriado CNJ estiver comprovado
-                                                             checked={diasComprovados.has(DATA_CORPUS_CHRISTI) || diasComprovados.has(DATA_POS_CORPUS_CHRISTI)} 
-                                                             onChange={() => handleComprovacaoChange(DATA_CORPUS_CHRISTI, dataDisponibilizacao)} 
-                                                             className="h-4 w-4 rounded border-slate-400 text-blue-600 focus:ring-blue-500" 
-                                                         />
-                                                         <span className="ml-2 text-xs text-slate-700 dark:text-slate-200">
-                                                             <strong className="font-semibold">{formatarData(new Date(DATA_CORPUS_CHRISTI+'T00:00:00'))} e {formatarData(new Date(DATA_POS_CORPUS_CHRISTI+'T00:00:00'))}:</strong> Corpus Christi e Suspensão
-                                                         </span>
-                                                     </label>
-                                                 )}
-                                                 {/* Renderiza as outras suspensões normalmente */}
-                                                 {resultado.suspensoesComprovaveis.filter(d => d.tipo !== 'feriado_cnj').map(dia => {
-                                                     const dataString = dia.data.toISOString().split('T')[0];
-                                                     return ( // O key agora é o dataString para garantir unicidade
-                                                         <label key={dataString} className="flex items-center p-2 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg cursor-pointer hover:bg-slate-200/70 dark:hover:bg-slate-700/50 transition-colors">
-                                                            <input type="checkbox" checked={diasComprovados.has(dataString)} onChange={() => handleComprovacaoChange(dataString, dataDisponibilizacao)} className="h-4 w-4 rounded border-slate-400 text-blue-600 focus:ring-blue-500" />
-                                                            <span className="ml-2 text-xs text-slate-700 dark:text-slate-200"><strong className="font-semibold">{formatarData(dia.data)}:</strong> {dia.motivo} ({dia.tipo})</span>
-                                                         </label>
-                                                     ); // Adicionado o tipo para clareza
-                                                 })}
-                                             </div>
+            <div>
+                <label htmlFor="data-disponibilizacao" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Data de Disponibilização</label>
+                <input
+                    type="date"
+                    id="data-disponibilizacao"
+                    value={dataDisponibilizacao}
+                    onChange={e => setDataDisponibilizacao(e.target.value)}
+                    className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition font-medium text-slate-700 dark:text-slate-200" />
+            </div>
+            <div className="mt-4">
+                <button onClick={handleCalcular} className="w-full flex justify-center items-center bg-blue-600 text-white font-bold py-4 px-6 rounded-xl hover:bg-blue-700 transition-all duration-300 shadow-lg shadow-blue-500/30 transform hover:scale-[1.01]">Calcular Prazo Final</button>
+            </div>
+            <p className="text-xs text-slate-400 dark:text-slate-500 mt-3 text-center">* O cálculo considera o calendário de feriados e recessos do TJPR para 2025.</p>
+            {error && (
+                <div className="mt-4 flex items-start gap-3 text-amber-800 dark:text-amber-300 bg-amber-100/50 dark:bg-amber-900/30 p-4 rounded-lg">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 3.001-1.742 3.001H4.42c-1.53 0-2.493-1.667-1.743-3.001l5.58-9.92zM10 13a1 1 0 110-2 1 1 0 010 2zm-1-8a1 1 0 00-1 1v3a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
+                    <p className="text-sm">{error}</p>
+                </div>
+            )}
+            {resultado && (
+                <div className="relative mt-6 p-4 border-t border-slate-200 dark:border-slate-700/50 animate-fade-in">
+                    {(resultado.tipo === 'civel' || resultado.tipo === 'crime') && (
+                        <>
+                            {resultado.suspensoesComprovaveis.length > 0 ? (
+                                <>
+                                    <div className="p-4 mb-4 text-sm text-orange-800 rounded-lg bg-orange-50 dark:bg-gray-800 dark:text-orange-400" role="alert">
+                                        <span className="font-medium">Atenção!</span> Foram identificadas suspensões de prazo no período. Marque abaixo as que foram comprovadas nos autos para recalcular o prazo.
                                     </div>
-                                    )}
-                                </div>
-                            </div>
-                         </>
-                        ) : (
-                            <div className="text-center">
-                                <h3 className="text-lg font-bold text-slate-700 dark:text-slate-200 mb-2">Resultado do Cálculo</h3>
-                                <p className="text-slate-600 dark:text-slate-300">O prazo final de {resultado.prazo} dias {resultado.tipo === 'crime' ? 'corridos' : 'úteis'} é:</p>
-                                <p className="mt-2 text-3xl font-bold text-blue-600 dark:text-blue-400">{formatarData(resultado.semDecreto.prazoFinal)}</p>
-                                {resultado.diasProrrogados && resultado.diasProrrogados.length > 0 && (
-                                    <div className="mt-4 p-3 text-xs text-blue-800 rounded-lg bg-blue-50 dark:bg-gray-800 dark:text-blue-400" role="alert"><span className="font-medium">Nota:</span> O prazo foi prorrogado pois o vencimento original ({formatarData(resultado.diasProrrogados[0].data)}) caiu em um dia de suspensão ({resultado.diasProrrogados[0].motivo}).</div>
-                                )}
-                                {resultado.semDecreto.diasNaoUteis.length > 0 && <div className="mt-6 text-left border-t border-slate-300 dark:border-slate-600 pt-4"><p className="text-sm font-semibold text-slate-600 dark:text-slate-300 mb-2">Dias não úteis considerados no cálculo:</p><ul className="text-xs space-y-1"><GroupedDiasNaoUteis dias={resultado.semDecreto.diasNaoUteis} /></ul></div>}
-                            </div>
-                            
-                        )}
-                        {/* Seção de Tempestividade movida para dentro do bloco 'civel' */}
-                        {(userData?.role === 'intermediate' || userData?.role === 'admin') && (
-                            <div className="mt-6 border-t border-slate-300 dark:border-slate-600 pt-4 animate-fade-in">
-                                <h3 className="text-lg font-bold text-slate-700 dark:text-slate-200 mb-2">Verificação de Tempestividade</h3>
-                                <div>
-                                    <label htmlFor="data-interposicao" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Data de Interposição do Recurso</label>
-                                    <input type="date" id="data-interposicao" value={dataInterposicao} onChange={e => setDataInterposicao(e.target.value)} className="w-full md:w-1/2 px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition" />
-                                </div>
-                                {tempestividade && (
-                                    <div className={`mt-4 p-4 rounded-lg flex items-center gap-3 ${tempestividade === 'tempestivo' ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300' : 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300'}`}>
-                                        {tempestividade === 'tempestivo' ? <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg> : <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
-                                        <div>
-                                            <p className="font-bold">{tempestividade === 'tempestivo' ? 'RECURSO TEMPESTIVO' : 'RECURSO INTEMPESTIVO'}</p>
-                                            <p className="text-sm">O recurso foi interposto {tempestividade === 'tempestivo' ? 'dentro do' : 'fora do'} prazo legal. O prazo final, considerando as suspensões selecionadas, é {formatarData(resultado.comDecreto.prazoFinal)}.</p>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div className="border-r md:pr-4">
+                                            <h3 className="text-lg font-bold text-slate-700 dark:text-slate-200 text-center mb-2">Cenário 1: Sem Decreto</h3>
+                                            <p className="text-center text-slate-600 dark:text-slate-300">O prazo final de {resultado.prazo} dias {resultado.tipo === 'crime' ? 'corridos' : 'úteis'} é:</p>
+                                            <p className="text-center mt-2 text-2xl font-bold text-blue-600 dark:text-blue-400">{formatarData(resultado.semDecreto.prazoFinalProrrogado || resultado.semDecreto.prazoFinal)}</p>
+                                            {resultado.semDecreto.diasNaoUteis.length > 0 && <div className="mt-4 text-left"><p className="text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">Dias não úteis:</p><ul className="text-xs space-y-1"><GroupedDiasNaoUteis dias={resultado.semDecreto.diasNaoUteis} /></ul></div>}
+                                        </div>
+                                        <div className="border-t md:border-t-0 md:border-l border-slate-200 dark:border-slate-700 md:pl-4 pt-4 md:pt-0">
+                                            <h3 className="text-lg font-bold text-slate-700 dark:text-slate-200 text-center mb-2">Cenário 2: Com Decreto</h3>
+                                            <p className="text-center text-slate-600 dark:text-slate-300">O prazo final, <strong>comprovando as suspensões</strong>, é:</p>
+                                            <p className="text-center mt-2 text-2xl font-bold text-green-600 dark:text-green-400">{formatarData(resultado.comDecreto.prazoFinal)}</p>
+                                            {resultado.tipo === 'crime' && resultado.comDecreto.diasNaoUteis.length > 0 && (
+                                                <p className="text-center text-sm text-slate-500 dark:text-slate-400 mt-1">
+                                                    (Prazo estendido em {resultado.comDecreto.diasNaoUteis.length} dia{resultado.comDecreto.diasNaoUteis.length > 1 ? 's' : ''} devido a comprovações)
+                                                </p>
+                                            )}
+
+                                            {/* Mostra a seção de comprovação apenas se houver decretos comprováveis */}
+                                            {resultado.suspensoesComprovaveis.length > 0 && (
+                                                <div className="mt-4 text-left border-t border-slate-300 dark:border-slate-600 pt-2">
+                                                    <h4 className="text-xs font-semibold text-orange-600 dark:text-orange-400 mb-2">Suspensões que influenciaram na dilação do prazo:</h4>
+                                                    <div className="space-y-1">
+                                                        {/* Lógica para agrupar o Feriado CNJ em uma única checkbox */}
+                                                        {resultado.suspensoesComprovaveis.some(d => d.tipo === 'feriado_cnj') && (
+                                                            <label className="flex items-center p-2 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg cursor-pointer hover:bg-slate-200/70 dark:hover:bg-slate-700/50 transition-colors">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    // A checkbox é marcada se QUALQUER um dos dias do feriado CNJ estiver comprovado
+                                                                    checked={diasComprovados.has(DATA_CORPUS_CHRISTI) || diasComprovados.has(DATA_POS_CORPUS_CHRISTI)}
+                                                                    onChange={() => handleComprovacaoChange(DATA_CORPUS_CHRISTI, dataDisponibilizacao)}
+                                                                    className="h-4 w-4 rounded border-slate-400 text-blue-600 focus:ring-blue-500"
+                                                                />
+                                                                <span className="ml-2 text-xs text-slate-700 dark:text-slate-200">
+                                                                    <strong className="font-semibold">{formatarData(new Date(DATA_CORPUS_CHRISTI + 'T00:00:00'))} e {formatarData(new Date(DATA_POS_CORPUS_CHRISTI + 'T00:00:00'))}:</strong> Corpus Christi e Suspensão
+                                                                </span>
+                                                            </label>
+                                                        )}
+                                                        {/* Renderiza as outras suspensões normalmente */}
+                                                        {resultado.suspensoesComprovaveis.filter(d => d.tipo !== 'feriado_cnj').map(dia => {
+                                                            const dataString = dia.data.toISOString().split('T')[0];
+                                                            return ( // O key agora é o dataString para garantir unicidade
+                                                                <label key={dataString} className="flex items-center p-2 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg cursor-pointer hover:bg-slate-200/70 dark:hover:bg-slate-700/50 transition-colors">
+                                                                    <input type="checkbox" checked={diasComprovados.has(dataString)} onChange={() => handleComprovacaoChange(dataString, dataDisponibilizacao)} className="h-4 w-4 rounded border-slate-400 text-blue-600 focus:ring-blue-500" />
+                                                                    <span className="ml-2 text-xs text-slate-700 dark:text-slate-200"><strong className="font-semibold">{formatarData(dia.data)}:</strong> {dia.motivo} ({dia.tipo})</span>
+                                                                </label>
+                                                            ); // Adicionado o tipo para clareza
+                                                        })}
+                                                    </div>
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
-                                )}
-                                {tempestividade === 'puramente_intempestivo' && (
-                                    <div className="mt-4"><button onClick={gerarMinutaIntempestividade} className="w-full md:w-auto flex justify-center items-center bg-gradient-to-br from-red-500 to-red-600 text-white font-semibold py-2 px-5 rounded-lg hover:from-red-600 hover:to-red-700 transition-all duration-300 shadow-md animate-pulse ring-4 ring-red-300 border-red-500">Baixar Minuta (Intempestivo)</button></div>
-                                )} 
-                                {tempestividade === 'intempestivo_falta_decreto' && (
-                                    <div className="mt-4 space-y-4">
-                                        <div className="p-3 text-sm text-amber-800 rounded-lg bg-amber-50 dark:bg-gray-800 dark:text-amber-400" role="alert">
-                                            <span className="font-medium">Atenção:</span> O recurso está intempestivo, a menos que as suspensões de prazo sejam comprovadas.
-                                        </div>
-                                        <div className="flex items-center gap-4 flex-wrap">
-                                            <p className="text-sm text-slate-600 dark:text-slate-300 font-medium">Gerar outras minutas:</p>
-                                            <div className="flex gap-3">
-                                                {resultado.tipo === 'civel' ? (
-                                                    <>
-                                                        <button onClick={gerarMinutaIntimacaoDecreto} className="flex-1 md:flex-auto justify-center flex items-center bg-gradient-to-br from-sky-500 to-sky-600 text-white font-semibold py-2 px-4 rounded-lg hover:from-sky-600 hover:to-sky-700 transition-all duration-300 shadow-md text-sm animate-pulse ring-4 ring-sky-300">Intimação Decreto</button>
-                                                        <button onClick={gerarMinutaFaltaDecreto} className="flex-1 md:flex-auto justify-center flex items-center bg-gradient-to-br from-orange-500 to-orange-600 text-white font-semibold py-2 px-4 rounded-lg hover:from-orange-600 hover:to-orange-700 transition-all duration-300 shadow-md text-sm">Intempestivo Falta Decreto</button>
-                                                    </>
-                                                ) : (
-                                                    <button onClick={gerarMinutaIntimacaoDecretoCrime} className="flex-1 md:flex-auto justify-center flex items-center bg-gradient-to-br from-sky-500 to-sky-600 text-white font-semibold py-2 px-4 rounded-lg hover:from-sky-600 hover:to-sky-700 transition-all duration-300 shadow-md text-sm animate-pulse ring-4 ring-sky-300">Intimação Decreto (Crime)</button>
-                                                )}
+                                </>
+                            ) : (
+                                <div className="text-center">
+                                    <h3 className="text-lg font-bold text-slate-700 dark:text-slate-200 mb-2">Resultado do Cálculo</h3>
+                                    <p className="text-slate-600 dark:text-slate-300">O prazo final de {resultado.prazo} dias {resultado.tipo === 'crime' ? 'corridos' : 'úteis'} é:</p>
+                                    <p className="mt-2 text-3xl font-bold text-blue-600 dark:text-blue-400">{formatarData(resultado.semDecreto.prazoFinalProrrogado || resultado.semDecreto.prazoFinal)}</p>
+                                    {resultado.diasProrrogados && resultado.diasProrrogados.length > 0 && (
+                                        <div className="mt-4 p-3 text-xs text-blue-800 rounded-lg bg-blue-50 dark:bg-gray-800 dark:text-blue-400" role="alert"><span className="font-medium">Nota:</span> O prazo foi prorrogado pois o vencimento original ({formatarData(resultado.diasProrrogados[0].data)}) caiu em um dia de suspensão ({resultado.diasProrrogados[0].motivo}).</div>
+                                    )}
+                                    {resultado.semDecreto.diasNaoUteis.length > 0 && <div className="mt-6 text-left border-t border-slate-300 dark:border-slate-600 pt-4"><p className="text-sm font-semibold text-slate-600 dark:text-slate-300 mb-2">Dias não úteis considerados no cálculo:</p><ul className="text-xs space-y-1"><GroupedDiasNaoUteis dias={resultado.semDecreto.diasNaoUteis} /></ul></div>}
+                                </div>
+
+                            )}
+                            {/* Seção de Tempestividade movida para dentro do bloco 'civel' */}
+                            {(userData?.role === 'intermediate' || userData?.role === 'admin') && (
+                                <div className="mt-6 border-t border-slate-300 dark:border-slate-600 pt-4 animate-fade-in">
+                                    <h3 className="text-lg font-bold text-slate-700 dark:text-slate-200 mb-2">Verificação de Tempestividade</h3>
+                                    <div>
+                                        <label htmlFor="data-interposicao" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Data de Interposição do Recurso</label>
+                                        <input type="date" id="data-interposicao" value={dataInterposicao} onChange={e => setDataInterposicao(e.target.value)} className="w-full md:w-1/2 px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition" />
+                                    </div>
+                                    {tempestividade && (
+                                        <div className={`mt-4 p-4 rounded-lg flex items-center gap-3 ${tempestividade === 'tempestivo' ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300' : 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300'}`}>
+                                            {tempestividade === 'tempestivo' ? <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg> : <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
+                                            <div>
+                                                <p className="font-bold">{tempestividade === 'tempestivo' ? 'RECURSO TEMPESTIVO' : 'RECURSO INTEMPESTIVO'}</p>
+                                                <p className="text-sm">O recurso foi interposto {tempestividade === 'tempestivo' ? 'dentro do' : 'fora do'} prazo legal. O prazo final, considerando as suspensões selecionadas, é {formatarData(resultado.comDecreto.prazoFinal)}.</p>
                                             </div>
                                         </div>
-                                    </div>
-                                )}
-                            </div>
-                        )}
-
-                        {/* Seção de Minutas Personalizadas */}
-                        {customMinutaTypes.length > 0 && (
-                            <div className="mt-6 border-t border-slate-300 dark:border-slate-600 pt-4 animate-fade-in">
-                                <h3 className="text-lg font-bold text-slate-700 dark:text-slate-200 mb-3">Outras Minutas Disponíveis</h3>
-                                <div className="flex flex-wrap gap-3">
-                                    {customMinutaTypes.map(tipo => (
-                                        <button key={tipo.id} onClick={() => gerarMinutaGenerica(tipo)} className="px-4 py-2 text-sm font-semibold bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-200 dark:hover:bg-slate-600 transition-colors shadow-sm flex items-center gap-2">
-                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clipRule="evenodd" /></svg>
-                                            {tipo.nome}
-                                        </button>
-                                    ))}
+                                    )}
+                                    {tempestividade === 'puramente_intempestivo' && (
+                                        <div className="mt-4"><button onClick={gerarMinutaIntempestividade} className="w-full md:w-auto flex justify-center items-center bg-gradient-to-br from-red-500 to-red-600 text-white font-semibold py-2 px-5 rounded-lg hover:from-red-600 hover:to-red-700 transition-all duration-300 shadow-md animate-pulse ring-4 ring-red-300 border-red-500">Baixar Minuta (Intempestivo)</button></div>
+                                    )}
+                                    {tempestividade === 'intempestivo_falta_decreto' && (
+                                        <div className="mt-4 space-y-4">
+                                            <div className="p-3 text-sm text-amber-800 rounded-lg bg-amber-50 dark:bg-gray-800 dark:text-amber-400" role="alert">
+                                                <span className="font-medium">Atenção:</span> O recurso está intempestivo, a menos que as suspensões de prazo sejam comprovadas.
+                                            </div>
+                                            <div className="flex items-center gap-4 flex-wrap">
+                                                <p className="text-sm text-slate-600 dark:text-slate-300 font-medium">Gerar outras minutas:</p>
+                                                <div className="flex gap-3">
+                                                    {resultado.tipo === 'civel' ? (
+                                                        <>
+                                                            <button onClick={gerarMinutaIntimacaoDecreto} className="flex-1 md:flex-auto justify-center flex items-center bg-gradient-to-br from-sky-500 to-sky-600 text-white font-semibold py-2 px-4 rounded-lg hover:from-sky-600 hover:to-sky-700 transition-all duration-300 shadow-md text-sm animate-pulse ring-4 ring-sky-300">Intimação Decreto</button>
+                                                            <button onClick={gerarMinutaFaltaDecreto} className="flex-1 md:flex-auto justify-center flex items-center bg-gradient-to-br from-orange-500 to-orange-600 text-white font-semibold py-2 px-4 rounded-lg hover:from-orange-600 hover:to-orange-700 transition-all duration-300 shadow-md text-sm">Intempestivo Falta Decreto</button>
+                                                        </>
+                                                    ) : (
+                                                        <button onClick={gerarMinutaIntimacaoDecretoCrime} className="flex-1 md:flex-auto justify-center flex items-center bg-gradient-to-br from-sky-500 to-sky-600 text-white font-semibold py-2 px-4 rounded-lg hover:from-sky-600 hover:to-sky-700 transition-all duration-300 shadow-md text-sm animate-pulse ring-4 ring-sky-300">Intimação Decreto (Crime)</button>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
-                            </div>
-                        )}
-                    </>
-                )}
+                            )}
 
-            </div>
-        )}
-    </div>
-  );
+                            {/* Seção de Minutas Personalizadas */}
+                            {customMinutaTypes.length > 0 && (
+                                <div className="mt-6 border-t border-slate-300 dark:border-slate-600 pt-4 animate-fade-in">
+                                    <h3 className="text-lg font-bold text-slate-700 dark:text-slate-200 mb-3">Outras Minutas Disponíveis</h3>
+                                    <div className="flex flex-wrap gap-3">
+                                        {customMinutaTypes.map(tipo => (
+                                            <button key={tipo.id} onClick={() => gerarMinutaGenerica(tipo)} className="px-4 py-2 text-sm font-semibold bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-200 dark:hover:bg-slate-600 transition-colors shadow-sm flex items-center gap-2">
+                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clipRule="evenodd" /></svg>
+                                                {tipo.nome}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                        </>
+                    )}
+
+                </div>
+            )}
+        </div>
+    );
 };
 
 const GroupedDiasNaoUteis = ({ dias }) => {
@@ -1225,11 +1343,13 @@ const DiaNaoUtilItem = ({ dia, as = 'li' }) => {
 
     if (Tag === 'tr') {
         return (
-            <tr className="border-b last:border-b-0 border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors ">
-                <td className="px-4 py-3 font-medium text-slate-900 dark:text-white">{formatarData(dia.data)}</td>
-                <td className="px-4 py-3 text-slate-600 dark:text-slate-200">{dia.motivo}</td>
-                <td className="px-4 py-3 text-right">
-                    {labelText && <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full ${labelClasses}`}>{labelText}</span>}
+            <tr className="border-b last:border-b-0 border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
+                <td className="px-5 py-3 font-medium text-slate-900 dark:text-white whitespace-nowrap">{formatarData(dia.data)}</td>
+                <td className="px-5 py-3 text-slate-600 dark:text-slate-200">{dia.motivo}</td>
+                <td className="px-5 py-3">
+                    <div className="flex justify-end">
+                        {labelText && <span className={`text-xs font-semibold px-2.5 py-1 rounded-full whitespace-nowrap ${labelClasses}`}>{labelText}</span>}
+                    </div>
                 </td>
             </tr>
         );
@@ -1238,12 +1358,12 @@ const DiaNaoUtilItem = ({ dia, as = 'li' }) => {
     return (
         <Tag className="flex items-center justify-between p-2 bg-slate-100/70 dark:bg-slate-900/50 rounded-md text-slate-700 dark:text-slate-200">
             <div className="flex-grow">
-                {dia.tipo === 'recesso_grouped' 
-                    ? <span className="text-sm">{dia.motivo}</span> 
+                {dia.tipo === 'recesso_grouped'
+                    ? <span className="text-sm">{dia.motivo}</span>
                     : <span className="text-sm">
                         <strong className="font-semibold text-slate-900 dark:text-white">{formatarData(dia.data)}:</strong> {dia.motivo}
                         {dia.link && <a href={dia.link} target="_blank" rel="noopener noreferrer" className="ml-2 text-blue-600 hover:underline text-xs font-semibold">(Ver Decreto)</a>}
-                      </span>}
+                    </span>}
             </div>
             {labelText && <span className={`ml-3 flex-shrink-0 text-xs font-semibold px-2.5 py-0.5 rounded-full ${labelClasses}`}>{labelText}</span>}
         </Tag>
@@ -1325,13 +1445,13 @@ const CookieConsent = () => {
                     <p>Utilizamos armazenamento local para salvar suas preferências e coletamos dados de uso para fins de auditoria e melhoria, em conformidade com a LGPD. Ao continuar, você concorda com nossa Política de Privacidade.</p>
                 </div>
                 <div className="flex gap-3 flex-shrink-0">
-                    <button 
+                    <button
                         onClick={() => document.dispatchEvent(new CustomEvent('openPrivacyPolicy'))}
                         className="px-4 py-2 text-sm font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
                     >
                         Ler Política
                     </button>
-                    <button 
+                    <button
                         onClick={handleAccept}
                         className="px-6 py-2 text-sm font-bold bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
                     >
@@ -1391,10 +1511,10 @@ const LoginPage = () => {
             setMessage('Link para redefinição de senha enviado. Verifique sua caixa de entrada e a pasta de Lixo Eletrônico/Spam.');
             setIsResettingPassword(false);
         } catch (err) {
-             setError('Falha ao enviar e-mail. Verifique se o e-mail está correto e tente novamente.');
+            setError('Falha ao enviar e-mail. Verifique se o e-mail está correto e tente novamente.');
         }
     };
-    
+
     useEffect(() => {
         const lastUserEmail = localStorage.getItem('lastUserEmail');
         if (lastUserEmail) {
@@ -1460,7 +1580,7 @@ const LoginPage = () => {
                 if (isCreatingNew) {
                     // Lógica para criar um novo setor usando uma transação em lote (batch)
                     const nomeNormalizado = normalizeString(setorNome);
-                    
+
                     if (userCredential?.user) {
                         // Prepara a transação em lote
                         const batch = db.batch();
@@ -1483,9 +1603,9 @@ const LoginPage = () => {
                     setorIdFinal = setorIdSelecionado;
                 }
 
-                await db.collection('users').doc(userCredential.user.uid).set({ 
-                    email: finalEmail, 
-                    role: 'basic', 
+                await db.collection('users').doc(userCredential.user.uid).set({
+                    email: finalEmail,
+                    role: 'basic',
                     displayName: displayName.trim(),
                     setorId: setorIdFinal // Adiciona o ID do setor encontrado ou criado
                 });
@@ -1502,13 +1622,13 @@ const LoginPage = () => {
                 case 'auth/user-not-found': setError('Nenhuma conta encontrada com este e-mail. Verifique o e-mail ou crie uma nova conta.'); break;
                 case 'auth/wrong-password': setError('Palavra-passe incorreta. Tente novamente ou redefina a sua palavra-passe.'); break;
                 case 'auth/weak-password': setError('A palavra-passe deve ter pelo menos 6 caracteres.'); break;
-                case 'permission-denied': 
+                case 'permission-denied':
                     setError('Permissão negada. É provável que o nome do setor que você tentou criar já exista.');
                     // Se a criação do setor falhou, o usuário pode ter sido criado. Tentamos deletá-lo.
                     if (auth.currentUser && auth.currentUser.email === finalEmail) await auth.currentUser.delete();
                     break;
                 case 'auth/invalid-email': setError('O formato do e-mail é inválido.'); break;
-                default: setError('Ocorreu um erro. Tente novamente.'); 
+                default: setError('Ocorreu um erro. Tente novamente.');
                     console.error("Erro de autenticação:", err);
             }
         }
@@ -1529,7 +1649,7 @@ const LoginPage = () => {
                     <p className="text-center text-sm">
                         <a href="#" onClick={(e) => { e.preventDefault(); setIsResettingPassword(false); setError(''); }} className="font-medium text-indigo-600 hover:text-indigo-500">Voltar para o Login</a>
                     </p>
-                </div>                
+                </div>
             </div>
         );
     }
@@ -1569,7 +1689,7 @@ const LoginPage = () => {
                         <form onSubmit={handleSubmit} className="space-y-4">
                             <input type="password" placeholder="Palavra-passe" value={password} onChange={e => setPassword(e.target.value)} required autoFocus className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition" />
                             <div className="flex items-center justify-between text-sm">
-                                <label className="flex items-center gap-2 text-slate-600 dark:text-slate-300"><input type="checkbox" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"/>Lembrar-me</label>
+                                <label className="flex items-center gap-2 text-slate-600 dark:text-slate-300"><input type="checkbox" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500" />Lembrar-me</label>
                                 <a href="#" onClick={(e) => { e.preventDefault(); setIsResettingPassword(true); setError(''); }} className="font-medium text-blue-600 hover:text-blue-500">Esqueceu a senha?</a>
                             </div>
                             <button type="submit" className="w-full bg-blue-600 text-white font-bold py-3 rounded-xl hover:bg-blue-700 transition-all duration-300 shadow-lg shadow-blue-500/30">Entrar</button>
@@ -1591,10 +1711,10 @@ const LoginPage = () => {
                         <form onSubmit={handleSubmit} className="space-y-4">
                             {!isLogin && <input type="text" placeholder="Nome Completo" value={displayName} onChange={e => setDisplayName(e.target.value)} required className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition" />}
                             {!isLogin && (<>
-                                <select 
-                                    value={setorIdSelecionado} 
-                                    onChange={e => setSetorIdSelecionado(e.target.value)} 
-                                    required 
+                                <select
+                                    value={setorIdSelecionado}
+                                    onChange={e => setSetorIdSelecionado(e.target.value)}
+                                    required
                                     className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
                                 >
                                     <option value="" disabled>Selecione seu setor...</option>
@@ -1629,7 +1749,7 @@ const LoginPage = () => {
                             )}
 
                             <div className="flex items-center justify-between text-sm">
-                                <label className="flex items-center gap-2 text-slate-600 dark:text-slate-300"><input type="checkbox" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"/>Lembrar-me</label>
+                                <label className="flex items-center gap-2 text-slate-600 dark:text-slate-300"><input type="checkbox" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500" />Lembrar-me</label>
                                 <a href="#" onClick={(e) => { e.preventDefault(); setIsResettingPassword(true); setError(''); }} className="font-medium text-blue-600 hover:text-blue-500">Esqueceu a senha?</a>
                             </div>
                             <button type="submit" className="w-full bg-blue-600 text-white font-bold py-3 rounded-xl hover:bg-blue-700 transition-all duration-300 shadow-lg shadow-blue-500/30">{isLogin ? 'Entrar' : 'Registrar'}</button>
@@ -1643,9 +1763,9 @@ const LoginPage = () => {
                         </p>
                     </>
                 )}
-                </div>
-                {showPrivacy && <PrivacyPolicyModal onClose={() => setShowPrivacy(false)} />}
             </div>
+            {showPrivacy && <PrivacyPolicyModal onClose={() => setShowPrivacy(false)} />}
+        </div>
     )
 };
 
@@ -1691,7 +1811,7 @@ const VerifyEmailPage = () => {
             setIsResending(false);
         }
     };
-    
+
     const handleCheckVerification = async () => {
         setMessage('Verificando status...');
         await refreshUser();
@@ -1705,7 +1825,7 @@ const VerifyEmailPage = () => {
     };
 
     return (
-         <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-200 dark:from-slate-800 dark:to-slate-900 relative">
+        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-200 dark:from-slate-800 dark:to-slate-900 relative">
             <div className="w-full max-w-md p-8 space-y-6 bg-white/60 dark:bg-slate-800/60 backdrop-blur-xl rounded-2xl shadow-lg text-center">
                 <h2 className="text-3xl font-bold text-slate-800 dark:text-slate-100">Verifique o seu E-mail</h2>
                 <p className="text-slate-600 dark:text-slate-300">
@@ -1719,8 +1839,8 @@ const VerifyEmailPage = () => {
                         Voltar para o Login
                     </button>
                 </div>
-                 {message && <p className="text-sm text-center text-green-500">{message}</p>}
-                 {error && <p className="text-sm text-center text-red-500">{error}</p>}
+                {message && <p className="text-sm text-center text-green-500">{message}</p>}
+                {error && <p className="text-sm text-center text-red-500">{error}</p>}
             </div>
             <CreditsWatermark />
         </div>
@@ -1730,68 +1850,105 @@ const VerifyEmailPage = () => {
 const CalendarioModal = ({ onClose }) => {
     const { settings } = useContext(SettingsContext);
     const { feriadosMap, decretosMap, instabilidadeMap, calendarLoading } = settings;
+    const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
 
-    // CORREÇÃO: A função formatData agora lida com o fato de que o 'motivo' pode ser uma string ou um objeto.
-    const formatData = (map, defaultTipo) => {
-        return Object.entries(map).map(([data, value]) => {
-            if (typeof value === 'object' && value.motivo && value.tipo) {
-                // Se for um objeto (como o Feriado CNJ), usa os dados do objeto.
-                return { data, motivo: value.motivo, tipo: value.tipo };
-            }
-            // Caso contrário, trata como uma string simples.
-            return { data, motivo: value, tipo: defaultTipo };
+    const todosDiasNaoUteis = useMemo(() => {
+        const format = (map, defaultTipo) => {
+            if (!map) return [];
+            return Object.entries(map).map(([data, value]) => {
+                if (typeof value === 'object' && value.motivo && value.tipo) {
+                    return { data, motivo: value.motivo, tipo: value.tipo };
+                }
+                return { data, motivo: value, tipo: defaultTipo };
+            });
+        };
+
+        return [
+            ...format(feriadosMap, 'feriado'),
+            ...format(decretosMap, 'decreto'),
+            ...format(instabilidadeMap, 'instabilidade'),
+        ].sort((a, b) => new Date(a.data) - new Date(b.data));
+    }, [feriadosMap, decretosMap, instabilidadeMap]);
+
+    const availableYears = useMemo(() => {
+        const years = new Set([new Date().getFullYear(), new Date().getFullYear() + 1]);
+        todosDiasNaoUteis.forEach(dia => {
+            const y = parseInt(dia.data.split('-')[0]);
+            if (!isNaN(y)) years.add(y);
         });
-    };
+        return Array.from(years).sort((a, b) => a - b);
+    }, [todosDiasNaoUteis]);
 
-    const todosDiasNaoUteis = [
-        ...formatData(feriadosMap, 'feriado'),
-        ...formatData(decretosMap, 'decreto'),
-        ...formatData(instabilidadeMap, 'instabilidade'),
-    ].sort((a, b) => new Date(a.data) - new Date(b.data));
+    const diasDoAnoSelecionado = useMemo(() =>
+        todosDiasNaoUteis.filter(dia => dia.data.startsWith(`${selectedYear}-`)),
+        [todosDiasNaoUteis, selectedYear]
+    );
 
-    const diasAgrupadosPorMes = todosDiasNaoUteis.reduce((acc, dia) => {
-        const mes = new Date(dia.data + 'T00:00:00').toLocaleString('pt-BR', { month: 'long', timeZone: 'UTC' });
+    const diasAgrupadosPorMes = useMemo(() => diasDoAnoSelecionado.reduce((acc, dia) => {
+        const dataObj = new Date(dia.data + 'T00:00:00');
+        const mes = dataObj.toLocaleString('pt-BR', { month: 'long', timeZone: 'UTC' });
         const mesCapitalizado = mes.charAt(0).toUpperCase() + mes.slice(1);
         if (!acc[mesCapitalizado]) {
             acc[mesCapitalizado] = [];
         }
         acc[mesCapitalizado].push(dia);
         return acc;
-    }, {});
+    }, {}), [diasDoAnoSelecionado]);
 
     return (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
             <div className="bg-white dark:bg-slate-800 w-full max-w-3xl max-h-[90vh] rounded-2xl shadow-2xl flex flex-col" onClick={e => e.stopPropagation()}>
-                <div className="flex justify-between items-center mb-6 p-6 border-b border-slate-200 dark:border-slate-700 flex-shrink-0">
-                    <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Calendário de Suspensões 2025</h2>
-                    <button onClick={onClose} className="text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 transition">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                    </button>
+                <div className="flex flex-col border-b border-slate-200 dark:border-slate-700 flex-shrink-0 bg-white dark:bg-slate-800 rounded-t-2xl z-10">
+                    <div className="flex justify-between items-center p-6 pb-2">
+                        <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Calendário de Suspensões</h2>
+                        <button onClick={onClose} className="text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 transition">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                        </button>
+                    </div>
+
+                    <div className="flex space-x-1 px-6 pb-0 overflow-x-auto scrollbar-hide">
+                        {availableYears.map(year => (
+                            <button
+                                key={year}
+                                onClick={() => setSelectedYear(year)}
+                                className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${selectedYear === year
+                                    ? 'border-indigo-600 text-indigo-600 dark:border-indigo-400 dark:text-indigo-400'
+                                    : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
+                                    }`}
+                            >
+                                {year}
+                            </button>
+                        ))}
+                    </div>
                 </div>
 
-                <div className="overflow-y-auto px-6 pb-6">
+                <div className="overflow-y-auto px-6 py-6 custom-scrollbar">
                     <div className="bg-slate-100 dark:bg-slate-900/50 p-4 rounded-lg mb-6">
-                        <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100 mb-2">Recesso Forense</h3>
+                        <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100 mb-2">Recesso Forense {selectedYear}</h3>
                         <ul className="space-y-2">
-                            <DiaNaoUtilItem dia={{ tipo: 'recesso_grouped', motivo: `Recesso de 02/01/2025 até 20/01/2025` }} />
-                            <DiaNaoUtilItem dia={{ tipo: 'recesso_grouped', motivo: `Recesso de 20/12/2025 até 30/12/2025` }} />
+                            <DiaNaoUtilItem dia={{ tipo: 'recesso_grouped', motivo: `Suspensão/Recesso de 01/01/${selectedYear} até 20/01/${selectedYear}` }} />
+                            <DiaNaoUtilItem dia={{ tipo: 'recesso_grouped', motivo: `Recesso Forense de 20/12/${selectedYear} até 06/01/${selectedYear + 1}` }} />
                         </ul>
                     </div>
 
                     {calendarLoading ? (
                         <p className="text-center text-slate-500 dark:text-slate-400">Carregando calendário...</p>
                     ) : Object.keys(diasAgrupadosPorMes).length === 0 ? (
-                        <p className="text-center text-slate-500 dark:text-slate-400">Nenhuma suspensão encontrada no calendário.</p>
+                        <p className="text-center text-slate-500 dark:text-slate-400">Nenhuma suspensão cadastrada para {selectedYear} além do recesso padrão.</p>
                     ) : (
                         Object.entries(diasAgrupadosPorMes).map(([mes, dias]) => (
-                            <div key={mes} className="mb-6">
-                                <h3 className="text-xl font-bold text-slate-800 dark:text-slate-100 mb-3">{mes}</h3>
-                                <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700">
-                                    <table className="w-full text-sm text-left">
-                                        <thead className="text-xs text-slate-700 dark:text-slate-200 uppercase bg-slate-100 dark:bg-slate-700/50">
-                                            <tr><th className="px-4 py-3 w-[120px]">Data</th><th className="px-4 py-3">Motivo</th><th className="px-4 py-3 w-[180px] text-right">Tipo</th></tr>
+                            <div key={mes} className="mb-6 animate-fade-in">
+                                <h3 className="text-xl font-bold text-slate-800 dark:text-slate-100 mb-3 sticky top-0 bg-white/95 dark:bg-slate-800/95 py-2 backdrop-blur-sm z-0">{mes}</h3>
+                                <div className="overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm">
+                                    <table className="w-full text-sm text-left table-fixed">
+                                        <thead className="text-xs text-slate-700 dark:text-slate-200 uppercase bg-slate-50 dark:bg-slate-700/50">
+                                            <tr>
+                                                <th className="px-5 py-3 w-[15%]">Data</th>
+                                                <th className="px-5 py-3 w-[60%]">Motivo</th>
+                                                <th className="px-5 py-3 w-[25%] text-right">Tipo</th>
+                                            </tr>
                                         </thead>
-                                        <tbody>
+                                        <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
                                             {dias.map(dia => <DiaNaoUtilItem key={dia.data} dia={{ ...dia, data: new Date(dia.data + 'T00:00:00') }} as="tr" />)}
                                         </tbody>
                                     </table>
@@ -1953,91 +2110,91 @@ const BugReportsPage = () => {
 };
 
 const AdminPage = ({ setCurrentArea }) => {
-     const { user } = useAuth();
-     // Estado para controlar a visão dentro da página de Admin: 'stats', 'calendar', 'users'
-     const [adminSection, setAdminSection] = useState('stats'); // 'stats', 'calendar', 'users', 'audit'
+    const { user } = useAuth();
+    // Estado para controlar a visão dentro da página de Admin: 'stats', 'calendar', 'users'
+    const [adminSection, setAdminSection] = useState('stats'); // 'stats', 'calendar', 'users', 'audit'
 
-     const [stats, setStats] = useState({ total: 0, perMateria: {}, perPrazo: {}, byDay: {} });
-     const [statsView, setStatsView] = useState('calculadora'); // 'calculadora' ou 'djen_consulta'
-     const [allData, setAllData] = useState([]);
-     const [viewData, setViewData] = useState([]);
+    const [stats, setStats] = useState({ total: 0, perMateria: {}, perPrazo: {}, byDay: {} });
+    const [statsView, setStatsView] = useState('calculadora'); // 'calculadora' ou 'djen_consulta'
+    const [allData, setAllData] = useState([]);
+    const [viewData, setViewData] = useState([]);
     const [filteredData, setFilteredData] = useState([]);
     const [loading, setLoading] = useState(true);
     const [filters, setFilters] = useState({ startDate: '', endDate: '', email: 'todos', materia: 'todos', prazo: 'todos', userId: '', setorId: 'todos' });
     const [hasSearched, setHasSearched] = useState(false);
-     const [selectedUserForStats, setSelectedUserForStats] = useState(null);
-     // Estados para gerenciamento de usuários
-     const [allUsersForManagement, setAllUsersForManagement] = useState([]);
-     const [userManagementLoading, setUserManagementLoading] = useState(false);
-     const [userSearchTerm, setUserSearchTerm] = useState('');
-     const [editingUser, setEditingUser] = useState(null); // Para o modal de permissões
-     const { userData: adminUserData } = useAuth(); // Dados do admin logado
-     const [expandedSector, setExpandedSector] = useState(null);
-     const [expandedUserSectors, setExpandedUserSectors] = useState(new Set());
-     const [setores, setSetoresAdmin] = useState([]); // This was a typo, corrected in a previous step but good to double check.
-     const [newSectorName, setNewSectorName] = useState('');
-     const [showDeleteModal, setShowDeleteModal] = useState(false);
-     const [deleteRange, setDeleteRange] = useState({ start: '', end: '' });
-     const [auditLogs, setAuditLogs] = useState([]);
-     const [broadcastMessage, setBroadcastMessage] = useState({ mensagem: '', ativo: false, tipo: 'info' });
-     const [isSavingBroadcast, setIsSavingBroadcast] = useState(false);
+    const [selectedUserForStats, setSelectedUserForStats] = useState(null);
+    // Estados para gerenciamento de usuários
+    const [allUsersForManagement, setAllUsersForManagement] = useState([]);
+    const [userManagementLoading, setUserManagementLoading] = useState(false);
+    const [userSearchTerm, setUserSearchTerm] = useState('');
+    const [editingUser, setEditingUser] = useState(null); // Para o modal de permissões
+    const { userData: adminUserData } = useAuth(); // Dados do admin logado
+    const [expandedSector, setExpandedSector] = useState(null);
+    const [expandedUserSectors, setExpandedUserSectors] = useState(new Set());
+    const [setores, setSetoresAdmin] = useState([]); // This was a typo, corrected in a previous step but good to double check.
+    const [newSectorName, setNewSectorName] = useState('');
+    const [showDeleteModal, setShowDeleteModal] = useState(false);
+    const [deleteRange, setDeleteRange] = useState({ start: '', end: '' });
+    const [auditLogs, setAuditLogs] = useState([]);
+    const [broadcastMessage, setBroadcastMessage] = useState({ mensagem: '', ativo: false, tipo: 'info' });
+    const [isSavingBroadcast, setIsSavingBroadcast] = useState(false);
 
-     const handleDeleteClick = () => {
-         setShowDeleteModal(true);
-     };
+    const handleDeleteClick = () => {
+        setShowDeleteModal(true);
+    };
 
-     const handleConfirmDelete = async () => {
-         if (!deleteRange.start && !deleteRange.end) {
-             alert("Por favor, selecione pelo menos uma data.");
-             return;
-         }
+    const handleConfirmDelete = async () => {
+        if (!deleteRange.start && !deleteRange.end) {
+            alert("Por favor, selecione pelo menos uma data.");
+            return;
+        }
 
-         const start = deleteRange.start ? new Date(deleteRange.start + 'T00:00:00') : new Date(0);
-         const end = deleteRange.end ? new Date(deleteRange.end + 'T23:59:59.999') : new Date();
+        const start = deleteRange.start ? new Date(deleteRange.start + 'T00:00:00') : new Date(0);
+        const end = deleteRange.end ? new Date(deleteRange.end + 'T23:59:59.999') : new Date();
 
-         // Usa filteredData se houver filtros ativos, caso contrário usa allData.
-         const sourceData = filteredData.length > 0 ? filteredData : allData;
+        // Usa filteredData se houver filtros ativos, caso contrário usa allData.
+        const sourceData = filteredData.length > 0 ? filteredData : allData;
 
-         const toDelete = sourceData.filter(item => {
-             if (!item.timestamp) return false;
-             const d = item.timestamp.toDate();
-             return d >= start && d <= end;
-         });
+        const toDelete = sourceData.filter(item => {
+            if (!item.timestamp) return false;
+            const d = item.timestamp.toDate();
+            return d >= start && d <= end;
+        });
 
-         if (toDelete.length === 0) {
-             alert("Nenhum registro encontrado no período selecionado.");
-             return;
-         }
+        if (toDelete.length === 0) {
+            alert("Nenhum registro encontrado no período selecionado.");
+            return;
+        }
 
-         if (window.confirm(`ATENÇÃO: Você está prestes a excluir ${toDelete.length} registros permanentemente.\nPeríodo: ${deleteRange.start || 'Início'} até ${deleteRange.end || 'Hoje'}.\n\nDeseja continuar?`)) {
-             setLoading(true);
-             try {
-                 const batchSize = 500;
-                 const chunks = [];
-                 for (let i = 0; i < toDelete.length; i += batchSize) chunks.push(toDelete.slice(i, i + batchSize));
+        if (window.confirm(`ATENÇÃO: Você está prestes a excluir ${toDelete.length} registros permanentemente.\nPeríodo: ${deleteRange.start || 'Início'} até ${deleteRange.end || 'Hoje'}.\n\nDeseja continuar?`)) {
+            setLoading(true);
+            try {
+                const batchSize = 500;
+                const chunks = [];
+                for (let i = 0; i < toDelete.length; i += batchSize) chunks.push(toDelete.slice(i, i + batchSize));
 
-                 for (const chunk of chunks) {
-                     const batch = db.batch();
-                     chunk.forEach(doc => batch.delete(db.collection('usageStats').doc(doc.id)));
-                     await batch.commit();
-                 }
-                 
-                 const deletedIds = new Set(toDelete.map(d => d.id));
-                 setAllData(prev => prev.filter(d => !deletedIds.has(d.id)));
-                 setFilteredData(prev => prev.filter(d => !deletedIds.has(d.id)));
-                 
-                 alert("Registros excluídos com sucesso.");
-                 setShowDeleteModal(false);
-                 await logAudit(db, user, 'EXCLUIR_REGISTROS_USO', `De ${deleteRange.start} até ${deleteRange.end}. Qtd: ${toDelete.length}`);
-                 setDeleteRange({ start: '', end: '' });
-             } catch (err) {
-                 console.error("Erro ao excluir:", err);
-                 alert("Erro ao excluir registros.");
-             } finally {
-                 setLoading(false);
-             }
-         }
-     };
+                for (const chunk of chunks) {
+                    const batch = db.batch();
+                    chunk.forEach(doc => batch.delete(db.collection('usageStats').doc(doc.id)));
+                    await batch.commit();
+                }
+
+                const deletedIds = new Set(toDelete.map(d => d.id));
+                setAllData(prev => prev.filter(d => !deletedIds.has(d.id)));
+                setFilteredData(prev => prev.filter(d => !deletedIds.has(d.id)));
+
+                alert("Registros excluídos com sucesso.");
+                setShowDeleteModal(false);
+                await logAudit(db, user, 'EXCLUIR_REGISTROS_USO', `De ${deleteRange.start} até ${deleteRange.end}. Qtd: ${toDelete.length}`);
+                setDeleteRange({ start: '', end: '' });
+            } catch (err) {
+                console.error("Erro ao excluir:", err);
+                alert("Erro ao excluir registros.");
+            } finally {
+                setLoading(false);
+            }
+        }
+    };
 
     useEffect(() => {
         let isMounted = true;
@@ -2058,7 +2215,7 @@ const AdminPage = ({ setCurrentArea }) => {
                 const usageSnapshot = await db.collection('usageStats').orderBy('timestamp', 'desc').get();
                 if (!isMounted) return;
 
-                let usageData = usageSnapshot.docs.map(doc => ({id: doc.id, ...doc.data()}));
+                let usageData = usageSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 const usersMap = usersList.reduce((acc, user) => { acc[user.id] = user; return acc; }, {});
 
                 // 3. Filtra estatísticas para Chefe de Setor
@@ -2067,8 +2224,8 @@ const AdminPage = ({ setCurrentArea }) => {
                     usageData = usageData.filter(d => userIdsInSector.has(d.userId));
                 }
 
-                const enrichedData = usageData.map(d => ({...d, userName: usersMap[d.userId]?.displayName || usersMap[d.userId]?.email || d.userEmail }));
-                
+                const enrichedData = usageData.map(d => ({ ...d, userName: usersMap[d.userId]?.displayName || usersMap[d.userId]?.email || d.userEmail }));
+
                 setAllData(enrichedData);
 
                 if (broadcastDoc.exists) {
@@ -2076,14 +2233,14 @@ const AdminPage = ({ setCurrentArea }) => {
                 }
 
             } catch (err) { console.error("Firebase query error:", err); }
-            finally { if(isMounted) setLoading(false); }
+            finally { if (isMounted) setLoading(false); }
         };
 
         loadAdminData();
         return () => { isMounted = false; };
-     }, [adminUserData]);
+    }, [adminUserData]);
 
-     const fetchAllUsersForManagement = async () => {
+    const fetchAllUsersForManagement = async () => {
         setUserManagementLoading(true);
         try {
             // Se o usuário for um 'setor_admin', ele só pode ver usuários do seu setor OU usuários sem setor.
@@ -2093,13 +2250,13 @@ const AdminPage = ({ setCurrentArea }) => {
                 const usersInSectorQuery = db.collection('users').where('setorId', '==', adminUserData.setorId).get();
                 // A query para usuários sem setor pode ser desnecessária se o chefe de setor só gerencia seu próprio setor.
                 // Vamos mantê-la por enquanto, mas pode ser removida se a regra de negócio for estrita.
-                const usersWithoutSectorQuery = db.collection('users').where('setorId', '==', null).get(); 
+                const usersWithoutSectorQuery = db.collection('users').where('setorId', '==', null).get();
 
                 const [usersInSectorSnap, usersWithoutSectorSnap] = await Promise.all([usersInSectorQuery, usersWithoutSectorQuery]);
-                
+
                 const usersInSector = usersInSectorSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 const usersWithoutSector = usersWithoutSectorSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                
+
                 const combinedUsers = [...usersInSector, ...usersWithoutSector].sort((a, b) => (a.displayName || '').localeCompare(b.displayName || ''));
                 setAllUsersForManagement(combinedUsers);
                 return combinedUsers;
@@ -2322,15 +2479,15 @@ const AdminPage = ({ setCurrentArea }) => {
         setViewData(dataForView);
         setHasSearched(false);
         setFilteredData([]);
-        
+
         // Calcula estatísticas iniciais (sem filtros aplicados) para exibir o dashboard imediatamente
         const summary = {
             total: dataForView.length,
-            perMateria: dataForView.reduce((acc, curr) => { if(curr.materia) acc[curr.materia] = (acc[curr.materia] || 0) + 1; return acc; }, {}),
-            perPrazo: dataForView.reduce((acc, curr) => { if(curr.prazo) acc[curr.prazo] = (acc[curr.prazo] || 0) + 1; return acc; }, {}),
+            perMateria: dataForView.reduce((acc, curr) => { if (curr.materia) acc[curr.materia] = (acc[curr.materia] || 0) + 1; return acc; }, {}),
+            perPrazo: dataForView.reduce((acc, curr) => { if (curr.prazo) acc[curr.prazo] = (acc[curr.prazo] || 0) + 1; return acc; }, {}),
             perSector: {} // Será calculado abaixo
         };
-        
+
         const today = new Date();
         const last7Days = {};
         for (let i = 6; i >= 0; i--) {
@@ -2383,14 +2540,14 @@ const AdminPage = ({ setCurrentArea }) => {
                 endDate.setHours(23, 59, 59, 999);
                 if (itemDate > endDate) return false;
             }
-            if(filters.materia !== 'todos' && item.materia !== filters.materia) return false;
-            if(filters.prazo !== 'todos' && item.prazo != filters.prazo) return false;
-            if(filters.email !== 'todos' && (item.userName !== filters.email && item.userEmail !== filters.email)) return false;
+            if (filters.materia !== 'todos' && item.materia !== filters.materia) return false;
+            if (filters.prazo !== 'todos' && item.prazo != filters.prazo) return false;
+            if (filters.email !== 'todos' && (item.userName !== filters.email && item.userEmail !== filters.email)) return false;
             if (filters.setorId !== 'todos') {
                 const user = allUsersForManagement.find(u => u.id === item.userId);
                 if (!user || user.setorId !== filters.setorId) return false;
             }
-            if(filters.userId && item.userId !== filters.userId) return false;
+            if (filters.userId && item.userId !== filters.userId) return false;
             return true;
         });
 
@@ -2435,15 +2592,15 @@ const AdminPage = ({ setCurrentArea }) => {
     };
 
     const handleFilterChange = (e) => {
-        setFilters({...filters, [e.target.name]: e.target.value });
+        setFilters({ ...filters, [e.target.name]: e.target.value });
     };
-    
+
     const handleBulkExport = async () => {
         if (!window.JSZip) {
             alert("Biblioteca JSZip não carregada. Por favor, recarregue a página.");
             return;
         }
-        
+
         const dataToExport = filteredData.length > 0 ? filteredData : allData;
         if (dataToExport.length === 0) {
             alert("Sem dados para exportar.");
@@ -2458,9 +2615,9 @@ const AdminPage = ({ setCurrentArea }) => {
                 const userName = item.userName || item.userEmail || 'Desconhecido';
                 // Sanitiza o nome da pasta
                 const safeName = userName.replace(/[^a-z0-9ãáàâéêíóôõúçñ -]/gi, '_').trim();
-                
+
                 if (!grouped[safeName]) grouped[safeName] = { cnj: [], calc: [] };
-                
+
                 if (item.type === 'djen_consulta') {
                     grouped[safeName].cnj.push(item);
                 } else {
@@ -2470,7 +2627,7 @@ const AdminPage = ({ setCurrentArea }) => {
 
             for (const [user, types] of Object.entries(grouped)) {
                 const userFolder = zip.folder(user);
-                
+
                 if (types.cnj.length > 0) {
                     const ws = XLSX.utils.json_to_sheet(types.cnj.map(i => ({
                         'Data': i.timestamp ? formatarData(i.timestamp.toDate()) : '',
@@ -2480,7 +2637,7 @@ const AdminPage = ({ setCurrentArea }) => {
                     const csv = XLSX.utils.sheet_to_csv(ws);
                     userFolder.file("pesquisa_cnj.csv", csv);
                 }
-                
+
                 if (types.calc.length > 0) {
                     const ws = XLSX.utils.json_to_sheet(types.calc.map(i => ({
                         'Data': i.timestamp ? formatarData(i.timestamp.toDate()) : '',
@@ -2504,7 +2661,7 @@ const AdminPage = ({ setCurrentArea }) => {
 
     const handleBulkDelete = async () => {
         const dataToDelete = filteredData.length > 0 ? filteredData : allData;
-        
+
         if (dataToDelete.length === 0) {
             alert("Não há registros para excluir.");
             return;
@@ -2542,7 +2699,7 @@ const AdminPage = ({ setCurrentArea }) => {
             'Matéria': item.materia,
             'Prazo (dias)': item.prazo,
             'Tipo de Uso': item.type === 'djen_consulta' ? 'Consulta DJEN' : (item.type || 'Calculadora'),
-            'Número do Processo': item.numeroProcesso || '', 
+            'Número do Processo': item.numeroProcesso || '',
             'Data': item.timestamp ? formatarData(item.timestamp.toDate()) : ''
         }));
         const worksheet = XLSX.utils.json_to_sheet(dataToExport);
@@ -2570,7 +2727,7 @@ const AdminPage = ({ setCurrentArea }) => {
             const fetchAudit = async () => {
                 setLoading(true);
                 const snap = await db.collection('audit_logs').orderBy('timestamp', 'desc').limit(50).get();
-                setAuditLogs(snap.docs.map(d => ({id: d.id, ...d.data()})));
+                setAuditLogs(snap.docs.map(d => ({ id: d.id, ...d.data() })));
                 setLoading(false);
             };
             fetchAudit();
@@ -2607,8 +2764,8 @@ const AdminPage = ({ setCurrentArea }) => {
     const chartDataMateria = { labels: ['Cível', 'Crime'], datasets: [{ data: [stats.perMateria.civel || 0, stats.perMateria.crime || 0], backgroundColor: ['#6366F1', '#F59E0B'] }] };
     const chartDataPrazo = { labels: ['5 Dias', '15 Dias'], datasets: [{ data: [stats.perPrazo[5] || 0, stats.perPrazo[15] || 0], backgroundColor: ['#10B981', '#3B82F6'] }] };
     const chartDataByDay = { labels: Object.keys(stats.byDay || {}).reverse(), datasets: [{ label: 'Cálculos por Dia', data: Object.values(stats.byDay || {}).reverse(), backgroundColor: 'rgba(79, 70, 229, 0.8)' }] };
-    const chartOptions = { legend: { display: false }, maintainAspectRatio: false, scales: { xAxes: [{ ticks: { beginAtZero: true } }] }};
-    
+    const chartOptions = { legend: { display: false }, maintainAspectRatio: false, scales: { xAxes: [{ ticks: { beginAtZero: true } }] } };
+
     const chartDataSector = {
         labels: Object.keys(stats.perSector || {}),
         datasets: [{
@@ -2617,7 +2774,7 @@ const AdminPage = ({ setCurrentArea }) => {
         }]
     };
 
-    if(loading && adminSection === 'stats') return <div className="text-center p-8"><p>A carregar dados...</p></div>
+    if (loading && adminSection === 'stats') return <div className="text-center p-8"><p>A carregar dados...</p></div>
 
     if (selectedUserForStats) {
         return (
@@ -2643,14 +2800,14 @@ const AdminPage = ({ setCurrentArea }) => {
                             <tr><th className="px-6 py-3">Data</th><th className="px-6 py-3">Nº Processo</th><th className="px-6 py-3">Matéria</th><th className="px-6 py-3">Prazo</th></tr>
                         </thead>
                         <tbody>
-                        {paginatedData.map(item => (
-                            <tr key={item.id} className="border-b border-slate-200/50 dark:border-slate-700/50"> 
-                                <td className="px-6 py-4">{item.timestamp ? formatarData(item.timestamp.toDate()) : ''}</td>
-                                <td className="px-6 py-4">{item.numeroProcesso}</td>
-                                <td className="px-6 py-4">{item.materia}</td> 
-                                <td className="px-6 py-4">{item.prazo} dias</td>
-                            </tr>
-                        ))}
+                            {paginatedData.map(item => (
+                                <tr key={item.id} className="border-b border-slate-200/50 dark:border-slate-700/50">
+                                    <td className="px-6 py-4">{item.timestamp ? formatarData(item.timestamp.toDate()) : ''}</td>
+                                    <td className="px-6 py-4">{item.numeroProcesso}</td>
+                                    <td className="px-6 py-4">{item.materia}</td>
+                                    <td className="px-6 py-4">{item.prazo} dias</td>
+                                </tr>
+                            ))}
                         </tbody>
                     </table>
                     <PaginationControls />
@@ -2659,7 +2816,7 @@ const AdminPage = ({ setCurrentArea }) => {
         );
     }
 
-     return(
+    return (
         <div className="space-y-8">
             <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-xl p-6 sm:p-8 rounded-2xl shadow-lg border border-slate-200/50 dark:border-slate-700/50">
                 <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Painel Administrativo</h2>
@@ -2676,443 +2833,442 @@ const AdminPage = ({ setCurrentArea }) => {
             </div>
 
             {adminSection === 'stats' && (
-            <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
-            {/* Coluna Lateral */}
-            <div className="lg:col-span-1 bg-white/60 dark:bg-slate-800/60 backdrop-blur-xl p-6 rounded-2xl shadow-lg border border-slate-200/50 dark:border-slate-700/50 self-start">
-                <h3 className="font-semibold text-lg mb-1 text-slate-800 dark:text-slate-100">Top 10 do Mês</h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mb-4 uppercase tracking-wider font-bold">{statsView === 'calculadora' ? 'Calculadora' : 'Consulta DJEN'}</p>
-                
-                {topUsers.length > 0 ? (
-                    <ul className="space-y-2 text-left">
-                        {topUsers.map(([name, count], index) => {
-                            // Lógica de Gamificação: Medalhas para o Top 3
-                            let medal = null;
-                            if (index === 0) medal = '🥇';
-                            if (index === 1) medal = '🥈';
-                            if (index === 2) medal = '🥉';
+                <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
+                    {/* Coluna Lateral */}
+                    <div className="lg:col-span-1 bg-white/60 dark:bg-slate-800/60 backdrop-blur-xl p-6 rounded-2xl shadow-lg border border-slate-200/50 dark:border-slate-700/50 self-start">
+                        <h3 className="font-semibold text-lg mb-1 text-slate-800 dark:text-slate-100">Top 10 do Mês</h3>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mb-4 uppercase tracking-wider font-bold">{statsView === 'calculadora' ? 'Calculadora' : 'Consulta DJEN'}</p>
 
-                            return (
-                                <li key={name} className={`flex items-center justify-between p-2 rounded-md text-sm ${index < 3 ? 'bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800' : 'bg-slate-100/70 dark:bg-slate-900/50'}`}>
-                                    <span className="font-medium truncate flex items-center gap-2" title={name}>
-                                        <span className="w-5 text-center">{medal || `${index + 1}.`}</span> 
-                                        {name}
-                                    </span>
-                                    <span className={`font-bold flex-shrink-0 ml-2 ${index < 3 ? 'text-indigo-700 dark:text-indigo-300' : 'text-slate-600 dark:text-slate-400'}`}>{count}</span>
-                                </li>
-                            );
-                        })}
-                    </ul>
-                ) : <p className="text-sm text-slate-500 dark:text-slate-400">Nenhum dado registrado neste mês.</p>}
-            </div>
+                        {topUsers.length > 0 ? (
+                            <ul className="space-y-2 text-left">
+                                {topUsers.map(([name, count], index) => {
+                                    // Lógica de Gamificação: Medalhas para o Top 3
+                                    let medal = null;
+                                    if (index === 0) medal = '🥇';
+                                    if (index === 1) medal = '🥈';
+                                    if (index === 2) medal = '🥉';
 
-            {/* Conteúdo Principal */}
-            <div className="lg:col-span-3 bg-white/60 dark:bg-slate-800/60 backdrop-blur-xl p-6 sm:p-8 rounded-2xl shadow-lg border border-slate-200/50 dark:border-slate-700/50 space-y-8">
-            <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
-                <div>
-                    <h3 className="text-xl font-bold text-slate-800 dark:text-slate-100">Filtros de Estatísticas</h3>
-                    <div className="flex items-center gap-2 mt-2">
-                        <button onClick={() => setStatsView('calculadora')} className={`px-3 py-1 text-sm font-semibold rounded-md transition-colors ${statsView === 'calculadora' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>Calculadora</button>
-                        <button onClick={() => setStatsView('djen_consulta')} className={`px-3 py-1 text-sm font-semibold rounded-md transition-colors ${statsView === 'djen_consulta' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>Consulta DJEN</button>
-                    </div>
-                </div>
-            </div>
-
-            <div className="space-y-6 animate-fade-in">
-                {/* KPI Cards */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 flex flex-col justify-between">
-                        <div>
-                            <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Total de Usos</h3>
-                            <p className="text-3xl font-extrabold text-slate-800 dark:text-white">{stats.total}</p>
-                        </div>
-                        <div className="mt-4 flex items-center text-xs text-slate-400">
-                            <span className="inline-block w-2 h-2 rounded-full bg-blue-500 mr-2"></span>
-                            {statsView === 'calculadora' ? 'Cálculos Realizados' : 'Consultas DJEN'}
-                        </div>
-                    </div>
-                    
-                    <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 flex flex-col justify-between">
-                        <div>
-                            <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Usuário Mais Ativo</h3>
-                            <p className="text-xl font-bold text-slate-800 dark:text-white truncate" title={topUsers[0]?.[0]}>{topUsers[0]?.[0] || 'N/A'}</p>
-                        </div>
-                        <div className="mt-4 text-xs text-slate-400">
-                            {topUsers[0]?.[1] || 0} registros
-                        </div>
+                                    return (
+                                        <li key={name} className={`flex items-center justify-between p-2 rounded-md text-sm ${index < 3 ? 'bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800' : 'bg-slate-100/70 dark:bg-slate-900/50'}`}>
+                                            <span className="font-medium truncate flex items-center gap-2" title={name}>
+                                                <span className="w-5 text-center">{medal || `${index + 1}.`}</span>
+                                                {name}
+                                            </span>
+                                            <span className={`font-bold flex-shrink-0 ml-2 ${index < 3 ? 'text-indigo-700 dark:text-indigo-300' : 'text-slate-600 dark:text-slate-400'}`}>{count}</span>
+                                        </li>
+                                    );
+                                })}
+                            </ul>
+                        ) : <p className="text-sm text-slate-500 dark:text-slate-400">Nenhum dado registrado neste mês.</p>}
                     </div>
 
-                    <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 flex flex-col justify-between">
-                        <div>
-                            <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">
-                                {statsView === 'calculadora' ? 'Matéria Principal' : 'Dia Mais Movimentado'}
-                            </h3>
-                            <p className="text-xl font-bold text-slate-800 dark:text-white capitalize truncate">
-                                {statsView === 'calculadora' 
-                                    ? (Object.entries(stats.perMateria).sort((a,b) => b[1] - a[1])[0]?.[0] || 'N/A')
-                                    : (Object.entries(stats.byDay).sort((a,b) => b[1] - a[1])[0]?.[0] || 'N/A')
-                                }
-                            </p>
-                        </div>
-                        <div className="mt-4 text-xs text-slate-400">
-                            Maior volume registrado
-                        </div>
-                    </div>
-                </div>
-
-                {/* Gráfico de Setores */}
-                {adminUserData.role === 'admin' && (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div className="p-4 bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 h-64">
-                             <h3 className="font-semibold text-center mb-2 text-slate-800 dark:text-slate-100">Utilização por Setor</h3>
-                             <Pie data={chartDataSector} options={{ responsive: true, maintainAspectRatio: false }}/>
-                        </div>
-                        <div className="p-4 bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
-                            <h3 className="font-semibold text-center mb-4 text-slate-800 dark:text-slate-100">Aviso Global (Broadcast)</h3>
-                            <div className="space-y-3">
-                                <textarea value={broadcastMessage.mensagem} onChange={e => setBroadcastMessage({...broadcastMessage, mensagem: e.target.value})} placeholder="Mensagem para todos os usuários..." className="w-full p-2 border rounded-md text-sm dark:bg-slate-900 dark:border-slate-600" rows="3"></textarea>
-                                <div className="flex items-center gap-2">
-                                    <input type="checkbox" checked={broadcastMessage.ativo} onChange={e => setBroadcastMessage({...broadcastMessage, ativo: e.target.checked})} id="broadcast-active" />
-                                    <label htmlFor="broadcast-active" className="text-sm">Ativar Aviso</label>
+                    {/* Conteúdo Principal */}
+                    <div className="lg:col-span-3 bg-white/60 dark:bg-slate-800/60 backdrop-blur-xl p-6 sm:p-8 rounded-2xl shadow-lg border border-slate-200/50 dark:border-slate-700/50 space-y-8">
+                        <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
+                            <div>
+                                <h3 className="text-xl font-bold text-slate-800 dark:text-slate-100">Filtros de Estatísticas</h3>
+                                <div className="flex items-center gap-2 mt-2">
+                                    <button onClick={() => setStatsView('calculadora')} className={`px-3 py-1 text-sm font-semibold rounded-md transition-colors ${statsView === 'calculadora' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>Calculadora</button>
+                                    <button onClick={() => setStatsView('djen_consulta')} className={`px-3 py-1 text-sm font-semibold rounded-md transition-colors ${statsView === 'djen_consulta' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>Consulta DJEN</button>
                                 </div>
-                                <button onClick={handleSaveBroadcast} disabled={isSavingBroadcast} className="w-full bg-blue-600 text-white py-2 rounded-md text-sm font-bold hover:bg-blue-700 disabled:opacity-50">Salvar Aviso</button>
                             </div>
                         </div>
-                    </div>
-                )}
 
-                <span className="text-sm text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-900/50 px-3 py-1.5 rounded-lg">Total de Usos: <strong className="font-bold text-lg text-slate-700 dark:text-slate-200">{viewData.length}</strong></span>
-            </div>
-            
-            <div className="p-4 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 items-end">
-                    <div><label className="text-xs font-medium text-slate-500">Data Inicial</label><input type="date" name="startDate" value={filters.startDate} onChange={handleFilterChange} className="w-full mt-1 p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700" /></div>
-                    <div><label className="text-xs font-medium text-slate-500">Data Final</label><input type="date" name="endDate" value={filters.endDate} onChange={handleFilterChange} className="w-full mt-1 p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700" /></div>
-                    {statsView === 'calculadora' && <>
-                        <div><label className="text-xs font-medium text-slate-500">Matéria</label><select name="materia" value={filters.materia} onChange={handleFilterChange} className="w-full mt-1 p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700"><option value="todos">Todas</option><option value="civel">Cível</option><option value="crime">Crime</option></select></div>
-                        <div><label className="text-xs font-medium text-slate-500">Prazo</label><select name="prazo" value={filters.prazo} onChange={handleFilterChange} className="w-full mt-1 p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700"><option value="todos">Todos</option><option value="5">5 Dias</option><option value="15">15 Dias</option></select></div>
-                    </>}
-                    {adminUserData.role === 'admin' && (
-                        <div>
-                            <label className="text-xs font-medium text-slate-500">Setor</label>
-                            <select name="setorId" value={filters.setorId} onChange={handleFilterChange} className="w-full mt-1 p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700">
-                                <option value="todos">Todos</option>
-                                {setores.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
-                            </select>
-                        </div>
-                    )}
-                    <div className="lg:col-span-full"><label className="text-xs font-medium text-slate-500">Utilizador</label><select name="email" value={filters.email} onChange={handleFilterChange} className="w-full mt-1 p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700"><option value="todos">Todos</option>{usersForFilterDropdown.map(u => <option key={u} value={u}>{u}</option>)}</select></div>
-                </div>
-                <div className="border-t border-slate-200 dark:border-slate-700 pt-4">
-                     <label className="text-xs font-medium text-slate-500">Pesquisar por ID do Utilizador</label>
-                     <div className="flex gap-4 items-center">
-                        <input type="text" name="userId" placeholder="Cole o ID do utilizador aqui..." value={filters.userId} onChange={handleFilterChange} className="w-full mt-1 p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700"/>
-                     </div>
-                </div>
-                 <div className="flex justify-end gap-2">
-                     <button onClick={handleFilter} className="px-4 py-2 text-sm font-semibold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-2">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" /></svg>
-                        Filtrar
-                     </button>
-                    <button onClick={handleExport} disabled={filteredData.length === 0} className="px-4 py-2 text-sm font-semibold bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 flex items-center gap-2">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
-                        Baixar Relatório
-                    </button>
-                    <button onClick={handleBulkExport} disabled={filteredData.length === 0} className="px-4 py-2 text-sm font-semibold bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 flex items-center gap-2">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" clipRule="evenodd" /></svg>
-                        Extração Completa (ZIP)
-                    </button>
-                    <button onClick={handleDeleteClick} disabled={filteredData.length === 0 && allData.length === 0} className="px-4 py-2 text-sm font-semibold bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 flex items-center gap-2">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
-                        Excluir Registros
-                    </button>
-                </div>
-            </div>
-
-            {!hasSearched ? (
-                <div className="text-center p-8 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg"><p className="text-slate-500 dark:text-slate-400">Os gráficos acima mostram o uso geral. Use os filtros para ver detalhes.</p></div>
-            ) : filteredData.length === 0 ? (
-                <div className="text-center p-8 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg">
-                    {loading ? <p className="text-slate-500 dark:text-slate-400">Buscando dados...</p> : <p className="text-slate-500 dark:text-slate-400">Nenhum resultado encontrado para os filtros selecionados.</p>}
-                </div>
-            ) : (
-                <>
-                    <div className="space-y-6">
-                        <div className="p-4 bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 h-64">
-                             <h3 className="font-semibold text-center mb-2 text-slate-800 dark:text-slate-100">Utilização nos Últimos 7 Dias</h3>
-                             <Bar data={chartDataByDay} options={{ responsive: true, maintainAspectRatio: false }}/>
-                        </div>
-                     <div>
-                        {/* Table */}
-                        <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
-                            <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-slate-50 dark:bg-slate-900/30">
-                                <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">Registros Detalhados</h3>
-                                <button onClick={handleExport} disabled={filteredData.length === 0} className="text-xs font-bold text-green-600 hover:text-green-700 flex items-center gap-1 disabled:opacity-50">
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
-                                    Exportar Excel
-                                </button>
-                            </div>
-                            <div className="overflow-x-auto">
-                                <table className="w-full text-sm text-left">
-                                    <thead className="text-xs text-slate-500 uppercase bg-slate-50 dark:bg-slate-900/50 border-b border-slate-100 dark:border-slate-700">
-                                        <tr>
-                                            <th className="px-6 py-3 font-bold">Utilizador</th>
-                                            <th className="px-6 py-3 font-bold">Tipo</th>
-                                            <th className="px-6 py-3 font-bold">Processo</th>
-                                            <th className="px-6 py-3 font-bold">Detalhes</th>
-                                            <th className="px-6 py-3 font-bold text-right">Data</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
-                                        {paginatedData.map(item => (
-                                            <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors">
-                                                <td className="px-6 py-4 font-medium text-slate-700 dark:text-slate-200">
-                                                    <a href="#" onClick={(e) => {e.preventDefault(); handleUserClick(item.userEmail)}} className="text-blue-600 hover:underline">{item.userName || item.userEmail}</a>
-                                                </td>
-                                                <td className="px-6 py-4 text-slate-500 capitalize">{(item.type || 'calculadora').split('_')[0]}</td>
-                                                <td className="px-6 py-4 text-slate-500">{item.numeroProcesso}</td>
-                                                <td className="px-6 py-4 text-slate-500">
-                                                    {item.materia ? (
-                                                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${item.materia === 'civel' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300' : 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300'}`}>
-                                                            {item.materia}, {item.prazo}d
-                                                        </span>
-                                                    ) : '-'}
-                                                </td>
-                                                <td className="px-6 py-4 text-right text-slate-500 font-mono text-xs">{item.timestamp ? formatarData(item.timestamp.toDate()) : ''}</td>
-                                            </tr>
-                                        ))}
-                                        {paginatedData.length === 0 && (
-                                            <tr><td colSpan="5" className="px-6 py-8 text-center text-slate-500">Nenhum registro encontrado.</td></tr>
-                                        )}
-                                    </tbody>
-                                </table>
-                            </div>
-                            {filteredData.length > 0 && <PaginationControls />}
-                        </div>
-                    </div>
-                </div>
-                </>
-            )}
-            </div>
-        </div>
-        )}
-        {adminSection === 'calendar' && (
-            <CalendarioAdminPage />
-        )}
-        {adminSection === 'chamados' && (
-            <BugReportsPage />
-        )}
-        {adminSection === 'audit' && (
-            <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
-                <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/30">
-                    <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">Logs de Auditoria (Últimos 50)</h3>
-                </div>
-                <div className="overflow-x-auto">
-                    <table className="w-full text-sm text-left">
-                        <thead className="text-xs text-slate-500 uppercase bg-slate-50 dark:bg-slate-900/50 border-b border-slate-100 dark:border-slate-700">
-                            <tr><th className="px-6 py-3">Data</th><th className="px-6 py-3">Ação</th><th className="px-6 py-3">Usuário</th><th className="px-6 py-3">Detalhes</th></tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
-                            {auditLogs.map(log => (
-                                <tr key={log.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/30">
-                                    <td className="px-6 py-4 whitespace-nowrap">{log.timestamp ? new Date(log.timestamp.toDate()).toLocaleString() : ''}</td>
-                                    <td className="px-6 py-4 font-bold text-slate-700 dark:text-slate-300">{log.action}</td>
-                                    <td className="px-6 py-4">{log.performedByEmail}</td>
-                                    <td className="px-6 py-4 text-slate-500 truncate max-w-xs" title={log.details}>{log.details}</td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        )}
-        {adminSection === 'minutas' && (
-            <MinutasAdminPage />
-        )}
-        {adminSection === 'users' && (
-            <div className="flex flex-col lg:flex-row gap-6 animate-fade-in">
-                {/* Coluna Esquerda: Gerenciamento de Setores (Apenas Admin Global) */}
-                {adminUserData.role === 'admin' && (
-                    <div className="lg:w-1/3 space-y-6">
-                        <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
-                            <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100 mb-4">Gerenciar Setores</h3>
-                            <form onSubmit={handleAddSector} className="space-y-3">
-                                <div>
-                                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Novo Setor</label>
-                                    <div className="flex gap-2">
-                                        <input 
-                                            type="text" 
-                                            placeholder="Nome do setor..." 
-                                            value={newSectorName} 
-                                            onChange={e => setNewSectorName(e.target.value)} 
-                                            className="flex-grow px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition text-sm" 
-                                        />
-                                        <button type="submit" className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors shadow-sm">
-                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" /></svg>
-                                        </button>
+                        <div className="space-y-6 animate-fade-in">
+                            {/* KPI Cards */}
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 flex flex-col justify-between">
+                                    <div>
+                                        <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Total de Usos</h3>
+                                        <p className="text-3xl font-extrabold text-slate-800 dark:text-white">{stats.total}</p>
+                                    </div>
+                                    <div className="mt-4 flex items-center text-xs text-slate-400">
+                                        <span className="inline-block w-2 h-2 rounded-full bg-blue-500 mr-2"></span>
+                                        {statsView === 'calculadora' ? 'Cálculos Realizados' : 'Consultas DJEN'}
                                     </div>
                                 </div>
-                            </form>
-                        </div>
 
-                        <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
-                            <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/30">
-                                <h3 className="text-sm font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider">Setores Existentes</h3>
+                                <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 flex flex-col justify-between">
+                                    <div>
+                                        <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Usuário Mais Ativo</h3>
+                                        <p className="text-xl font-bold text-slate-800 dark:text-white truncate" title={topUsers[0]?.[0]}>{topUsers[0]?.[0] || 'N/A'}</p>
+                                    </div>
+                                    <div className="mt-4 text-xs text-slate-400">
+                                        {topUsers[0]?.[1] || 0} registros
+                                    </div>
+                                </div>
+
+                                <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 flex flex-col justify-between">
+                                    <div>
+                                        <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">
+                                            {statsView === 'calculadora' ? 'Matéria Principal' : 'Dia Mais Movimentado'}
+                                        </h3>
+                                        <p className="text-xl font-bold text-slate-800 dark:text-white capitalize truncate">
+                                            {statsView === 'calculadora'
+                                                ? (Object.entries(stats.perMateria).sort((a, b) => b[1] - a[1])[0]?.[0] || 'N/A')
+                                                : (Object.entries(stats.byDay).sort((a, b) => b[1] - a[1])[0]?.[0] || 'N/A')
+                                            }
+                                        </p>
+                                    </div>
+                                    <div className="mt-4 text-xs text-slate-400">
+                                        Maior volume registrado
+                                    </div>
+                                </div>
                             </div>
-                            <div className="max-h-[500px] overflow-y-auto divide-y divide-slate-100 dark:divide-slate-700">
-                                {setores.map(setor => {
-                                    const membersCount = allUsersForManagement.filter(u => u.setorId === setor.id).length;
-                                    return (
-                                        <div key={setor.id} className="p-4 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors group">
-                                            <div>
-                                                <p className="font-medium text-slate-800 dark:text-slate-200 text-sm">{setor.nome}</p>
-                                                <p className="text-xs text-slate-500">{membersCount} membros</p>
+
+                            {/* Gráfico de Setores */}
+                            {adminUserData.role === 'admin' && (
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div className="p-4 bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 h-64">
+                                        <h3 className="font-semibold text-center mb-2 text-slate-800 dark:text-slate-100">Utilização por Setor</h3>
+                                        <Pie data={chartDataSector} options={{ responsive: true, maintainAspectRatio: false }} />
+                                    </div>
+                                    <div className="p-4 bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
+                                        <h3 className="font-semibold text-center mb-4 text-slate-800 dark:text-slate-100">Aviso Global (Broadcast)</h3>
+                                        <div className="space-y-3">
+                                            <textarea value={broadcastMessage.mensagem} onChange={e => setBroadcastMessage({ ...broadcastMessage, mensagem: e.target.value })} placeholder="Mensagem para todos os usuários..." className="w-full p-2 border rounded-md text-sm dark:bg-slate-900 dark:border-slate-600" rows="3"></textarea>
+                                            <div className="flex items-center gap-2">
+                                                <input type="checkbox" checked={broadcastMessage.ativo} onChange={e => setBroadcastMessage({ ...broadcastMessage, ativo: e.target.checked })} id="broadcast-active" />
+                                                <label htmlFor="broadcast-active" className="text-sm">Ativar Aviso</label>
                                             </div>
-                                            <button onClick={() => handleDeleteSector(setor.id)} className="text-slate-400 hover:text-red-600 transition-colors opacity-0 group-hover:opacity-100" title="Excluir Setor">
-                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
-                                            </button>
+                                            <button onClick={handleSaveBroadcast} disabled={isSavingBroadcast} className="w-full bg-blue-600 text-white py-2 rounded-md text-sm font-bold hover:bg-blue-700 disabled:opacity-50">Salvar Aviso</button>
                                         </div>
-                                    );
-                                })}
-                            </div>
-                        </div>
-                    </div>
-                )}
+                                    </div>
+                                </div>
+                            )}
 
-                {/* Coluna Direita: Gerenciamento de Usuários */}
-                <div className={`${adminUserData.role === 'admin' ? 'lg:w-2/3' : 'w-full'} space-y-6`}>
-                    <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
-                        <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mb-6">
-                            <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">Usuários</h2>
-                            <div className="relative w-full sm:w-64">
-                                <input 
-                                    type="text" 
-                                    placeholder="Buscar usuário..." 
-                                    value={userSearchTerm} 
-                                    onChange={e => setUserSearchTerm(e.target.value)} 
-                                    className="w-full pl-10 pr-4 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition text-sm" 
-                                />
-                                <svg className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" /></svg>
-                            </div>
+                            <span className="text-sm text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-900/50 px-3 py-1.5 rounded-lg">Total de Usos: <strong className="font-bold text-lg text-slate-700 dark:text-slate-200">{viewData.length}</strong></span>
                         </div>
 
-                        {userManagementLoading ? (
-                            <div className="flex justify-center p-8"><p className="text-slate-500">Carregando usuários...</p></div>
+                        <div className="p-4 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg space-y-4">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 items-end">
+                                <div><label className="text-xs font-medium text-slate-500">Data Inicial</label><input type="date" name="startDate" value={filters.startDate} onChange={handleFilterChange} className="w-full mt-1 p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700" /></div>
+                                <div><label className="text-xs font-medium text-slate-500">Data Final</label><input type="date" name="endDate" value={filters.endDate} onChange={handleFilterChange} className="w-full mt-1 p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700" /></div>
+                                {statsView === 'calculadora' && <>
+                                    <div><label className="text-xs font-medium text-slate-500">Matéria</label><select name="materia" value={filters.materia} onChange={handleFilterChange} className="w-full mt-1 p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700"><option value="todos">Todas</option><option value="civel">Cível</option><option value="crime">Crime</option></select></div>
+                                    <div><label className="text-xs font-medium text-slate-500">Prazo</label><select name="prazo" value={filters.prazo} onChange={handleFilterChange} className="w-full mt-1 p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700"><option value="todos">Todos</option><option value="5">5 Dias</option><option value="15">15 Dias</option></select></div>
+                                </>}
+                                {adminUserData.role === 'admin' && (
+                                    <div>
+                                        <label className="text-xs font-medium text-slate-500">Setor</label>
+                                        <select name="setorId" value={filters.setorId} onChange={handleFilterChange} className="w-full mt-1 p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700">
+                                            <option value="todos">Todos</option>
+                                            {setores.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
+                                        </select>
+                                    </div>
+                                )}
+                                <div className="lg:col-span-full"><label className="text-xs font-medium text-slate-500">Utilizador</label><select name="email" value={filters.email} onChange={handleFilterChange} className="w-full mt-1 p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700"><option value="todos">Todos</option>{usersForFilterDropdown.map(u => <option key={u} value={u}>{u}</option>)}</select></div>
+                            </div>
+                            <div className="border-t border-slate-200 dark:border-slate-700 pt-4">
+                                <label className="text-xs font-medium text-slate-500">Pesquisar por ID do Utilizador</label>
+                                <div className="flex gap-4 items-center">
+                                    <input type="text" name="userId" placeholder="Cole o ID do utilizador aqui..." value={filters.userId} onChange={handleFilterChange} className="w-full mt-1 p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700" />
+                                </div>
+                            </div>
+                            <div className="flex justify-end gap-2">
+                                <button onClick={handleFilter} className="px-4 py-2 text-sm font-semibold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-2">
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" /></svg>
+                                    Filtrar
+                                </button>
+                                <button onClick={handleExport} disabled={filteredData.length === 0} className="px-4 py-2 text-sm font-semibold bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 flex items-center gap-2">
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
+                                    Baixar Relatório
+                                </button>
+                                <button onClick={handleBulkExport} disabled={filteredData.length === 0} className="px-4 py-2 text-sm font-semibold bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 flex items-center gap-2">
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" clipRule="evenodd" /></svg>
+                                    Extração Completa (ZIP)
+                                </button>
+                                <button onClick={handleDeleteClick} disabled={filteredData.length === 0 && allData.length === 0} className="px-4 py-2 text-sm font-semibold bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 flex items-center gap-2">
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
+                                    Excluir Registros
+                                </button>
+                            </div>
+                        </div>
+
+                        {!hasSearched ? (
+                            <div className="text-center p-8 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg"><p className="text-slate-500 dark:text-slate-400">Os gráficos acima mostram o uso geral. Use os filtros para ver detalhes.</p></div>
+                        ) : filteredData.length === 0 ? (
+                            <div className="text-center p-8 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg">
+                                {loading ? <p className="text-slate-500 dark:text-slate-400">Buscando dados...</p> : <p className="text-slate-500 dark:text-slate-400">Nenhum resultado encontrado para os filtros selecionados.</p>}
+                            </div>
                         ) : (
-                            <div className="space-y-4">
-                                {Object.entries(
-                                    allUsersForManagement
-                                        .filter(u => u.displayName?.toLowerCase().includes(userSearchTerm.toLowerCase()) || u.email?.toLowerCase().includes(userSearchTerm.toLowerCase()))
-                                        .reduce((acc, user) => {
-                                            const sectorId = user.setorId || 'sem-setor';
-                                            if (!acc[sectorId]) acc[sectorId] = [];
-                                            acc[sectorId].push(user);
-                                            return acc;
-                                        }, {})
-                                ).sort(([sectorIdA], [sectorIdB]) => {
-                                    if (sectorIdA === 'sem-setor') return -1;
-                                    if (sectorIdB === 'sem-setor') return 1;
-                                    const setorA = setores.find(s => s.id === sectorIdA)?.nome || '';
-                                    const setorB = setores.find(s => s.id === sectorIdB)?.nome || '';
-                                    return setorA.localeCompare(setorB);
-                                }).map(([sectorId, users]) => {
-                                    const sector = setores.find(s => s.id === sectorId);
-                                    const sectorName = sector ? sector.nome : "Sem Setor Definido";
-                                    const isExpanded = expandedUserSectors.has(sectorId) || userSearchTerm.length > 0; 
-
-                                    return (
-                                        <div key={sectorId} className="border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
-                                            <div 
-                                                className="bg-slate-50 dark:bg-slate-900/50 px-4 py-3 flex justify-between items-center cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                                                onClick={() => toggleUserSectorExpansion(sectorId)}
-                                            >
-                                                <div className="flex items-center gap-2">
-                                                    <svg xmlns="http://www.w3.org/2000/svg" className={`h-4 w-4 text-slate-500 transition-transform ${isExpanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
-                                                    <h4 className="font-bold text-slate-700 dark:text-slate-200 text-sm">{sectorName}</h4>
-                                                </div>
-                                                <span className="text-xs font-medium bg-white dark:bg-slate-800 px-2 py-1 rounded-md border border-slate-200 dark:border-slate-700 text-slate-500">{users.length}</span>
+                            <>
+                                <div className="space-y-6">
+                                    <div className="p-4 bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 h-64">
+                                        <h3 className="font-semibold text-center mb-2 text-slate-800 dark:text-slate-100">Utilização nos Últimos 7 Dias</h3>
+                                        <Bar data={chartDataByDay} options={{ responsive: true, maintainAspectRatio: false }} />
+                                    </div>
+                                    <div>
+                                        {/* Table */}
+                                        <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
+                                            <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-slate-50 dark:bg-slate-900/30">
+                                                <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">Registros Detalhados</h3>
+                                                <button onClick={handleExport} disabled={filteredData.length === 0} className="text-xs font-bold text-green-600 hover:text-green-700 flex items-center gap-1 disabled:opacity-50">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
+                                                    Exportar Excel
+                                                </button>
                                             </div>
-                                            
-                                            {isExpanded && (
-                                                <div className="divide-y divide-slate-100 dark:divide-slate-700 bg-white dark:bg-slate-800">
-                                                    {users.map(u => (
-                                                        <div key={u.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-slate-50 dark:hover:bg-slate-700/20 transition-colors">
-                                                            <div className="flex items-center gap-3">
-                                                                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white ${u.emailVerified ? 'bg-green-500' : 'bg-amber-500'}`}>
-                                                                    {u.displayName ? u.displayName.charAt(0).toUpperCase() : u.email.charAt(0).toUpperCase()}
-                                                                </div>
-                                                                <div>
-                                                                    <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">{u.displayName || 'Sem Nome'}</p>
-                                                                    <p className="text-xs text-slate-500">{u.email}</p>
-                                                                </div>
-                                                            </div>
-                                                            
-                                                            <div className="flex items-center gap-3 self-end sm:self-auto">
-                                                                <span className={`px-2 py-1 text-[10px] font-bold uppercase tracking-wide rounded-md ${
-                                                                    u.role === 'admin' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300' :
-                                                                    u.role === 'setor_admin' ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300' :
-                                                                    u.role === 'intermediate' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' :
-                                                                    'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300'
-                                                                }`}>
-                                                                    {u.role === 'admin' ? 'Global Admin' : u.role === 'setor_admin' ? 'Chefe' : u.role === 'intermediate' ? 'Intermediário' : 'Básico'}
-                                                                </span>
-                                                                
-                                                                <div className="flex items-center border-l border-slate-200 dark:border-slate-700 pl-3 gap-1">
-                                                                    <button onClick={() => handleOpenUserManagementModal(u)} className="p-1.5 text-slate-400 hover:text-blue-600 transition-colors rounded-md hover:bg-blue-50 dark:hover:bg-blue-900/20" title="Editar Permissões">
-                                                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" /></svg>
-                                                                    </button>
-                                                                    <button onClick={() => handleDeleteUser(u)} className="p-1.5 text-slate-400 hover:text-red-600 transition-colors rounded-md hover:bg-red-50 dark:hover:bg-red-900/20" title="Excluir Usuário">
-                                                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
-                                                                    </button>
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            )}
+                                            <div className="overflow-x-auto">
+                                                <table className="w-full text-sm text-left">
+                                                    <thead className="text-xs text-slate-500 uppercase bg-slate-50 dark:bg-slate-900/50 border-b border-slate-100 dark:border-slate-700">
+                                                        <tr>
+                                                            <th className="px-6 py-3 font-bold">Utilizador</th>
+                                                            <th className="px-6 py-3 font-bold">Tipo</th>
+                                                            <th className="px-6 py-3 font-bold">Processo</th>
+                                                            <th className="px-6 py-3 font-bold">Detalhes</th>
+                                                            <th className="px-6 py-3 font-bold text-right">Data</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
+                                                        {paginatedData.map(item => (
+                                                            <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors">
+                                                                <td className="px-6 py-4 font-medium text-slate-700 dark:text-slate-200">
+                                                                    <a href="#" onClick={(e) => { e.preventDefault(); handleUserClick(item.userEmail) }} className="text-blue-600 hover:underline">{item.userName || item.userEmail}</a>
+                                                                </td>
+                                                                <td className="px-6 py-4 text-slate-500 capitalize">{(item.type || 'calculadora').split('_')[0]}</td>
+                                                                <td className="px-6 py-4 text-slate-500">{item.numeroProcesso}</td>
+                                                                <td className="px-6 py-4 text-slate-500">
+                                                                    {item.materia ? (
+                                                                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${item.materia === 'civel' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300' : 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300'}`}>
+                                                                            {item.materia}, {item.prazo}d
+                                                                        </span>
+                                                                    ) : '-'}
+                                                                </td>
+                                                                <td className="px-6 py-4 text-right text-slate-500 font-mono text-xs">{item.timestamp ? formatarData(item.timestamp.toDate()) : ''}</td>
+                                                            </tr>
+                                                        ))}
+                                                        {paginatedData.length === 0 && (
+                                                            <tr><td colSpan="5" className="px-6 py-8 text-center text-slate-500">Nenhum registro encontrado.</td></tr>
+                                                        )}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                            {filteredData.length > 0 && <PaginationControls />}
                                         </div>
-                                    );
-                                })}
-                            </div>
+                                    </div>
+                                </div>
+                            </>
                         )}
                     </div>
                 </div>
-            </div>
-        )}
-    {editingUser && (
-        <UserManagementModal 
-            user={editingUser}
-            setores={setores}
-            adminUser={adminUserData}
-            onClose={handleCloseUserManagementModal}
-            onSave={handleSaveUserPermissions}
-        />
-    )}
-    {showDeleteModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
-            <div className="bg-white dark:bg-slate-800 w-full max-w-md rounded-2xl shadow-2xl p-6 border border-slate-200 dark:border-slate-700">
-                <h3 className="text-xl font-bold text-slate-800 dark:text-slate-100 mb-4">Excluir Registros por Período</h3>
-                <p className="text-sm text-slate-600 dark:text-slate-300 mb-4">Selecione o intervalo de datas dos registros que deseja excluir permanentemente.</p>
-                
-                <div className="space-y-4">
-                    <div>
-                        <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Data Inicial</label>
-                        <input type="date" value={deleteRange.start} onChange={e => setDeleteRange({...deleteRange, start: e.target.value})} className="w-full p-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-200" />
+            )}
+            {adminSection === 'calendar' && (
+                <CalendarioAdminPage />
+            )}
+            {adminSection === 'chamados' && (
+                <BugReportsPage />
+            )}
+            {adminSection === 'audit' && (
+                <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
+                    <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/30">
+                        <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">Logs de Auditoria (Últimos 50)</h3>
                     </div>
-                    <div>
-                        <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Data Final</label>
-                        <input type="date" value={deleteRange.end} onChange={e => setDeleteRange({...deleteRange, end: e.target.value})} className="w-full p-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-200" />
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-sm text-left">
+                            <thead className="text-xs text-slate-500 uppercase bg-slate-50 dark:bg-slate-900/50 border-b border-slate-100 dark:border-slate-700">
+                                <tr><th className="px-6 py-3">Data</th><th className="px-6 py-3">Ação</th><th className="px-6 py-3">Usuário</th><th className="px-6 py-3">Detalhes</th></tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
+                                {auditLogs.map(log => (
+                                    <tr key={log.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/30">
+                                        <td className="px-6 py-4 whitespace-nowrap">{log.timestamp ? new Date(log.timestamp.toDate()).toLocaleString() : ''}</td>
+                                        <td className="px-6 py-4 font-bold text-slate-700 dark:text-slate-300">{log.action}</td>
+                                        <td className="px-6 py-4">{log.performedByEmail}</td>
+                                        <td className="px-6 py-4 text-slate-500 truncate max-w-xs" title={log.details}>{log.details}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
                     </div>
                 </div>
+            )}
+            {adminSection === 'minutas' && (
+                <MinutasAdminPage />
+            )}
+            {adminSection === 'users' && (
+                <div className="flex flex-col lg:flex-row gap-6 animate-fade-in">
+                    {/* Coluna Esquerda: Gerenciamento de Setores (Apenas Admin Global) */}
+                    {adminUserData.role === 'admin' && (
+                        <div className="lg:w-1/3 space-y-6">
+                            <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
+                                <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100 mb-4">Gerenciar Setores</h3>
+                                <form onSubmit={handleAddSector} className="space-y-3">
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Novo Setor</label>
+                                        <div className="flex gap-2">
+                                            <input
+                                                type="text"
+                                                placeholder="Nome do setor..."
+                                                value={newSectorName}
+                                                onChange={e => setNewSectorName(e.target.value)}
+                                                className="flex-grow px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition text-sm"
+                                            />
+                                            <button type="submit" className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors shadow-sm">
+                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" /></svg>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </form>
+                            </div>
 
-                <div className="flex justify-end gap-3 mt-6">
-                    <button onClick={() => setShowDeleteModal(false)} className="px-4 py-2 text-sm font-semibold bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-200 dark:hover:bg-slate-600">Cancelar</button>
-                    <button onClick={handleConfirmDelete} className="px-4 py-2 text-sm font-semibold bg-red-600 text-white rounded-lg hover:bg-red-700">Excluir</button>
+                            <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
+                                <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/30">
+                                    <h3 className="text-sm font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider">Setores Existentes</h3>
+                                </div>
+                                <div className="max-h-[500px] overflow-y-auto divide-y divide-slate-100 dark:divide-slate-700">
+                                    {setores.map(setor => {
+                                        const membersCount = allUsersForManagement.filter(u => u.setorId === setor.id).length;
+                                        return (
+                                            <div key={setor.id} className="p-4 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors group">
+                                                <div>
+                                                    <p className="font-medium text-slate-800 dark:text-slate-200 text-sm">{setor.nome}</p>
+                                                    <p className="text-xs text-slate-500">{membersCount} membros</p>
+                                                </div>
+                                                <button onClick={() => handleDeleteSector(setor.id)} className="text-slate-400 hover:text-red-600 transition-colors opacity-0 group-hover:opacity-100" title="Excluir Setor">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
+                                                </button>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Coluna Direita: Gerenciamento de Usuários */}
+                    <div className={`${adminUserData.role === 'admin' ? 'lg:w-2/3' : 'w-full'} space-y-6`}>
+                        <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
+                            <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mb-6">
+                                <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">Usuários</h2>
+                                <div className="relative w-full sm:w-64">
+                                    <input
+                                        type="text"
+                                        placeholder="Buscar usuário..."
+                                        value={userSearchTerm}
+                                        onChange={e => setUserSearchTerm(e.target.value)}
+                                        className="w-full pl-10 pr-4 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition text-sm"
+                                    />
+                                    <svg className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" /></svg>
+                                </div>
+                            </div>
+
+                            {userManagementLoading ? (
+                                <div className="flex justify-center p-8"><p className="text-slate-500">Carregando usuários...</p></div>
+                            ) : (
+                                <div className="space-y-4">
+                                    {Object.entries(
+                                        allUsersForManagement
+                                            .filter(u => u.displayName?.toLowerCase().includes(userSearchTerm.toLowerCase()) || u.email?.toLowerCase().includes(userSearchTerm.toLowerCase()))
+                                            .reduce((acc, user) => {
+                                                const sectorId = user.setorId || 'sem-setor';
+                                                if (!acc[sectorId]) acc[sectorId] = [];
+                                                acc[sectorId].push(user);
+                                                return acc;
+                                            }, {})
+                                    ).sort(([sectorIdA], [sectorIdB]) => {
+                                        if (sectorIdA === 'sem-setor') return -1;
+                                        if (sectorIdB === 'sem-setor') return 1;
+                                        const setorA = setores.find(s => s.id === sectorIdA)?.nome || '';
+                                        const setorB = setores.find(s => s.id === sectorIdB)?.nome || '';
+                                        return setorA.localeCompare(setorB);
+                                    }).map(([sectorId, users]) => {
+                                        const sector = setores.find(s => s.id === sectorId);
+                                        const sectorName = sector ? sector.nome : "Sem Setor Definido";
+                                        const isExpanded = expandedUserSectors.has(sectorId) || userSearchTerm.length > 0;
+
+                                        return (
+                                            <div key={sectorId} className="border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
+                                                <div
+                                                    className="bg-slate-50 dark:bg-slate-900/50 px-4 py-3 flex justify-between items-center cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                                                    onClick={() => toggleUserSectorExpansion(sectorId)}
+                                                >
+                                                    <div className="flex items-center gap-2">
+                                                        <svg xmlns="http://www.w3.org/2000/svg" className={`h-4 w-4 text-slate-500 transition-transform ${isExpanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                                                        <h4 className="font-bold text-slate-700 dark:text-slate-200 text-sm">{sectorName}</h4>
+                                                    </div>
+                                                    <span className="text-xs font-medium bg-white dark:bg-slate-800 px-2 py-1 rounded-md border border-slate-200 dark:border-slate-700 text-slate-500">{users.length}</span>
+                                                </div>
+
+                                                {isExpanded && (
+                                                    <div className="divide-y divide-slate-100 dark:divide-slate-700 bg-white dark:bg-slate-800">
+                                                        {users.map(u => (
+                                                            <div key={u.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-slate-50 dark:hover:bg-slate-700/20 transition-colors">
+                                                                <div className="flex items-center gap-3">
+                                                                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white ${u.emailVerified ? 'bg-green-500' : 'bg-amber-500'}`}>
+                                                                        {u.displayName ? u.displayName.charAt(0).toUpperCase() : u.email.charAt(0).toUpperCase()}
+                                                                    </div>
+                                                                    <div>
+                                                                        <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">{u.displayName || 'Sem Nome'}</p>
+                                                                        <p className="text-xs text-slate-500">{u.email}</p>
+                                                                    </div>
+                                                                </div>
+
+                                                                <div className="flex items-center gap-3 self-end sm:self-auto">
+                                                                    <span className={`px-2 py-1 text-[10px] font-bold uppercase tracking-wide rounded-md ${u.role === 'admin' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300' :
+                                                                        u.role === 'setor_admin' ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300' :
+                                                                            u.role === 'intermediate' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' :
+                                                                                'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300'
+                                                                        }`}>
+                                                                        {u.role === 'admin' ? 'Global Admin' : u.role === 'setor_admin' ? 'Chefe' : u.role === 'intermediate' ? 'Intermediário' : 'Básico'}
+                                                                    </span>
+
+                                                                    <div className="flex items-center border-l border-slate-200 dark:border-slate-700 pl-3 gap-1">
+                                                                        <button onClick={() => handleOpenUserManagementModal(u)} className="p-1.5 text-slate-400 hover:text-blue-600 transition-colors rounded-md hover:bg-blue-50 dark:hover:bg-blue-900/20" title="Editar Permissões">
+                                                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" /></svg>
+                                                                        </button>
+                                                                        <button onClick={() => handleDeleteUser(u)} className="p-1.5 text-slate-400 hover:text-red-600 transition-colors rounded-md hover:bg-red-50 dark:hover:bg-red-900/20" title="Excluir Usuário">
+                                                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
+                                                                        </button>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+                    </div>
                 </div>
-            </div>
+            )}
+            {editingUser && (
+                <UserManagementModal
+                    user={editingUser}
+                    setores={setores}
+                    adminUser={adminUserData}
+                    onClose={handleCloseUserManagementModal}
+                    onSave={handleSaveUserPermissions}
+                />
+            )}
+            {showDeleteModal && (
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
+                    <div className="bg-white dark:bg-slate-800 w-full max-w-md rounded-2xl shadow-2xl p-6 border border-slate-200 dark:border-slate-700">
+                        <h3 className="text-xl font-bold text-slate-800 dark:text-slate-100 mb-4">Excluir Registros por Período</h3>
+                        <p className="text-sm text-slate-600 dark:text-slate-300 mb-4">Selecione o intervalo de datas dos registros que deseja excluir permanentemente.</p>
+
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Data Inicial</label>
+                                <input type="date" value={deleteRange.start} onChange={e => setDeleteRange({ ...deleteRange, start: e.target.value })} className="w-full p-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-200" />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Data Final</label>
+                                <input type="date" value={deleteRange.end} onChange={e => setDeleteRange({ ...deleteRange, end: e.target.value })} className="w-full p-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-200" />
+                            </div>
+                        </div>
+
+                        <div className="flex justify-end gap-3 mt-6">
+                            <button onClick={() => setShowDeleteModal(false)} className="px-4 py-2 text-sm font-semibold bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-200 dark:hover:bg-slate-600">Cancelar</button>
+                            <button onClick={handleConfirmDelete} className="px-4 py-2 text-sm font-semibold bg-red-600 text-white rounded-lg hover:bg-red-700">Excluir</button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
-    )}
-        </div>
-     );
+    );
 };
 
 const BugReportModal = ({ screenshot, onClose, onSubmit }) => {
@@ -3187,7 +3343,7 @@ const BugReportButton = () => {
         try {
             // Oculta o próprio botão de report para não aparecer no print
             const reportButton = document.getElementById('bug-report-button');
-            if(reportButton) reportButton.style.display = 'none';
+            if (reportButton) reportButton.style.display = 'none';
 
             // Verifica se o tema escuro está ativo
             const isDarkMode = document.documentElement.classList.contains('dark');
@@ -3202,8 +3358,8 @@ const BugReportButton = () => {
                 windowWidth: document.documentElement.offsetWidth,
                 windowHeight: document.documentElement.offsetHeight,
             });
-            
-            if(reportButton) reportButton.style.display = 'flex'; // Mostra o botão novamente
+
+            if (reportButton) reportButton.style.display = 'flex'; // Mostra o botão novamente
 
             setScreenshot(canvas.toDataURL('image/png'));
             setIsReporting(true);
@@ -3304,7 +3460,7 @@ const ChangelogModal = ({ onClose }) => {
         onClose();
     };
 
-    const filteredChanges = latestLog?.changes?.filter(change => 
+    const filteredChanges = latestLog?.changes?.filter(change =>
         change.roles.includes(userData.role) || change.roles.includes('all')
     ) || [];
 
@@ -3506,7 +3662,7 @@ const ProfileModal = ({ user, userData, onClose, onUpdate }) => {
     const handleDeleteAccount = async () => {
         const confirmMsg = "ATENÇÃO: Tem certeza que deseja excluir sua conta?\n\nEsta ação é irreversível. Todos os seus dados pessoais e histórico de acesso serão removidos permanentemente do sistema.\n\nDigite 'EXCLUIR' para confirmar:";
         const userInput = window.prompt(confirmMsg);
-        
+
         if (userInput === 'EXCLUIR') {
             try {
                 // Deleta o documento do usuário no Firestore
@@ -3534,7 +3690,7 @@ const ProfileModal = ({ user, userData, onClose, onUpdate }) => {
                 displayName: displayName.trim(),
                 avatarColor: avatarColor,
                 // Remove a foto do perfil ao salvar, se existir
-                photoURL: null 
+                photoURL: null
             };
 
             // Atualiza o perfil do Firebase Auth e o documento do Firestore
@@ -3569,7 +3725,7 @@ const ProfileModal = ({ user, userData, onClose, onUpdate }) => {
                 <div className="p-6 space-y-4">
                     <div className="flex flex-col items-center gap-4">
                         <div className="relative w-full flex justify-center items-center">
-                            <Avatar user={user} userData={{...userData, displayName, avatarColor}} size="h-24 w-24" />
+                            <Avatar user={user} userData={{ ...userData, displayName, avatarColor }} size="h-24 w-24" />
                         </div>
                         <div className="flex flex-wrap justify-center gap-2">
                             {AVATAR_COLORS.map(color => (
@@ -3579,7 +3735,7 @@ const ProfileModal = ({ user, userData, onClose, onUpdate }) => {
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Nome</label>
-                        <input 
+                        <input
                             type="text"
                             value={displayName}
                             onChange={(e) => setDisplayName(e.target.value)}
@@ -3593,14 +3749,14 @@ const ProfileModal = ({ user, userData, onClose, onUpdate }) => {
                             {user.email}
                         </p>
                     </div>
-                    
+
                     {error && <p className="text-sm text-center text-red-500">{error}</p>}
                     {message && <p className="text-sm text-center text-green-500">{message}</p>}
 
                     <button onClick={handleSave} disabled={isSaving} className="w-full flex justify-center items-center bg-gradient-to-br from-indigo-500 to-indigo-600 text-white font-semibold py-3 px-4 rounded-lg hover:from-indigo-600 hover:to-indigo-700 transition-all duration-300 shadow-md disabled:opacity-50">
                         {isSaving ? 'Salvando...' : 'Salvar Alterações'}
                     </button>
-                    
+
                     <div className="pt-2">
                         <button onClick={handleDeleteAccount} className="w-full flex justify-center items-center text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 text-sm font-semibold py-2 px-4 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-all duration-300">
                             Excluir Minha Conta
@@ -3654,14 +3810,11 @@ const Sidebar = ({ isOpen, setIsOpen, isCollapsed, toggleCollapse }) => {
             {isOpen && <div className="fixed inset-0 bg-black/50 z-[55] lg:hidden" onClick={() => setIsOpen(false)}></div>}
 
             {/* Sidebar Container */}
-            <aside className={`fixed lg:static inset-y-0 left-0 z-[60] ${isCollapsed ? 'w-20' : 'w-64'} bg-slate-900 text-white transform transition-all duration-300 ease-in-out ${isOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0 flex flex-col`}>
-                {/* Logo Area */}
-                <div className={`h-16 flex items-center ${isCollapsed ? 'justify-center' : 'justify-between px-6'} border-b border-slate-800 bg-slate-900`}>
-                    <div className="flex items-center">
-                        <img src="Logo.png" alt="Logo" className="h-10 w-auto" />
-                        {!isCollapsed && <span className="text-lg font-bold tracking-tight ml-3">P-SEP-AR</span>}
-                    </div>
-                    <button onClick={toggleCollapse} className="hidden lg:block text-slate-400 hover:text-white">
+            <aside className={`fixed lg:static inset-y-0 left-0 z-[60] ${isCollapsed ? 'w-20' : 'w-64'} bg-tjpr-navy-900 dark:bg-tjpr-navy-900 text-white transform transition-all duration-300 ease-in-out ${isOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0 flex flex-col shadow-xl`}>
+                {/* Top Section - Apenas título sem logo */}
+                <div className={`h-16 flex items-center ${isCollapsed ? 'justify-center' : 'justify-between px-6'} border-b border-tjpr-navy-800 bg-tjpr-navy-900`}>
+                    {!isCollapsed && <span className="text-sm font-semibold tracking-wide text-tjpr-navy-500">NAVEGAÇÃO</span>}
+                    <button onClick={toggleCollapse} className="hidden lg:block text-tjpr-navy-500 hover:text-white transition-colors">
                         {isCollapsed ? (
                             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" /></svg>
                         ) : (
@@ -3677,7 +3830,7 @@ const Sidebar = ({ isOpen, setIsOpen, isCollapsed, toggleCollapse }) => {
                             <button
                                 key={item.id}
                                 onClick={() => { setCurrentArea(item.id); setIsOpen(false); }}
-                                className={`w-full flex items-center ${isCollapsed ? 'justify-center px-2' : 'px-3'} py-2.5 text-sm font-medium rounded-lg transition-colors ${currentArea === item.id ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                                className={`w-full flex items-center ${isCollapsed ? 'justify-center px-2' : 'px-3'} py-2.5 text-sm font-medium rounded-lg transition-colors ${currentArea === item.id ? 'bg-tjpr-navy-700 text-white' : 'text-tjpr-navy-500 hover:bg-tjpr-navy-800 hover:text-white'}`}
                                 title={isCollapsed ? item.label : ''}
                             >
                                 <span className={`${isCollapsed ? '' : 'mr-3'}`}>{item.icon}</span>
@@ -3685,19 +3838,19 @@ const Sidebar = ({ isOpen, setIsOpen, isCollapsed, toggleCollapse }) => {
                             </button>
                         )
                     ))}
-                    
-                    <div className={`pt-6 mt-6 border-t border-slate-800 ${isCollapsed ? 'flex flex-col items-center' : ''}`}>
-                        {!isCollapsed && <p className="px-3 text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Ferramentas</p>}
-                        <button onClick={() => { openCalendario(); setIsOpen(false); }} className={`w-full flex items-center ${isCollapsed ? 'justify-center px-2' : 'px-3'} py-2 text-sm font-medium text-slate-400 rounded-lg hover:bg-slate-800 hover:text-white transition-colors`} title={isCollapsed ? 'Calendário' : ''}>
+
+                    <div className={`pt-6 mt-6 border-t border-tjpr-navy-800 ${isCollapsed ? 'flex flex-col items-center' : ''}`}>
+                        {!isCollapsed && <p className="px-3 text-xs font-semibold text-tjpr-navy-600 uppercase tracking-wider mb-2">Ferramentas</p>}
+                        <button onClick={() => { openCalendario(); setIsOpen(false); }} className={`w-full flex items-center ${isCollapsed ? 'justify-center px-2' : 'px-3'} py-2 text-sm font-medium text-tjpr-navy-500 rounded-lg hover:bg-tjpr-navy-800 hover:text-white transition-colors`} title={isCollapsed ? 'Calendário' : ''}>
                             <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 ${isCollapsed ? '' : 'mr-3'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
                             {!isCollapsed && 'Calendário'}
                         </button>
-                        <button onClick={() => { openBugReport(); setIsOpen(false); }} className={`w-full flex items-center ${isCollapsed ? 'justify-center px-2' : 'px-3'} py-2 text-sm font-medium text-slate-400 rounded-lg hover:bg-slate-800 hover:text-white transition-colors`} title={isCollapsed ? 'Reportar Problema' : ''}>
+                        <button onClick={() => { openBugReport(); setIsOpen(false); }} className={`w-full flex items-center ${isCollapsed ? 'justify-center px-2' : 'px-3'} py-2 text-sm font-medium text-tjpr-navy-500 rounded-lg hover:bg-tjpr-navy-800 hover:text-white transition-colors`} title={isCollapsed ? 'Reportar Problema' : ''}>
                             <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 ${isCollapsed ? '' : 'mr-3'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
                             {!isCollapsed && 'Reportar Problema'}
                         </button>
                         {deferredPrompt && (
-                            <button onClick={handleInstallClick} className={`w-full flex items-center ${isCollapsed ? 'justify-center px-2' : 'px-3'} py-2 text-sm font-medium text-green-400 rounded-lg hover:bg-slate-800 hover:text-green-300 transition-colors mt-2`} title={isCollapsed ? 'Instalar App' : ''}>
+                            <button onClick={handleInstallClick} className={`w-full flex items-center ${isCollapsed ? 'justify-center px-2' : 'px-3'} py-2 text-sm font-medium text-tjpr-gold rounded-lg hover:bg-tjpr-navy-800 hover:text-tjpr-gold transition-colors mt-2`} title={isCollapsed ? 'Instalar App' : ''}>
                                 <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 ${isCollapsed ? '' : 'mr-3'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
                                 {!isCollapsed && 'Instalar App'}
                             </button>
@@ -3705,22 +3858,13 @@ const Sidebar = ({ isOpen, setIsOpen, isCollapsed, toggleCollapse }) => {
                     </div>
                 </nav>
 
-                {/* User Profile Bottom */}
-                <div className={`p-4 border-t border-slate-800 bg-slate-900 ${isCollapsed ? 'flex justify-center' : ''}`}>
-                    <div className="flex items-center">
-                        <div className="flex-shrink-0 cursor-pointer" onClick={() => document.dispatchEvent(new CustomEvent('openProfile'))}>
-                            <Avatar user={user} userData={userData} />
-                        </div>
+                {/* Bottom Section - Sem perfil (movido para Header) */}
+                <div className={`p-4 border-t border-tjpr-navy-800 bg-tjpr-navy-900 ${isCollapsed ? 'flex justify-center' : ''}`}>
+                    <div className="text-center">
                         {!isCollapsed && (
-                            <>
-                                <div className="ml-3 overflow-hidden">
-                                    <p className="text-sm font-medium text-white truncate max-w-[120px]">{userData?.displayName || 'Usuário'}</p>
-                                    <button onClick={() => document.dispatchEvent(new CustomEvent('openProfile'))} className="text-xs text-slate-400 hover:text-white">Ver Perfil</button>
-                                </div>
-                                <button onClick={() => auth.signOut()} className="ml-auto text-slate-400 hover:text-white" title="Sair">
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
-                                </button>
-                            </>
+                            <p className="text-xs text-tjpr-navy-600">
+                                © {new Date().getFullYear()} TJPR
+                            </p>
                         )}
                     </div>
                 </div>
@@ -3761,7 +3905,7 @@ const CalculatorApp = () => {
         window.addEventListener('message', handleMessage);
         return () => window.removeEventListener('message', handleMessage);
     }, []);
-    
+
     return (
         <div className="max-w-4xl mx-auto animate-fade-in space-y-8">
             <ConsultaAssistidaPJE numeroProcesso={numeroProcesso} setNumeroProcesso={setNumeroProcesso} />
@@ -3771,7 +3915,7 @@ const CalculatorApp = () => {
 };
 
 const CreditsWatermark = () => (
-     <div className="fixed bottom-2 right-6 text-xs text-slate-400 dark:text-slate-600 z-50 text-right pointer-events-none">
+    <div className="fixed bottom-2 right-6 text-xs text-slate-400 dark:text-slate-600 z-50 text-right pointer-events-none">
         <p>Desenvolvido por:</p>
         <p><strong>P-SEP-AR - GESTÃO 2025/2026</strong></p>
         <p>Assessoria de Recursos aos Tribunais Superiores (STF e STJ) da Secretaria Especial da Presidência</p>
@@ -3784,12 +3928,12 @@ const CreditsWatermark = () => (
 );
 
 const UserIDWatermark = ({ overlay = false, isSidebarCollapsed = false }) => {
-     const { user, userData } = useAuth();
-     if (!user) return null;
-     if (overlay) {
+    const { user, userData } = useAuth();
+    if (!user) return null;
+    if (overlay) {
         return <div className="watermark-overlay">{user.uid}</div>
-     }
-     return (
+    }
+    return (
         <div className={`fixed bottom-4 text-xs text-slate-400 dark:text-slate-600 z-40 pointer-events-none text-left transition-all duration-300 left-4 ${isSidebarCollapsed ? 'lg:left-[6rem]' : 'lg:left-[17rem]'}`}>
             <p>Logado como:</p>
             <p>{userData?.displayName || user.email}</p>
@@ -3849,7 +3993,7 @@ const BugReportProvider = ({ children }) => {
             alert("Ocorreu uma falha ao enviar seu relatório. Por favor, tente novamente.");
             return false;
         }
-        
+
         alert('Relatório de problema enviado com sucesso! Agradecemos a sua colaboração.');
         return true;
     };
@@ -3883,102 +4027,112 @@ const GlobalAlert = () => {
 
 // --- Componente Principal ---
 const App = () => {
-  const { user, userData, isAdmin, loading, refreshUser, currentArea, setCurrentArea } = useAuth();
-  const [showCalendario, setShowCalendario] = useState(false);
-  const [showProfile, setShowProfile] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
-  const [showChangelog, setShowChangelog] = useState(false);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
-  const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false);
+    const { user, userData, isAdmin, loading, refreshUser, currentArea, setCurrentArea } = useAuth();
+    const [showCalendario, setShowCalendario] = useState(false);
+    const [showProfile, setShowProfile] = useState(false);
+    const [showSettings, setShowSettings] = useState(false);
+    const [showChangelog, setShowChangelog] = useState(false);
+    const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+    const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+    const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false);
 
-  useEffect(() => {
-    // Adiciona o estilo de animação ao head do documento uma única vez.
-    const openCalendarioHandler = () => setShowCalendario(true);
-    const openProfileHandler = () => setShowProfile(true);
-    const openSettingsHandler = () => setShowSettings(true);
-    const openPrivacyHandler = () => setShowPrivacyPolicy(true);
-    document.addEventListener('openCalendario', openCalendarioHandler);
-    document.addEventListener('openProfile', openProfileHandler);
-    document.addEventListener('openSettings', openSettingsHandler);
-    document.addEventListener('openPrivacyPolicy', openPrivacyHandler);
-    return () => {
-        document.removeEventListener('openCalendario', openCalendarioHandler);
-        document.removeEventListener('openProfile', openProfileHandler);
-        document.removeEventListener('openSettings', openSettingsHandler);
-        document.removeEventListener('openPrivacyPolicy', openPrivacyHandler);
-    };
-  }, []);
+    useEffect(() => {
+        // Adiciona o estilo de animação ao head do documento uma única vez.
+        const openCalendarioHandler = () => setShowCalendario(true);
+        const openProfileHandler = () => setShowProfile(true);
+        const openSettingsHandler = () => setShowSettings(true);
+        const openPrivacyHandler = () => setShowPrivacyPolicy(true);
+        document.addEventListener('openCalendario', openCalendarioHandler);
+        document.addEventListener('openProfile', openProfileHandler);
+        document.addEventListener('openSettings', openSettingsHandler);
+        document.addEventListener('openPrivacyPolicy', openPrivacyHandler);
+        return () => {
+            document.removeEventListener('openCalendario', openCalendarioHandler);
+            document.removeEventListener('openProfile', openProfileHandler);
+            document.removeEventListener('openSettings', openSettingsHandler);
+            document.removeEventListener('openPrivacyPolicy', openPrivacyHandler);
+        };
+    }, []);
 
-  useEffect(() => {
-    // Lógica para mostrar o changelog
-    // if (user && db) {
-    //     const checkChangelog = async () => {
-    //         const lastSeenVersion = localStorage.getItem('lastSeenChangelogVersion');
-    //         const snapshot = await db.collection('changelog').orderBy('date', 'desc').limit(1).get();
-    //         if (!snapshot.empty) {
-    //             const latestVersionId = snapshot.docs[0].id;
-    //             if (latestVersionId !== lastSeenVersion) {
-    //                 setShowChangelog(true);
-    //             }
-    //         }
-    //     };
-    //     checkChangelog();
-    // }
-  }, []);
+    useEffect(() => {
+        // Lógica para mostrar o changelog
+        // if (user && db) {
+        //     const checkChangelog = async () => {
+        //         const lastSeenVersion = localStorage.getItem('lastSeenChangelogVersion');
+        //         const snapshot = await db.collection('changelog').orderBy('date', 'desc').limit(1).get();
+        //         if (!snapshot.empty) {
+        //             const latestVersionId = snapshot.docs[0].id;
+        //             if (latestVersionId !== lastSeenVersion) {
+        //                 setShowChangelog(true);
+        //             }
+        //         }
+        //     };
+        //     checkChangelog();
+        // }
+    }, []);
 
 
 
-  if (loading) {
-    return <div className="min-h-screen flex items-center justify-center"><p>A carregar...</p></div>;
-  }
+    if (loading) {
+        return <div className="min-h-screen flex items-center justify-center"><p>A carregar...</p></div>;
+    }
 
-  // Se não houver usuário, exibe a página de login em tela cheia.
-  if (!user) {
-    return <LoginPage />;
-  }
+    // Se não houver usuário, exibe a página de login em tela cheia.
+    if (!user) {
+        return <TJPRLoginPage />;
+    }
 
-  // Se o e-mail não for verificado, exibe a página de verificação.
-  // CORREÇÃO: Verifica tanto o status do Firebase Auth quanto o campo manual no Firestore.
-  // A verificação do Firestore (userData.emailVerified) é a que o admin pode alterar.
-  const isVerified = user.emailVerified || userData?.emailVerified;
-  if (!isVerified) {
-    return <VerifyEmailPage />;
-  }
+    // Se o e-mail não for verificado, exibe a página de verificação.
+    // CORREÇÃO: Verifica tanto o status do Firebase Auth quanto o campo manual no Firestore.
+    // A verificação do Firestore (userData.emailVerified) é a que o admin pode alterar.
+    const isVerified = user.emailVerified || userData?.emailVerified;
+    if (!isVerified) {
+        return <VerifyEmailPage />;
+    }
 
-  // Se o usuário estiver logado e verificado, exibe a aplicação principal.
-  return (
-    <div id="app-wrapper" className="h-screen flex bg-slate-50 dark:bg-slate-900 overflow-hidden">
-        <Sidebar isOpen={isSidebarOpen} setIsOpen={setIsSidebarOpen} isCollapsed={isSidebarCollapsed} toggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)} />
-        
-        <div className="flex-1 flex flex-col overflow-hidden relative">
-            <GlobalAlert />
-            <TopBar onMenuClick={() => setIsSidebarOpen(true)} title={currentArea === 'Calculadora' ? 'Calculadora de Prazos' : 'Painel Administrativo'} />
-            
-            <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
-                <div className="max-w-7xl mx-auto">
-                    {currentArea === 'Calculadora' ? (
-                        <CalculatorApp />
-                    ) : currentArea === 'Admin' && (isAdmin || userData?.role === 'setor_admin') ? (
-                        <AdminPage setCurrentArea={setCurrentArea} />
-                    ) : (
-                        <p>Área desconhecida.</p>
-                    )}
-                    <footer className="mt-8 border-t border-slate-200 dark:border-slate-800 pt-4">
-                        <CreditsWatermark />
-                    </footer>
-                </div>
-            </main>
+    // Se o usuário estiver logado e verificado, exibe a aplicação principal.
+    return (
+        <div id="app-wrapper" className="h-screen flex bg-slate-50 dark:bg-slate-900 overflow-hidden">
+            <Sidebar isOpen={isSidebarOpen} setIsOpen={setIsSidebarOpen} isCollapsed={isSidebarCollapsed} toggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)} />
+
+            <div className="flex-1 flex flex-col overflow-hidden relative">
+                <GlobalAlert />
+                <TJPRHeader
+                    user={userData}
+                    onLogout={() => firebase.auth().signOut()}
+                    onToggleDarkMode={() => {
+                        const html = document.documentElement;
+                        html.classList.toggle('dark');
+                        localStorage.setItem('darkMode', html.classList.contains('dark'));
+                    }}
+                    isDarkMode={document.documentElement.classList.contains('dark')}
+                    onOpenProfile={() => setShowProfile(true)}
+                />
+
+                <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
+                    <div className="max-w-7xl mx-auto">
+                        {currentArea === 'Calculadora' ? (
+                            <CalculatorApp />
+                        ) : currentArea === 'Admin' && (isAdmin || userData?.role === 'setor_admin') ? (
+                            <AdminPage setCurrentArea={setCurrentArea} />
+                        ) : (
+                            <p>Área desconhecida.</p>
+                        )}
+                        <footer className="mt-8 border-t border-slate-200 dark:border-slate-800 pt-4">
+                            <CreditsWatermark />
+                        </footer>
+                    </div>
+                </main>
+            </div>
+
+            {showCalendario && <CalendarioModal onClose={() => setShowCalendario(false)} />}
+            {showProfile && <ProfileModal user={user} userData={userData} onClose={() => setShowProfile(false)} onUpdate={refreshUser} />}
+            {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
+            {showPrivacyPolicy && <PrivacyPolicyModal onClose={() => setShowPrivacyPolicy(false)} />}
+            <CookieConsent />
+            <UserIDWatermark isSidebarCollapsed={isSidebarCollapsed} />
         </div>
-
-        {showCalendario && <CalendarioModal onClose={() => setShowCalendario(false)} />}
-        {showProfile && <ProfileModal user={user} userData={userData} onClose={() => setShowProfile(false)} onUpdate={refreshUser} />} 
-        {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
-        {showPrivacyPolicy && <PrivacyPolicyModal onClose={() => setShowPrivacyPolicy(false)} />}
-        <CookieConsent />
-        <UserIDWatermark isSidebarCollapsed={isSidebarCollapsed} />
-    </div>
-  );
+    );
 };
 
 const root = ReactDOM.createRoot(document.getElementById('root'));

@@ -15,28 +15,41 @@ const calcularPrazoCivel = (dataPublicacaoComDecreto, inicioDoPrazoComDecreto, p
 
     const { proximoDia: dataPublicacaoSemDecreto } = getProximoDiaUtilParaPublicacao(inicioDisponibilizacao, false);
     const { proximoDia: inicioDoPrazoSemDecreto } = getProximoDiaUtilParaPublicacao(dataPublicacaoSemDecreto, false);
-    
+
     let resultadoSemDecreto = calcularPrazoFinalDiasUteis(inicioDoPrazoSemDecreto, prazoNumerico, new Set(), false, false, false);
 
     let resultadoComDecretoInicial = { ...resultadoSemDecreto }; // Cenário 2 inicia igual ao Cenário 1
 
-    const todosDecretosPossiveis = new Set(Object.keys(decretosMap));
-    const resultadoComTodosDecretos = calcularPrazoFinalDiasUteis(inicioDoPrazoComDecreto, prazoNumerico, todosDecretosPossiveis, true, false, true);
+    // CASCATA: Ao invés de calcular com TODOS os decretos possíveis, calcula apenas o cenário base.
+    // As suspensões comprováveis serão apenas:
+    // 1. Do início do prazo 
+    // 2. A PRIMEIRA suspensão no prazo final (não todas as prorrogações)
 
     const instabilidadesComprovaveis = [];
     const instabilidadeNoInicio = getMotivoDiaNaoUtil(inicioDoPrazoComDecreto, true, 'instabilidade');
     if (instabilidadeNoInicio) instabilidadesComprovaveis.push({ data: new Date(inicioDoPrazoComDecreto.getTime()), ...instabilidadeNoInicio });
 
-    // Unifica todas as suspensões comprováveis (decretos, instabilidades, feriados_cnj).
-    // A lógica agora considera o resultado de `resultadoComTodosDecretos` para capturar a cadeia de prorrogações.
+    // Filtra suspensões comprováveis: decretos, feriados CNJ e instabilidades
     const filtroComprovavel = d => d.tipo === 'decreto' || d.tipo === 'feriado_cnj' || d.tipo === 'instabilidade';
-    const decretosParaUI = [
-        ...diasNaoUteisDoInicioComDecreto.filter(filtroComprovavel), 
-        ...resultadoComTodosDecretos.diasNaoUteis.filter(filtroComprovavel),
-        // Adiciona decretos e instabilidades encontrados na prorrogação do prazo
-        ...(resultadoComTodosDecretos.diasProrrogados || []).filter(filtroComprovavel),
-        ...(resultadoSemDecreto.diasProrrogados || []).filter(filtroComprovavel) // Garante que prorrogações do cenário base também sejam consideradas
-    ];
+
+    // 1. Adiciona suspensões comprováveis do INÍCIO
+    // CASCATA: Pega apenas a PRIMEIRA suspensão do início.
+    const primeiraSuspensaoInicio = diasNaoUteisDoInicioComDecreto.find(filtroComprovavel);
+    const decretosParaUI = primeiraSuspensaoInicio ? [primeiraSuspensaoInicio] : [];
+
+    // 2. Procura a PRIMEIRA suspensão comprovável no prazo final (sem decretos)
+    // Verifica se o prazo final cai em uma suspensão comprovável
+    const prazoFinalParaVerificar = resultadoSemDecreto.prazoFinal;
+    const suspensaoNoFim = getMotivoDiaNaoUtil(prazoFinalParaVerificar, true);
+
+    if (suspensaoNoFim && filtroComprovavel(suspensaoNoFim)) {
+        const dataFimStr = prazoFinalParaVerificar.toISOString().split('T')[0];
+        // Só adiciona se ainda não estiver na lista
+        if (!decretosParaUI.some(s => s.data.toISOString().split('T')[0] === dataFimStr)) {
+            decretosParaUI.push({ data: new Date(prazoFinalParaVerificar.getTime()), ...suspensaoNoFim });
+        }
+    }
+
     const instabilidadesParaUI = [...instabilidadesComprovaveis];
     const todosDecretosParaUI = [...decretosParaUI, ...instabilidadesParaUI];
     const suspensoesRelevantesMap = new Map();
@@ -54,4 +67,4 @@ const calcularPrazoCivel = (dataPublicacaoComDecreto, inicioDoPrazoComDecreto, p
         prazo: prazoNumerico, tipo: 'civel',
         diasProrrogados: resultadoSemDecreto.diasProrrogados
     };
-  };
+};
