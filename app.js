@@ -327,6 +327,54 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
         }
     }, [tipoPrazo, prazoSelecionado, settings.defaultPrazo]);
 
+    // Efeito para recalcular automaticamente quando a opção "Réu preso / Maria da Penha" muda
+    // Isso evita que o usuário precise clicar em "Calcular" novamente e não gera novos registros de uso
+    useEffect(() => {
+        // Só recalcula se já houver um resultado calculado e uma data de disponibilização
+        if (!resultado || !dataDisponibilizacao || tipoPrazo !== 'crime') return;
+
+        try {
+            const inicioDisponibilizacao = new Date(dataDisponibilizacao + 'T00:00:00');
+            if (isNaN(inicioDisponibilizacao.getTime())) return;
+
+            const prazoNumerico = prazoSelecionado;
+            const { proximoDia: dataPublicacaoComDecreto, suspensoesEncontradas: suspensoesPublicacaoComDecreto } = getProximoDiaUtilParaPublicacao(inicioDisponibilizacao, true);
+
+            const suspensaoNaDisponibilizacao = getMotivoDiaNaoUtil(inicioDisponibilizacao, true, 'decreto') || getMotivoDiaNaoUtil(inicioDisponibilizacao, true, 'instabilidade');
+            if (suspensaoNaDisponibilizacao) {
+                suspensoesPublicacaoComDecreto.unshift({ data: new Date(inicioDisponibilizacao.getTime()), ...suspensaoNaDisponibilizacao });
+            }
+
+            const { proximoDia: inicioDoPrazoComDecreto, suspensoesEncontradas: suspensoesInicioComDecreto } = getProximoDiaUtilParaPublicacao(dataPublicacaoComDecreto, true);
+
+            const suspensaoNaPublicacao = getMotivoDiaNaoUtil(dataPublicacaoComDecreto, true, 'decreto') || getMotivoDiaNaoUtil(dataPublicacaoComDecreto, true, 'instabilidade');
+            if (suspensaoNaPublicacao) {
+                suspensoesInicioComDecreto.unshift({ data: new Date(dataPublicacaoComDecreto.getTime()), ...suspensaoNaPublicacao });
+            }
+
+            const suspensaoNoInicio = getMotivoDiaNaoUtil(inicioDoPrazoComDecreto, true, 'decreto') || getMotivoDiaNaoUtil(inicioDoPrazoComDecreto, true, 'instabilidade');
+            if (suspensaoNoInicio) {
+                suspensoesInicioComDecreto.push({ data: new Date(inicioDoPrazoComDecreto.getTime()), ...suspensaoNoInicio });
+            }
+
+            const diasNaoUteisDoInicioComDecreto = [...suspensoesPublicacaoComDecreto, ...suspensoesInicioComDecreto];
+
+            const helpers = {
+                getProximoDiaUtilParaPublicacao,
+                calcularPrazoFinalDiasUteis,
+                calcularPrazoFinalDiasCorridos,
+                getMotivoDiaNaoUtil,
+                decretosMap
+            };
+
+            const resultadoCrime = calcularPrazoCrime(dataPublicacaoComDecreto, inicioDoPrazoComDecreto, prazoNumerico, diasNaoUteisDoInicioComDecreto, inicioDisponibilizacao, helpers);
+            setResultado(resultadoCrime);
+            // Não chama logUsage() para evitar gerar registros duplicados
+        } catch (e) {
+            console.error("Erro ao recalcular com ignorarRecesso:", e);
+        }
+    }, [ignorarRecesso]);
+
     const getMotivoDiaNaoUtil = (date, considerarDecretos, tipo = 'todos', comprovados = new Set()) => {
         if (!date || isNaN(date.getTime())) return null;
 
