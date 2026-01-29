@@ -57,7 +57,7 @@ const SettingsProvider = ({ children }) => {
         instabilidadeMap: {},
         recessoForense: {
             janeiro: { inicio: 2, fim: 20 },
-            dezembro: { inicio: 20, fim: 30 }
+            dezembro: { inicio: 20, fim: 31 }
         },
         calendarLoading: true,
     });
@@ -343,22 +343,8 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
             const prazoNumerico = prazoSelecionado;
             const { proximoDia: dataPublicacaoComDecreto, suspensoesEncontradas: suspensoesPublicacaoComDecreto } = getProximoDiaUtilParaPublicacao(inicioDisponibilizacao, true);
 
-            const suspensaoNaDisponibilizacao = getMotivoDiaNaoUtil(inicioDisponibilizacao, true, 'decreto') || getMotivoDiaNaoUtil(inicioDisponibilizacao, true, 'instabilidade');
-            if (suspensaoNaDisponibilizacao) {
-                suspensoesPublicacaoComDecreto.unshift({ data: new Date(inicioDisponibilizacao.getTime()), ...suspensaoNaDisponibilizacao });
-            }
 
             const { proximoDia: inicioDoPrazoComDecreto, suspensoesEncontradas: suspensoesInicioComDecreto } = getProximoDiaUtilParaPublicacao(dataPublicacaoComDecreto, true);
-
-            const suspensaoNaPublicacao = getMotivoDiaNaoUtil(dataPublicacaoComDecreto, true, 'decreto') || getMotivoDiaNaoUtil(dataPublicacaoComDecreto, true, 'instabilidade');
-            if (suspensaoNaPublicacao) {
-                suspensoesInicioComDecreto.unshift({ data: new Date(dataPublicacaoComDecreto.getTime()), ...suspensaoNaPublicacao });
-            }
-
-            const suspensaoNoInicio = getMotivoDiaNaoUtil(inicioDoPrazoComDecreto, true, 'decreto') || getMotivoDiaNaoUtil(inicioDoPrazoComDecreto, true, 'instabilidade');
-            if (suspensaoNoInicio) {
-                suspensoesInicioComDecreto.push({ data: new Date(inicioDoPrazoComDecreto.getTime()), ...suspensaoNoInicio });
-            }
 
             const diasNaoUteisDoInicioComDecreto = [...suspensoesPublicacaoComDecreto, ...suspensoesInicioComDecreto];
 
@@ -593,6 +579,8 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
         const dataFinalBruta = new Date(inicioAjustado.getTime());
         // CORREÇÃO: Soma os dias de suspensão comprovados no início ao prazo.
         const diasDeSuspensaoNoInicio = diasNaoUteisDoInicio.filter(d => comprovados.has(d.data.toISOString().split('T')[0])).length;
+        // CORREÇÃO: Usamos 'prazo - 1' pois para dias corridos, se o dia 1 é o início, somamos 14 dias para chegar ao 15º.
+        // Isso alinha com o resultado esperado do usuário (27/10 + 15 dias = 10/11).
         const diasASomar = (prazo > 0 ? prazo - 1 : 0) + diasDeSuspensaoNoInicio;
         dataFinalBruta.setDate(dataFinalBruta.getDate() + diasASomar);
 
@@ -687,25 +675,16 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
                 suspensoesPublicacaoComDecreto.unshift(...suspensoesDispEfetiva);
             }
 
-            // CORREÇÃO: Verifica se a própria data de disponibilização é um dia com suspensão comprovável.
-            const suspensaoNaDisponibilizacao = getMotivoDiaNaoUtil(inicioDisponibilizacao, true, 'decreto') || getMotivoDiaNaoUtil(inicioDisponibilizacao, true, 'instabilidade');
-            if (suspensaoNaDisponibilizacao) {
-                suspensoesPublicacaoComDecreto.unshift({ data: new Date(inicioDisponibilizacao.getTime()), ...suspensaoNaDisponibilizacao });
-            }
+            // CORREÇÃO: Calculamos o início do prazo a partir da publicação
+            // CASCATA: Para o cálculo padrão/inicial, NÃO consideramos decretos/instabilidades automaticamente no início.
+            // O usuário deve marcar a checkbox para comprovar. Portanto, usamos 'false' aqui.
+            const { proximoDia: inicioDoPrazoComDecreto, suspensoesEncontradas: suspensoesInicioComDecreto } = getProximoDiaUtilParaPublicacao(dataPublicacaoComDecreto, false);
 
-            const { proximoDia: inicioDoPrazoComDecreto, suspensoesEncontradas: suspensoesInicioComDecreto } = getProximoDiaUtilParaPublicacao(dataPublicacaoComDecreto, true);
 
-            // CORREÇÃO: Verifica se a própria data de publicação é um dia com suspensão comprovável.
-            const suspensaoNaPublicacao = getMotivoDiaNaoUtil(dataPublicacaoComDecreto, true, 'decreto') || getMotivoDiaNaoUtil(dataPublicacaoComDecreto, true, 'instabilidade');
-            if (suspensaoNaPublicacao) {
-                suspensoesInicioComDecreto.unshift({ data: new Date(dataPublicacaoComDecreto.getTime()), ...suspensaoNaPublicacao });
-            }
+            // REMOVIDO: Lógica manual de adicionar suspensões nas datas exatas de Disponibilização/Publicação
+            // O usuário informou que instabilidades nessas datas não devem contar (não devem suspender o ato).
+            // A função getProximoDiaUtilParaPublicacao já lida com o salto para o próximo dia útil.
 
-            // CORREÇÃO: Verifica se a própria data de início do prazo é um dia com suspensão comprovável.
-            const suspensaoNoInicio = getMotivoDiaNaoUtil(inicioDoPrazoComDecreto, true, 'decreto') || getMotivoDiaNaoUtil(inicioDoPrazoComDecreto, true, 'instabilidade');
-            if (suspensaoNoInicio) {
-                suspensoesInicioComDecreto.push({ data: new Date(inicioDoPrazoComDecreto.getTime()), ...suspensaoNoInicio });
-            }
             const diasNaoUteisDoInicioComDecreto = [...suspensoesPublicacaoComDecreto, ...suspensoesInicioComDecreto];
 
             // Agrupa as funções auxiliares para passá-las para as funções de regras
@@ -742,8 +721,75 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
                 );
             }
 
+
             // Ajusta estrutura de retorno
+            // --- LOGICA DE TRACE ---
+            const traceSteps = [];
+
+            // 1. Disponibilização (Input)
+            traceSteps.push({
+                step: 'Disponibilização',
+                date: inicioDisponibilizacao,
+                description: 'Data de disponibilização no Diário da Justiça'
+            });
+
+            // 2. Disponibilização Efetiva
+            if (dataDispEfetiva.getTime() !== inicioDisponibilizacao.getTime()) {
+                if (suspensoesDispEfetiva && suspensoesDispEfetiva.length > 0) {
+                    traceSteps.push({
+                        step: 'Suspensões na Disponibilização',
+                        suspensoes: suspensoesDispEfetiva,
+                        description: 'Não houve expediente na data informada ou anterior'
+                    });
+                }
+                traceSteps.push({
+                    step: 'Disponibilização Considerada',
+                    date: dataDispEfetiva,
+                    description: 'Considerada no primeiro dia útil seguinte'
+                });
+            } else if (suspensoesDispEfetiva && suspensoesDispEfetiva.length > 0) {
+                // Caso raro onde houve suspensão mas a data efetiva é a mesma (ex: suspensão parcial ou erro de lógica anterior, mas bom garantir)
+                traceSteps.push({
+                    step: 'Suspensões na Disponibilização',
+                    suspensoes: suspensoesDispEfetiva,
+                    description: 'Não houve expediente'
+                });
+            }
+
+            // 3. Publicação
+            if (suspensoesPublicacaoComDecreto && suspensoesPublicacaoComDecreto.length > 0) {
+                traceSteps.push({
+                    step: 'Intervalo Disponibilização -> Publicação',
+                    suspensoes: suspensoesPublicacaoComDecreto,
+                    description: 'Dias não úteis que adiaram a publicação'
+                });
+            }
+
+            traceSteps.push({
+                step: 'Data da Publicação',
+                date: dataPublicacaoComDecreto,
+                description: 'Primeiro dia útil após a disponibilização considerada'
+            });
+
+            // 4. Início do Prazo
+            if (suspensoesInicioComDecreto && suspensoesInicioComDecreto.length > 0) {
+                traceSteps.push({
+                    step: 'Intervalo Publicação -> Início do Prazo',
+                    suspensoes: suspensoesInicioComDecreto,
+                    description: 'Dias não úteis que adiaram o início da contagem'
+                });
+            }
+
+            traceSteps.push({
+                step: 'Início da Contagem',
+                date: inicioDoPrazoComDecreto,
+                description: 'O prazo começa a contar no primeiro dia útil após a publicação'
+            });
+
+            res.trace = traceSteps;
+
             setResultado(res);
+
             logUsage();
         } catch (e) {
             console.error(e);
@@ -1328,6 +1374,21 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
                                 </div>
 
                             )}
+
+                            {/* EXIBIÇÃO EXPLÍCITA DE PUBLICAÇÃO E INÍCIO (SOLICITADO PELO USUÁRIO) */}
+                            <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4 border-t border-slate-200 dark:border-slate-700 pt-4">
+                                <div className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-lg border border-slate-100 dark:border-slate-700">
+                                    <p className="text-xs text-slate-500 dark:text-slate-400 font-semibold uppercase mb-1">Dia da Publicação</p>
+                                    <p className="text-lg font-bold text-slate-800 dark:text-slate-100">{formatarData(resultado.dataPublicacao)}</p>
+                                </div>
+                                <div className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-lg border border-slate-100 dark:border-slate-700">
+                                    <p className="text-xs text-slate-500 dark:text-slate-400 font-semibold uppercase mb-1">Início do Prazo</p>
+                                    <p className="text-lg font-bold text-slate-800 dark:text-slate-100">{formatarData(resultado.inicioPrazo)}</p>
+                                </div>
+                            </div>
+
+
+
                             {/* Seção de Tempestividade movida para dentro do bloco 'civel' */}
                             {(userData?.role === 'intermediate' || userData?.role === 'admin') && (
                                 <div className="mt-6 border-t border-slate-300 dark:border-slate-600 pt-4 animate-fade-in">
@@ -1463,6 +1524,9 @@ const DiaNaoUtilItem = ({ dia, as = 'li' }) => {
         </Tag>
     );
 };
+
+
+
 
 const PrivacyPolicyModal = ({ onClose }) => {
     return (

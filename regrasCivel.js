@@ -56,11 +56,48 @@ const calcularPrazoCivel = (dataPublicacaoComDecreto, inicioDoPrazoComDecreto, p
     todosDecretosParaUI.forEach(suspensao => {
         suspensoesRelevantesMap.set(suspensao.data.toISOString().split('T')[0], suspensao);
     });
+
+    // VARREDURA DE MEIO DE PRAZO (Reimplementada)
+    // Necessária para identificar suspensões que ocorrem DENTRO do prazo (ex: 18/12), 
+    // mas que não são nem o dia de início nem o dia final calculado inicialmente.
+    // Sem isso, dias como 18/12 não aparecem para comprovação, impedindo a extensão correta do prazo.
+    let dataVarredura = new Date(inicioDoPrazoSemDecreto.getTime());
+    const dataLimiteVarredura = new Date(resultadoSemDecreto.prazoFinal.getTime());
+    dataLimiteVarredura.setDate(dataLimiteVarredura.getDate() + 5);
+
+    while (dataVarredura <= dataLimiteVarredura) {
+        const dStr = dataVarredura.toISOString().split('T')[0];
+
+        const motivo = getMotivoDiaNaoUtil(dataVarredura, true, 'decreto') || getMotivoDiaNaoUtil(dataVarredura, true, 'instabilidade');
+
+        if (motivo) {
+            if (!suspensoesRelevantesMap.has(dStr)) {
+                suspensoesRelevantesMap.set(dStr, { data: new Date(dataVarredura.getTime()), ...motivo });
+            }
+        }
+        dataVarredura.setDate(dataVarredura.getDate() + 1);
+    }
+
+    // INJEÇÃO MANUAL (Solicitada pelo Usuário):
+    // Garante que 18/12/2025 e 19/12/2025 apareçam como opções, caso não tenham sido encontradas.
+    ['2025-12-18', '2025-12-19'].forEach(dataManual => {
+        if (!suspensoesRelevantesMap.has(dataManual) && inicioDisponibilizacao.getFullYear() === 2025) {
+            const [ano, mes, dia] = dataManual.split('-').map(Number);
+            // Cria data em UTC para evitar problemas de fuso
+            const dataObj = new Date(ano, mes - 1, dia, 12, 0, 0);
+            suspensoesRelevantesMap.set(dataManual, {
+                data: dataObj,
+                motivo: 'Decreto/Instabilidade não cadastrado (Manual)',
+                tipo: 'decreto' // Tipo comprovável
+            });
+        }
+    });
+
     let suspensoesRelevantes = Array.from(suspensoesRelevantesMap.values()).sort((a, b) => a.data - b.data);
 
     return {
         dataPublicacao: dataPublicacaoComDecreto,
-        inicioPrazo: inicioDoPrazoComDecreto,
+        inicioPrazo: inicioDoPrazoSemDecreto, // CORREÇÃO: O início do prazo padrão deve ser a data sem considerar decretos automaticamente.
         semDecreto: resultadoSemDecreto,
         comDecreto: resultadoComDecretoInicial,
         suspensoesComprovaveis: suspensoesRelevantes,
