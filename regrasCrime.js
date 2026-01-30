@@ -71,6 +71,24 @@ const calcularPrazoCrime = (dataPublicacaoComDecreto, inicioDoPrazoComDecreto, p
 
     const suspensoesParaUI = [];
 
+    // 0. Recalcula o caminho da Publicação COM DECRETOS para encontrar suspensões que afetaram esta etapa.
+    // Necessário para capturar decretos que caem exatamente na data que seria a publicação (ex: 27/10),
+    // empurrando-a para frente. O cálculo original "semDecreto" ignora esses dias.
+    const { proximoDia: dataDispEfetivaComDecreto, suspensoesEncontradas: suspensoesDispComDecreto } = getProximoDiaUtilParaPublicacao(ontemData, true);
+    const { proximoDia: dataPubComDecretoCalculada, suspensoesEncontradas: suspensoesPubComDecreto } = getProximoDiaUtilParaPublicacao(dataDispEfetivaComDecreto, true);
+
+    const todasSuspensoesPub = [...(suspensoesDispComDecreto || []), ...(suspensoesPubComDecreto || [])];
+
+    todasSuspensoesPub.forEach(suspensao => {
+        if (filtroComprovavel(suspensao.tipo)) {
+            // Verifica duplicidade
+            const dStr = suspensao.data.toISOString().split('T')[0];
+            if (!suspensoesParaUI.some(s => s.data.toISOString().split('T')[0] === dStr)) {
+                suspensoesParaUI.push(suspensao);
+            }
+        }
+    });
+
     // 1. Verifica Instabilidade/Decreto no INÍCIO DO PRAZO (Dies a Quo efetivo)
     // O dia calculado como início (sem decreto) pode ter uma instabilidade. Se tiver, pedimos comprovação.
     const suspensaoNoInicio = getMotivoDiaNaoUtil(inicioDoPrazoSemDecreto, true, 'todos');

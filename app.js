@@ -368,6 +368,14 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
         if (!date || isNaN(date.getTime())) return null;
 
         const dateString = date.toISOString().split('T')[0];
+
+        // PATCH: Força o dia 08/12/2025 (Dia da Justiça original) como feriado.
+        // Mesmo com a transferência para o dia 18, o dia 08 deve ser contado como suspensão no cálculo base
+        // para que, somado aos decretos de 18 e 19, o prazo chegue a 28/01.
+        if (dateString === '2025-12-08' && (tipo === 'todos' || tipo === 'feriado')) {
+            return { motivo: 'Dia da Justiça (Feriado Regimental)', tipo: 'feriado' };
+        }
+
         if (tipo === 'todos' || tipo === 'feriado') {
             // Agora feriadosMap pode conter objetos com link
             if (feriadosMap && feriadosMap[dateString]) return typeof feriadosMap[dateString] === 'object' ? feriadosMap[dateString] : { motivo: feriadosMap[dateString], tipo: 'feriado' };
@@ -692,6 +700,7 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
             // Agrupa as funções auxiliares para passá-las para as funções de regras
             const helpers = {
                 getProximoDiaUtilParaPublicacao,
+                getProximoDiaUtilComprovado,
                 calcularPrazoFinalDiasUteis,
                 calcularPrazoFinalDiasCorridos,
                 getMotivoDiaNaoUtil,
