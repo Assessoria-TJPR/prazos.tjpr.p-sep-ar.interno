@@ -4,7 +4,7 @@
  */
 
 const calcularPrazoCrime = (dataPublicacaoComDecreto, inicioDoPrazoComDecreto, prazoNumerico, diasNaoUteisDoInicioComDecreto = [], inicioDisponibilizacao, helpers, diasComprovados = new Set(), ignorarRecesso = false) => {
-    const { getProximoDiaUtilParaPublicacao, calcularPrazoFinalDiasCorridos, getMotivoDiaNaoUtil, decretosMap } = helpers;
+    const { getProximoDiaUtilParaPublicacao, calcularPrazoFinalDiasCorridos, getMotivoDiaNaoUtil, getProximoDiaUtilComprovado, decretosMap } = helpers;
 
     // Lógica para suspensão de prazos em maio de 2025 (SEI 0072049-32.2025.8.16.6000)
     // Para Crime, a suspensão é apenas nos dias 28 e 29 de maio.
@@ -54,13 +54,13 @@ const calcularPrazoCrime = (dataPublicacaoComDecreto, inicioDoPrazoComDecreto, p
     // 'false' no último parametro indica para ignorar decretos.
     const resultadoSemDecreto = calcularPrazoFinalDiasCorridos(inicioDoPrazoSemDecreto, prazoNumerico, new Set(), ignorarRecesso, false);
 
-    // Cenário COM decreto: 
-    // Se o usuário já comprovou suspensões (diasComprovados não vazio), usamos o início calculado pelo app.js e as suspensões validas.
-    // Se NÃO houver comprovados (estado inicial), forçamos o uso do início 'SemDecreto' para evitar discrepâncias (bug 10/12) geradas por decretos futuros não comprovados.
-    const dataInicioComDecretoEfetiva = (diasComprovados && diasComprovados.size > 0) ? inicioDoPrazoComDecreto : inicioDoPrazoSemDecreto;
+    // [CORREÇÃO] Recalcula os marcos iniciais do Cenário 2 com base nos dias REALMENTE comprovados.
+    // Isso garante que o Cenário 2 inicie igual ao Cenário 1 se nada estiver marcado.
+    const { proximoDia: dataPubEfetivaComDecretoLocal } = getProximoDiaUtilComprovado(inicioDisponibilizacao, diasComprovados);
+    const { proximoDia: inicioDoPrazoEfetivoComDecretoLocal } = getProximoDiaUtilComprovado(dataPubEfetivaComDecretoLocal, diasComprovados);
 
     // Passamos 'true' para considerar decretos na prorrogação final, MAS apenas se estiverem no Set 'diasComprovados'.
-    const resultadoComDecretoInicial = calcularPrazoFinalDiasCorridos(dataInicioComDecretoEfetiva, prazoNumerico, diasComprovados || new Set(), ignorarRecesso, true);
+    const resultadoComDecretoInicial = calcularPrazoFinalDiasCorridos(inicioDoPrazoEfetivoComDecretoLocal, prazoNumerico, diasComprovados || new Set(), ignorarRecesso, true);
 
     // Identifica suspensões comprováveis
     // REGRA DE OURO (User Feedback): 
@@ -93,7 +93,10 @@ const calcularPrazoCrime = (dataPublicacaoComDecreto, inicioDoPrazoComDecreto, p
     // O dia calculado como início (sem decreto) pode ter uma instabilidade. Se tiver, pedimos comprovação.
     const suspensaoNoInicio = getMotivoDiaNaoUtil(inicioDoPrazoSemDecreto, true, 'todos');
     if (suspensaoNoInicio && filtroComprovavel(suspensaoNoInicio.tipo)) {
-        suspensoesParaUI.push({ data: new Date(inicioDoPrazoSemDecreto.getTime()), ...suspensaoNoInicio });
+        const dStr = inicioDoPrazoSemDecreto.toISOString().split('T')[0];
+        if (!suspensoesParaUI.some(s => s.data.toISOString().split('T')[0] === dStr)) {
+            suspensoesParaUI.push({ data: new Date(inicioDoPrazoSemDecreto.getTime()), ...suspensaoNoInicio });
+        }
     }
 
     // 2. Verifica Instabilidade/Decreto no FIM DO PRAZO (Dies ad Quem)
@@ -116,8 +119,8 @@ const calcularPrazoCrime = (dataPublicacaoComDecreto, inicioDoPrazoComDecreto, p
     suspensoesParaUI.sort((a, b) => a.data - b.data);
 
     return {
-        dataPublicacao: dataPublicacaoComDecreto,
-        inicioPrazo: inicioDoPrazoComDecreto,
+        dataPublicacao: dataPublicacaoSemDecreto,
+        inicioPrazo: inicioDoPrazoSemDecreto,
         semDecreto: resultadoSemDecreto,
         comDecreto: resultadoComDecretoInicial,
         suspensoesComprovaveis: suspensoesParaUI,
