@@ -63,7 +63,9 @@ const calcularPrazoCivel = (dataPublicacaoComDecreto, inicioDoPrazoComDecreto, p
     // Sem isso, dias como 18/12 não aparecem para comprovação, impedindo a extensão correta do prazo.
     let dataVarredura = new Date(inicioDoPrazoSemDecreto.getTime());
     const dataLimiteVarredura = new Date(resultadoSemDecreto.prazoFinal.getTime());
-    dataLimiteVarredura.setDate(dataLimiteVarredura.getDate() + 5);
+    // Modificado: Remoção do +5 dias. A varredura deve ir estritamente até o prazo final calculado.
+    // Se houver extensão, o recálculo cuidará de pegar novas suspensões.
+    // dataLimiteVarredura.setDate(dataLimiteVarredura.getDate() + 5);
 
     while (dataVarredura <= dataLimiteVarredura) {
         const dStr = dataVarredura.toISOString().split('T')[0];
@@ -78,20 +80,9 @@ const calcularPrazoCivel = (dataPublicacaoComDecreto, inicioDoPrazoComDecreto, p
         dataVarredura.setDate(dataVarredura.getDate() + 1);
     }
 
-    // INJEÇÃO MANUAL (Solicitada pelo Usuário):
-    // Garante que 18/12/2025 e 19/12/2025 apareçam como opções, caso não tenham sido encontradas.
-    ['2025-12-18', '2025-12-19'].forEach(dataManual => {
-        if (!suspensoesRelevantesMap.has(dataManual) && inicioDisponibilizacao.getFullYear() === 2025) {
-            const [ano, mes, dia] = dataManual.split('-').map(Number);
-            // Cria data em UTC para evitar problemas de fuso
-            const dataObj = new Date(ano, mes - 1, dia, 12, 0, 0);
-            suspensoesRelevantesMap.set(dataManual, {
-                data: dataObj,
-                motivo: 'Decreto/Instabilidade não cadastrado (Manual)',
-                tipo: 'decreto' // Tipo comprovável
-            });
-        }
-    });
+    // INJEÇÃO MANUAL REMOVIDA:
+    // A injeção forçada de 18/12 e 19/12 foi removida pois estava aparecendo em cenários onde não era relevante (ex: prazos de outubro/novembro).
+    // A lógica de varredura acima já deve identificar essas datas se elas estiverem dentro do intervalo do prazo.
 
     let suspensoesRelevantes = Array.from(suspensoesRelevantesMap.values()).sort((a, b) => a.data - b.data);
 
