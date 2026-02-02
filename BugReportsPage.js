@@ -49,20 +49,31 @@ const BugReportsPage = () => {
         }
     };
 
+    const [selectedImage, setSelectedImage] = useState(null);
+
     const viewScreenshot = (base64String) => {
-        const newWindow = window.open();
-        if (newWindow) {
-            newWindow.document.write(`
-                <html>
-                    <head><title>Visualizador de Screenshot</title></head>
-                    <body style="margin:0; background-color:#1e293b; display:flex; justify-content:center; align-items:center;">
-                        <img src="${base64String}" alt="Screenshot do Chamado" style="max-width:100%; max-height:100%; object-fit:contain;">
-                    </body>
-                </html>
-            `);
-            newWindow.document.close();
-        } else {
-            alert('O visualizador de imagem foi bloqueado pelo seu navegador. Por favor, habilite os pop-ups para este site.');
+        setSelectedImage(base64String);
+    };
+
+    const closeScreenshotModal = () => {
+        setSelectedImage(null);
+    };
+
+    // Paginação
+    const [currentPage, setCurrentPage] = useState(1);
+    const itemsPerPage = 5;
+
+    // Reset page when reports change (e.g. filter)
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [chamados]);
+
+    const totalPages = Math.ceil(chamados.length / itemsPerPage);
+    const paginatedReports = chamados.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+
+    const handlePageChange = (newPage) => {
+        if (newPage >= 1 && newPage <= totalPages) {
+            setCurrentPage(newPage);
         }
     };
 
@@ -102,95 +113,150 @@ const BugReportsPage = () => {
     }
 
     return (
-        <TJPRCard
-            title="Caixa de Chamados de Problemas"
-            subtitle={`${chamados.length} ${chamados.length === 1 ? 'chamado encontrado' : 'chamados encontrados'}`}
-            icon="bug_report"
-        >
-            <div className="space-y-4">
-                {chamados.length === 0 ? (
-                    <div className="text-center py-12">
-                        <span className="material-icons text-6xl text-gray-300 dark:text-gray-700">check_circle</span>
-                        <p className="mt-4 text-gray-500 dark:text-gray-400">Nenhum chamado encontrado.</p>
-                        <p className="text-sm text-gray-400 dark:text-gray-500">Tudo certo por aqui! 🎉</p>
-                    </div>
-                ) : (
-                    chamados.map(chamado => (
-                        <div key={chamado.id} className={`p-5 rounded-lg border transition-all duration-200 ${chamado.status === 'aberto'
-                                ? 'bg-amber-50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-800 hover:shadow-md'
-                                : 'bg-gray-50 dark:bg-gray-900/30 border-gray-200 dark:border-gray-700 hover:shadow-sm'
-                            }`}>
-                            {/* Header do Chamado */}
-                            <div className="flex justify-between items-start mb-4">
-                                <div>
-                                    <div className="flex items-center gap-2 mb-1">
-                                        <span className="material-icons text-sm text-gray-500">person</span>
-                                        <p className="text-sm font-medium text-gray-700 dark:text-gray-200">{chamado.reporterName}</p>
+        <>
+            <TJPRCard
+                title="Caixa de Chamados de Problemas"
+                subtitle={`${chamados.length} ${chamados.length === 1 ? 'chamado encontrado' : 'chamados encontrados'}`}
+                icon="bug_report"
+            >
+                <div className="space-y-4">
+                    {chamados.length === 0 ? (
+                        <div className="text-center py-12">
+                            <span className="material-icons text-6xl text-gray-300 dark:text-gray-700">check_circle</span>
+                            <p className="mt-4 text-gray-500 dark:text-gray-400">Nenhum chamado encontrado.</p>
+                            <p className="text-sm text-gray-400 dark:text-gray-500">Tudo certo por aqui! 🎉</p>
+                        </div>
+                    ) : (
+                        <>
+                            {paginatedReports.map(chamado => (
+                                <div key={chamado.id} className={`p-5 rounded-lg border transition-all duration-200 ${chamado.status === 'aberto'
+                                    ? 'bg-amber-50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-800 hover:shadow-md'
+                                    : 'bg-gray-50 dark:bg-gray-900/30 border-gray-200 dark:border-gray-700 hover:shadow-sm'
+                                    }`}>
+                                    {/* Header do Chamado */}
+                                    <div className="flex justify-between items-start mb-4">
+                                        <div>
+                                            <div className="flex items-center gap-2 mb-1">
+                                                <span className="material-icons text-sm text-gray-500">person</span>
+                                                <p className="text-sm font-medium text-gray-700 dark:text-gray-200">{chamado.reporterName}</p>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <span className="material-icons text-xs text-gray-400">schedule</span>
+                                                <p className="text-xs text-gray-500 dark:text-gray-400">
+                                                    {chamado.createdAt ? formatarData(new Date(chamado.createdAt.toDate())) : 'Data indisponível'}
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <TJPRBadge
+                                            variant={chamado.status === 'aberto' ? 'warning' : 'success'}
+                                            icon={chamado.status === 'aberto' ? 'pending' : 'check_circle'}
+                                        >
+                                            {chamado.status === 'aberto' ? 'Aberto' : 'Resolvido'}
+                                        </TJPRBadge>
                                     </div>
-                                    <div className="flex items-center gap-2">
-                                        <span className="material-icons text-xs text-gray-400">schedule</span>
-                                        <p className="text-xs text-gray-500 dark:text-gray-400">
-                                            {chamado.createdAt ? formatarData(new Date(chamado.createdAt.toDate())) : 'Data indisponível'}
-                                        </p>
+
+                                    {/* Descrição do Problema */}
+                                    <div className="bg-white dark:bg-gray-800 p-4 rounded-md border border-gray-200 dark:border-gray-700">
+                                        <p className="text-sm text-gray-800 dark:text-gray-100 whitespace-pre-wrap">{chamado.description}</p>
+                                    </div>
+
+                                    {/* Actions */}
+                                    <div className="mt-4 flex flex-wrap gap-3 items-center">
+                                        <TJPRButton
+                                            onClick={() => viewScreenshot(chamado.screenshotBase64)}
+                                            variant="ghost"
+                                            size="sm"
+                                            icon="image"
+                                        >
+                                            Ver Screenshot
+                                        </TJPRButton>
+
+                                        {chamado.status === 'aberto' ? (
+                                            <TJPRButton
+                                                onClick={() => handleUpdateStatus(chamado, 'resolvido')}
+                                                variant="success"
+                                                size="sm"
+                                                icon="check_circle"
+                                            >
+                                                Marcar como Resolvido
+                                            </TJPRButton>
+                                        ) : (
+                                            <TJPRButton
+                                                onClick={() => handleUpdateStatus(chamado, 'aberto')}
+                                                variant="warning"
+                                                size="sm"
+                                                icon="refresh"
+                                            >
+                                                Reabrir Chamado
+                                            </TJPRButton>
+                                        )}
+
+                                        <TJPRButton
+                                            onClick={() => handleDeleteChamado(chamado.id)}
+                                            variant="error"
+                                            size="sm"
+                                            icon="delete"
+                                        >
+                                            Excluir
+                                        </TJPRButton>
                                     </div>
                                 </div>
-                                <TJPRBadge
-                                    variant={chamado.status === 'aberto' ? 'warning' : 'success'}
-                                    icon={chamado.status === 'aberto' ? 'pending' : 'check_circle'}
-                                >
-                                    {chamado.status === 'aberto' ? 'Aberto' : 'Resolvido'}
-                                </TJPRBadge>
-                            </div>
+                            ))}
 
-                            {/* Descrição do Problema */}
-                            <div className="bg-white dark:bg-gray-800 p-4 rounded-md border border-gray-200 dark:border-gray-700">
-                                <p className="text-sm text-gray-800 dark:text-gray-100 whitespace-pre-wrap">{chamado.description}</p>
-                            </div>
-
-                            {/* Actions */}
-                            <div className="mt-4 flex flex-wrap gap-3 items-center">
-                                <TJPRButton
-                                    onClick={() => viewScreenshot(chamado.screenshotBase64)}
-                                    variant="ghost"
-                                    size="sm"
-                                    icon="image"
-                                >
-                                    Ver Screenshot
-                                </TJPRButton>
-
-                                {chamado.status === 'aberto' ? (
-                                    <TJPRButton
-                                        onClick={() => handleUpdateStatus(chamado, 'resolvido')}
-                                        variant="success"
-                                        size="sm"
-                                        icon="check_circle"
+                            {/* Pagination Controls */}
+                            {totalPages > 1 && (
+                                <div className="flex justify-center items-center gap-4 mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
+                                    <button
+                                        onClick={() => handlePageChange(currentPage - 1)}
+                                        disabled={currentPage === 1}
+                                        className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+                                        title="Página Anterior"
                                     >
-                                        Marcar como Resolvido
-                                    </TJPRButton>
-                                ) : (
-                                    <TJPRButton
-                                        onClick={() => handleUpdateStatus(chamado, 'aberto')}
-                                        variant="warning"
-                                        size="sm"
-                                        icon="refresh"
-                                    >
-                                        Reabrir Chamado
-                                    </TJPRButton>
-                                )}
+                                        <span className="material-icons text-gray-600 dark:text-gray-300">chevron_left</span>
+                                    </button>
 
-                                <TJPRButton
-                                    onClick={() => handleDeleteChamado(chamado.id)}
-                                    variant="error"
-                                    size="sm"
-                                    icon="delete"
-                                >
-                                    Excluir
-                                </TJPRButton>
-                            </div>
-                        </div>
-                    ))
-                )}
-            </div>
-        </TJPRCard>
+                                    <span className="text-sm font-medium text-gray-600 dark:text-gray-300">
+                                        Página {currentPage} de {totalPages}
+                                    </span>
+
+                                    <button
+                                        onClick={() => handlePageChange(currentPage + 1)}
+                                        disabled={currentPage === totalPages}
+                                        className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+                                        title="Próxima Página"
+                                    >
+                                        <span className="material-icons text-gray-600 dark:text-gray-300">chevron_right</span>
+                                    </button>
+                                </div>
+                            )}
+                        </>
+                    )}
+                </div>
+            </TJPRCard>
+
+            <TJPRModal
+                isOpen={!!selectedImage}
+                onClose={closeScreenshotModal}
+                title="Visualizador de Screenshot"
+                icon="image"
+                maxWidth="4xl"
+            >
+                <div className="flex justify-center items-center bg-slate-100 dark:bg-slate-900 rounded-lg p-2">
+                    <img
+                        src={selectedImage}
+                        alt="Screenshot do Chamado"
+                        className="max-w-full max-h-[70vh] object-contain rounded shadow-sm"
+                    />
+                </div>
+                <div className="mt-4 flex justify-end">
+                    <TJPRButton
+                        onClick={closeScreenshotModal}
+                        variant="secondary"
+                    >
+                        Fechar Visualização
+                    </TJPRButton>
+                </div>
+            </TJPRModal>
+        </>
     );
 };

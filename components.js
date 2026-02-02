@@ -324,7 +324,7 @@ const TJPRModal = ({ isOpen, onClose, title, children, maxWidth = '2xl', icon })
     };
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
             <div className={`w-full ${maxWidths[maxWidth]} max-h-[90vh] overflow-auto`}>
                 <div className="tjpr-card">
                     {/* Header */}

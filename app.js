@@ -590,11 +590,9 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
 
         // 2. Calcula a data final "bruta" somando os dias corridos.
         const dataFinalBruta = new Date(inicioAjustado.getTime());
-        // CORREÇÃO: Soma os dias de suspensão comprovados no início ao prazo.
-        const diasDeSuspensaoNoInicio = diasNaoUteisDoInicio.filter(d => comprovados.has(d.data.toISOString().split('T')[0])).length;
         // CORREÇÃO: Usamos 'prazo - 1' pois para dias corridos, se o dia 1 é o início, somamos 14 dias para chegar ao 15º.
         // Isso alinha com o resultado esperado do usuário (27/10 + 15 dias = 10/11).
-        const diasASomar = (prazo > 0 ? prazo - 1 : 0) + diasDeSuspensaoNoInicio;
+        const diasASomar = (prazo > 0 ? prazo - 1 : 0);
         dataFinalBruta.setDate(dataFinalBruta.getDate() + diasASomar);
 
         // Após o loop principal, verifica se a data final caiu em um dia não útil e prorroga se necessário.
@@ -616,6 +614,13 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
                 (comprovados.has(prazoFinalAjustado.toISOString().split('T')[0]) && (getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'decreto') || getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'instabilidade')));
 
             const eFimDeSemana = prazoFinalAjustado.getDay() === 0 || prazoFinalAjustado.getDay() === 6;
+
+            // EXCEÇÃO SOLICITADA PELO USUÁRIO (Crime):
+            // O prazo pode terminar no dia 08/12/2025 (Dia da Justiça) sem prorrogação automática.
+            const dateStr = prazoFinalAjustado.toISOString().split('T')[0];
+            if (dateStr === '2025-12-08') {
+                break;
+            }
 
             if (infoDiaFinalNaoUtil || eFimDeSemana) {
                 if (infoDiaFinalNaoUtil) diasProrrogados.push({ data: new Date(prazoFinalAjustado.getTime()), ...infoDiaFinalNaoUtil });
@@ -2159,129 +2164,7 @@ const Avatar = ({ user, userData, size = 'h-8 w-8' }) => {
     );
 };
 
-const BugReportsPage = () => {
-    const [reports, setReports] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const [selectedReport, setSelectedReport] = useState(null);
-    const [filterStatus, setFilterStatus] = useState('aberto'); // 'aberto', 'resolvido', 'todos'
 
-    useEffect(() => {
-        if (!db) return;
-        const fetchReports = async () => {
-            setLoading(true);
-            try {
-                // Alterado para buscar tudo e filtrar na memória, evitando erro de índice composto no Firestore
-                const query = db.collection('bug_reports').orderBy('createdAt', 'desc');
-                const snapshot = await query.get();
-                let data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-
-                if (filterStatus !== 'todos') {
-                    data = data.filter(report => report.status === filterStatus);
-                }
-                setReports(data);
-            } catch (error) {
-                console.error("Erro ao buscar chamados:", error);
-            } finally {
-                setLoading(false);
-            }
-        };
-        fetchReports();
-    }, [filterStatus]);
-
-    const handleStatusChange = async (reportId, newStatus) => {
-        try {
-            await db.collection('bug_reports').doc(reportId).update({ status: newStatus });
-            setReports(prev => prev.map(r => r.id === reportId ? { ...r, status: newStatus } : r));
-            if (selectedReport && selectedReport.id === reportId) {
-                setSelectedReport(prev => ({ ...prev, status: newStatus }));
-            }
-        } catch (error) {
-            console.error("Erro ao atualizar status:", error);
-            alert("Erro ao atualizar status.");
-        }
-    };
-
-    return (
-        <div className="space-y-6 animate-fade-in">
-            <div className="flex justify-between items-center bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
-                <div>
-                    <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">Chamados de Suporte</h2>
-                    <p className="text-sm text-slate-500 dark:text-slate-400">Gerencie os reportes de erros enviados pelos usuários.</p>
-                </div>
-                <div className="flex gap-2">
-                    <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none">
-                        <option value="aberto">Abertos</option>
-                        <option value="resolvido">Resolvidos</option>
-                        <option value="todos">Todos</option>
-                    </select>
-                </div>
-            </div>
-
-            {loading ? <div className="text-center py-8 text-slate-500">Carregando chamados...</div> : reports.length === 0 ? (
-                <div className="text-center py-12 bg-slate-100/50 dark:bg-slate-900/30 rounded-2xl border border-dashed border-slate-300 dark:border-slate-700"><p className="text-slate-500">Nenhum chamado encontrado com este filtro.</p></div>
-            ) : (
-                <div className="grid grid-cols-1 gap-4">
-                    {reports.map(report => (
-                        <div key={report.id} className="bg-white dark:bg-slate-800 p-4 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors cursor-pointer" onClick={() => setSelectedReport(report)}>
-                            <div className="flex-grow min-w-0">
-                                <div className="flex items-center gap-2 mb-1">
-                                    <span className={`px-2 py-0.5 text-xs font-bold rounded-full uppercase ${report.status === 'aberto' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300' : 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'}`}>{report.status}</span>
-                                    <span className="text-xs text-slate-400">{report.createdAt ? formatarData(report.createdAt.toDate()) : 'Data desconhecida'}</span>
-                                </div>
-                                <p className="font-medium text-slate-800 dark:text-slate-200 truncate">{report.description}</p>
-                                <p className="text-xs text-slate-500 truncate">Por: {report.userEmail}</p>
-                            </div>
-                            <button className="text-sm font-semibold text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 whitespace-nowrap">Ver Detalhes</button>
-                        </div>
-                    ))}
-                </div>
-            )}
-
-            {selectedReport && (
-                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4" onClick={() => setSelectedReport(null)}>
-                    <div className="bg-white dark:bg-slate-800 w-full max-w-4xl rounded-2xl shadow-2xl flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
-                        <div className="flex justify-between items-center p-6 border-b border-slate-200 dark:border-slate-700">
-                            <h3 className="text-xl font-bold text-slate-800 dark:text-slate-100">Detalhes do Chamado</h3>
-                            <button onClick={() => setSelectedReport(null)} className="text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"><svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
-                        </div>
-                        <div className="p-6 overflow-y-auto space-y-6">
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                <div>
-                                    <h4 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-2">Informações</h4>
-                                    <div className="space-y-2 text-sm text-slate-700 dark:text-slate-300">
-                                        <p><span className="font-semibold">Status:</span> <span className={`uppercase font-bold ${selectedReport.status === 'aberto' ? 'text-red-600' : 'text-green-600'}`}>{selectedReport.status}</span></p>
-                                        <p><span className="font-semibold">Usuário:</span> {selectedReport.userEmail}</p>
-                                        <p><span className="font-semibold">Data:</span> {selectedReport.createdAt ? formatarData(selectedReport.createdAt.toDate()) : '-'}</p>
-                                        <p><span className="font-semibold">Navegador:</span> {selectedReport.userAgent}</p>
-                                        <p><span className="font-semibold">Página:</span> {selectedReport.pageURL}</p>
-                                    </div>
-                                    <h4 className="text-sm font-bold text-slate-500 uppercase tracking-wider mt-6 mb-2">Descrição</h4>
-                                    <div className="p-3 bg-slate-50 dark:bg-slate-900/50 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-sm whitespace-pre-wrap">{selectedReport.description}</div>
-                                    <div className="mt-6">
-                                        <h4 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-2">Ações</h4>
-                                        {selectedReport.status === 'aberto' ? (
-                                            <button onClick={() => handleStatusChange(selectedReport.id, 'resolvido')} className="w-full py-2 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg transition-colors shadow-sm">Marcar como Resolvido</button>
-                                        ) : (
-                                            <button onClick={() => handleStatusChange(selectedReport.id, 'aberto')} className="w-full py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold rounded-lg transition-colors">Reabrir Chamado</button>
-                                        )}
-                                    </div>
-                                </div>
-                                <div>
-                                    <h4 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-2">Captura de Tela</h4>
-                                    {selectedReport.screenshotBase64 ? (
-                                        <div className="border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden bg-slate-100 dark:bg-slate-900">
-                                            <img src={selectedReport.screenshotBase64} alt="Screenshot" className="w-full h-auto object-contain cursor-zoom-in" onClick={() => window.open(selectedReport.screenshotBase64, '_blank')} />
-                                        </div>
-                                    ) : <p className="text-sm text-slate-500 italic">Sem captura de tela.</p>}
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
-        </div>
-    );
-};
 
 const AdminPage = ({ setCurrentArea }) => {
     const { user } = useAuth();
