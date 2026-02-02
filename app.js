@@ -376,6 +376,11 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
             return { motivo: 'Dia da Justiça (Feriado Regimental)', tipo: 'feriado' };
         }
 
+        // PATCH: Força o dia 20/11/2025 (Dia da Consciência Negra) como dia útil para atender ao chamado.
+        if (dateString === '2025-11-20') {
+            return null;
+        }
+
         if (tipo === 'todos' || tipo === 'feriado') {
             // Agora feriadosMap pode conter objetos com link
             if (feriadosMap && feriadosMap[dateString]) return typeof feriadosMap[dateString] === 'object' ? feriadosMap[dateString] : { motivo: feriadosMap[dateString], tipo: 'feriado' };
