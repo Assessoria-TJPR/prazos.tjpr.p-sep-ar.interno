@@ -46,6 +46,19 @@ const UserUsageCharts = ({ userData }) => {
     );
 };
 
+// Premium UI Components
+const SkeletonLoader = () => (
+    <div className="animate-pulse space-y-4 w-full">
+        <div className="h-10 bg-slate-200 dark:bg-slate-700/50 rounded-lg w-full"></div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="h-32 bg-slate-200 dark:bg-slate-700/50 rounded-2xl"></div>
+            <div className="h-32 bg-slate-200 dark:bg-slate-700/50 rounded-2xl"></div>
+            <div className="h-32 bg-slate-200 dark:bg-slate-700/50 rounded-2xl"></div>
+        </div>
+        <div className="h-64 bg-slate-200 dark:bg-slate-700/50 rounded-2xl"></div>
+    </div>
+);
+
 const SettingsProvider = ({ children }) => {
     const [settings, setSettings] = useState({
         theme: 'system', // 'light', 'dark', 'system'
@@ -376,10 +389,6 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
             return { motivo: 'Dia da Justiça (Feriado Regimental)', tipo: 'feriado' };
         }
 
-        // PATCH: Força o dia 20/11/2025 (Dia da Consciência Negra) como dia útil para atender ao chamado.
-        if (dateString === '2025-11-20') {
-            return null;
-        }
 
         if (tipo === 'todos' || tipo === 'feriado') {
             // Agora feriadosMap pode conter objetos com link
@@ -2195,6 +2204,7 @@ const AdminPage = ({ setCurrentArea }) => {
     const [auditLogs, setAuditLogs] = useState([]);
     const [broadcastMessage, setBroadcastMessage] = useState({ mensagem: '', ativo: false, tipo: 'info' });
     const [isSavingBroadcast, setIsSavingBroadcast] = useState(false);
+    const [collapsedSections, setCollapsedSections] = useState({ kpis: false, charts: false, table: false });
 
     const handleDeleteClick = () => {
         setShowDeleteModal(true);
@@ -2815,7 +2825,11 @@ const AdminPage = ({ setCurrentArea }) => {
 
     // CORREÇÃO: O hook de paginação é chamado incondicionalmente no topo do componente.
     // Ele vai operar sobre `filteredData` ou `selectedUserForStats.data` dependendo do contexto.
-    const dataForPagination = selectedUserForStats ? selectedUserForStats.data : filteredData;
+    const dataForPagination = useMemo(() => {
+        if (selectedUserForStats) return selectedUserForStats.data;
+        return filteredData;
+    }, [selectedUserForStats, filteredData]);
+
     const { paginatedData, PaginationControls } = usePagination(dataForPagination || [], 10);
 
     const chartDataMateria = { labels: ['Cível', 'Crime'], datasets: [{ data: [stats.perMateria.civel || 0, stats.perMateria.crime || 0], backgroundColor: ['#6366F1', '#F59E0B'] }] };
@@ -2835,7 +2849,7 @@ const AdminPage = ({ setCurrentArea }) => {
 
     if (selectedUserForStats) {
         return (
-            <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-xl p-6 sm:p-8 rounded-2xl shadow-lg border border-slate-200/50 dark:border-slate-700/50 space-y-6">
+            <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-xl p-6 sm:p-8 rounded-2xl shadow-lg border border-slate-200/50 dark:border-slate-700/50 space-y-6 animate-fade-in-up">
                 <div className="flex justify-between items-start">
                     <div>
                         <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Perfil do Utilizador</h2>
@@ -2845,29 +2859,38 @@ const AdminPage = ({ setCurrentArea }) => {
                     <button onClick={() => setSelectedUserForStats(null)} className="text-sm font-semibold text-indigo-600 hover:text-indigo-500">&larr; Voltar ao Painel</button>
                 </div>
                 <div className="flex justify-end gap-2">
-                    <button onClick={handleExport} className="px-4 py-2 text-sm font-semibold bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
+                    <button onClick={handleExport} className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-all shadow-md hover:shadow-lg flex items-center gap-2 text-sm font-semibold">
+                        <span className="material-icons text-sm">download</span>
                         Baixar Relatório do Utilizador
                     </button>
                 </div>
-                <UserUsageCharts userData={selectedUserForStats?.data} />
-                <div className="overflow-x-auto bg-slate-100/70 dark:bg-slate-900/50 rounded-lg">
-                    <table className="w-full text-sm text-left">
-                        <thead className="text-xs text-slate-700 dark:text-slate-300 uppercase bg-slate-200/50 dark:bg-slate-800/50">
-                            <tr><th className="px-6 py-3">Data</th><th className="px-6 py-3">Nº Processo</th><th className="px-6 py-3">Matéria</th><th className="px-6 py-3">Prazo</th></tr>
-                        </thead>
-                        <tbody>
-                            {paginatedData.map(item => (
-                                <tr key={item.id} className="border-b border-slate-200/50 dark:border-slate-700/50">
-                                    <td className="px-6 py-4">{item.timestamp ? formatarData(item.timestamp.toDate()) : ''}</td>
-                                    <td className="px-6 py-4">{item.numeroProcesso}</td>
-                                    <td className="px-6 py-4">{item.materia}</td>
-                                    <td className="px-6 py-4">{item.prazo} dias</td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                    <PaginationControls />
+                <UserUsageCharts userData={selectedUserForStats.data} />
+                <div className="overflow-hidden bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
+                    <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/20">
+                        <h3 className="font-bold text-slate-700 dark:text-slate-200">Histórico Recente</h3>
+                    </div>
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-sm text-left">
+                            <thead className="text-xs text-slate-500 uppercase bg-slate-50 dark:bg-slate-900/60 border-b border-slate-100 dark:border-slate-700">
+                                <tr><th className="px-6 py-3 font-semibold">Data</th><th className="px-6 py-3 font-semibold">Nº Processo</th><th className="px-6 py-3 font-semibold">Matéria</th><th className="px-6 py-3 font-semibold">Prazo</th></tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
+                                {paginatedData.map(item => (
+                                    <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors">
+                                        <td className="px-6 py-4">{item.timestamp ? formatarData(item.timestamp.toDate()) : ''}</td>
+                                        <td className="px-6 py-4 font-medium text-slate-700 dark:text-slate-200">{item.numeroProcesso}</td>
+                                        <td className="px-6 py-4 capitalize">{item.materia}</td>
+                                        <td className="px-6 py-4">{item.prazo} dias</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                    {selectedUserForStats.data.length > 10 && (
+                        <div className="p-4 border-t border-slate-100 dark:border-slate-700 bg-slate-50/30 dark:bg-slate-900/10">
+                            <PaginationControls />
+                        </div>
+                    )}
                 </div>
             </div>
         );
@@ -2885,263 +2908,257 @@ const AdminPage = ({ setCurrentArea }) => {
                     {(adminUserData.role === 'admin' || adminUserData.role === 'setor_admin') && <button onClick={() => setAdminSection('minutas')} className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors ${adminSection === 'minutas' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>Gerir Minutas</button>}
                     {adminUserData.role === 'admin' && <button onClick={() => setAdminSection('calendar')} className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors ${adminSection === 'calendar' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>Gerir Calendário</button>}
                     {adminUserData.role === 'admin' && <button onClick={() => setAdminSection('chamados')} className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors ${adminSection === 'chamados' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>Chamados</button>}
+                    {adminUserData.role === 'admin' && <button onClick={() => setAdminSection('broadcast')} className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors ${adminSection === 'broadcast' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>Aviso Global</button>}
                     {adminUserData.role === 'admin' && <button onClick={() => setAdminSection('audit')} className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors ${adminSection === 'audit' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>Auditoria</button>}
                 </div>
             </div>
 
             {adminSection === 'stats' && (
-                <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
-                    {/* Coluna Lateral */}
-                    <div className="lg:col-span-1 bg-white/60 dark:bg-slate-800/60 backdrop-blur-xl p-6 rounded-2xl shadow-lg border border-slate-200/50 dark:border-slate-700/50 self-start">
-                        <h3 className="font-semibold text-lg mb-1 text-slate-800 dark:text-slate-100">Top 10 do Mês</h3>
-                        <p className="text-xs text-slate-500 dark:text-slate-400 mb-4 uppercase tracking-wider font-bold">{statsView === 'calculadora' ? 'Calculadora' : 'Consulta DJEN'}</p>
+                <div className="space-y-8 animate-fade-in text-slate-800 dark:text-slate-100">
 
-                        {topUsers.length > 0 ? (
-                            <ul className="space-y-2 text-left">
-                                {topUsers.map(([name, count], index) => {
-                                    // Lógica de Gamificação: Medalhas para o Top 3
-                                    let medal = null;
-                                    if (index === 0) medal = '🥇';
-                                    if (index === 1) medal = '🥈';
-                                    if (index === 2) medal = '🥉';
-
-                                    return (
-                                        <li key={name} className={`flex items-center justify-between p-2 rounded-md text-sm ${index < 3 ? 'bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800' : 'bg-slate-100/70 dark:bg-slate-900/50'}`}>
-                                            <span className="font-medium truncate flex items-center gap-2" title={name}>
-                                                <span className="w-5 text-center">{medal || `${index + 1}.`}</span>
-                                                {name}
-                                            </span>
-                                            <span className={`font-bold flex-shrink-0 ml-2 ${index < 3 ? 'text-indigo-700 dark:text-indigo-300' : 'text-slate-600 dark:text-slate-400'}`}>{count}</span>
-                                        </li>
-                                    );
-                                })}
-                            </ul>
-                        ) : <p className="text-sm text-slate-500 dark:text-slate-400">Nenhum dado registrado neste mês.</p>}
-                    </div>
-
-                    {/* Conteúdo Principal */}
-                    <div className="lg:col-span-3 bg-white/60 dark:bg-slate-800/60 backdrop-blur-xl p-6 sm:p-8 rounded-2xl shadow-lg border border-slate-200/50 dark:border-slate-700/50 space-y-8">
-                        <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
+                    {/* 1. Header & Filters Toolbar */}
+                    <div className="bg-white/80 dark:bg-slate-800/80 backdrop-blur-xl p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
+                        <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
                             <div>
-                                <h3 className="text-xl font-bold text-slate-800 dark:text-slate-100">Filtros de Estatísticas</h3>
-                                <div className="flex items-center gap-2 mt-2">
-                                    <button onClick={() => setStatsView('calculadora')} className={`px-3 py-1 text-sm font-semibold rounded-md transition-colors ${statsView === 'calculadora' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>Calculadora</button>
-                                    <button onClick={() => setStatsView('djen_consulta')} className={`px-3 py-1 text-sm font-semibold rounded-md transition-colors ${statsView === 'djen_consulta' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>Consulta DJEN</button>
-                                </div>
+                                <h3 className="text-xl font-bold text-slate-800 dark:text-slate-100">Visão Geral de Uso</h3>
+                                <p className="text-sm text-slate-500 dark:text-slate-400">Analise o desempenho e engajamento da ferramenta.</p>
+                            </div>
+                            <div className="flex bg-slate-100 dark:bg-slate-900/50 p-1 rounded-lg">
+                                <button onClick={() => setStatsView('calculadora')} className={`px-4 py-1.5 text-sm font-semibold rounded-md transition-all ${statsView === 'calculadora' ? 'bg-white dark:bg-slate-700 shadow-sm text-indigo-600 dark:text-white' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'}`}>Calculadora</button>
+                                <button onClick={() => setStatsView('djen_consulta')} className={`px-4 py-1.5 text-sm font-semibold rounded-md transition-all ${statsView === 'djen_consulta' ? 'bg-white dark:bg-slate-700 shadow-sm text-indigo-600 dark:text-white' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'}`}>Consulta DJEN</button>
                             </div>
                         </div>
 
-                        <div className="space-y-6 animate-fade-in">
-                            {/* KPI Cards */}
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                                <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 flex flex-col justify-between">
-                                    <div>
-                                        <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Total de Usos</h3>
-                                        <p className="text-3xl font-extrabold text-slate-800 dark:text-white">{stats.total}</p>
-                                    </div>
-                                    <div className="mt-4 flex items-center text-xs text-slate-400">
-                                        <span className="inline-block w-2 h-2 rounded-full bg-blue-500 mr-2"></span>
-                                        {statsView === 'calculadora' ? 'Cálculos Realizados' : 'Consultas DJEN'}
-                                    </div>
-                                </div>
+                        {/* Filters Grid */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
+                            <div><label className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1 block">Data Inicial</label><input type="date" name="startDate" value={filters.startDate} onChange={handleFilterChange} className="w-full p-2.5 text-sm rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all outline-none" /></div>
+                            <div><label className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1 block">Data Final</label><input type="date" name="endDate" value={filters.endDate} onChange={handleFilterChange} className="w-full p-2.5 text-sm rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all outline-none" /></div>
 
-                                <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 flex flex-col justify-between">
-                                    <div>
-                                        <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Usuário Mais Ativo</h3>
-                                        <p className="text-xl font-bold text-slate-800 dark:text-white truncate" title={topUsers[0]?.[0]}>{topUsers[0]?.[0] || 'N/A'}</p>
-                                    </div>
-                                    <div className="mt-4 text-xs text-slate-400">
-                                        {topUsers[0]?.[1] || 0} registros
-                                    </div>
-                                </div>
-
-                                <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 flex flex-col justify-between">
-                                    <div>
-                                        <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">
-                                            {statsView === 'calculadora' ? 'Matéria Principal' : 'Dia Mais Movimentado'}
-                                        </h3>
-                                        <p className="text-xl font-bold text-slate-800 dark:text-white capitalize truncate">
-                                            {statsView === 'calculadora'
-                                                ? (Object.entries(stats.perMateria).sort((a, b) => b[1] - a[1])[0]?.[0] || 'N/A')
-                                                : (Object.entries(stats.byDay).sort((a, b) => b[1] - a[1])[0]?.[0] || 'N/A')
-                                            }
-                                        </p>
-                                    </div>
-                                    <div className="mt-4 text-xs text-slate-400">
-                                        Maior volume registrado
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Gráfico de Setores */}
-                            {adminUserData.role === 'admin' && (
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                    <div className="p-4 bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 h-64">
-                                        <h3 className="font-semibold text-center mb-2 text-slate-800 dark:text-slate-100">Utilização por Setor</h3>
-                                        <Pie data={chartDataSector} options={{ responsive: true, maintainAspectRatio: false }} />
-                                    </div>
-                                    <div className="p-4 bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
-                                        <h3 className="font-semibold text-center mb-4 text-slate-800 dark:text-slate-100">Aviso Global (Broadcast)</h3>
-                                        <div className="space-y-3">
-                                            <textarea value={broadcastMessage.mensagem} onChange={e => setBroadcastMessage({ ...broadcastMessage, mensagem: e.target.value })} placeholder="Mensagem para todos os usuários..." className="w-full p-2 border rounded-md text-sm dark:bg-slate-900 dark:border-slate-600" rows="3"></textarea>
-                                            <div className="flex items-center gap-2">
-                                                <input type="checkbox" checked={broadcastMessage.ativo} onChange={e => setBroadcastMessage({ ...broadcastMessage, ativo: e.target.checked })} id="broadcast-active" />
-                                                <label htmlFor="broadcast-active" className="text-sm">Ativar Aviso</label>
-                                            </div>
-                                            <button onClick={handleSaveBroadcast} disabled={isSavingBroadcast} className="w-full bg-blue-600 text-white py-2 rounded-md text-sm font-bold hover:bg-blue-700 disabled:opacity-50">Salvar Aviso</button>
-                                        </div>
-                                    </div>
-                                </div>
+                            {statsView === 'calculadora' ? (
+                                <>
+                                    <div><label className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1 block">Matéria</label><select name="materia" value={filters.materia} onChange={handleFilterChange} className="w-full p-2.5 text-sm rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none"><option value="todos">Todas</option><option value="civel">Cível</option><option value="crime">Crime</option></select></div>
+                                    <div><label className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1 block">Prazo</label><select name="prazo" value={filters.prazo} onChange={handleFilterChange} className="w-full p-2.5 text-sm rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none"><option value="todos">Todos</option><option value="5">5 Dias</option><option value="15">15 Dias</option></select></div>
+                                </>
+                            ) : (
+                                <div className="lg:col-span-2 hidden lg:block"></div>
                             )}
 
-                            <span className="text-sm text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-900/50 px-3 py-1.5 rounded-lg">Total de Usos: <strong className="font-bold text-lg text-slate-700 dark:text-slate-200">{viewData.length}</strong></span>
+                            <div className="lg:hidden"><button onClick={handleFilter} className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg transition-colors shadow-sm">Aplicar Filtros</button></div>
                         </div>
+                        <div className="hidden lg:flex justify-end mt-4 pt-4 border-t border-slate-100 dark:border-slate-700">
+                            <button onClick={handleFilter} className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold rounded-lg transition-colors shadow-md flex items-center gap-2">
+                                <span className="material-icons text-sm">filter_list</span> Aplicar Filtros
+                            </button>
+                        </div>
+                    </div>
 
-                        <div className="p-4 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg space-y-4">
-                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 items-end">
-                                <div><label className="text-xs font-medium text-slate-500">Data Inicial</label><input type="date" name="startDate" value={filters.startDate} onChange={handleFilterChange} className="w-full mt-1 p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700" /></div>
-                                <div><label className="text-xs font-medium text-slate-500">Data Final</label><input type="date" name="endDate" value={filters.endDate} onChange={handleFilterChange} className="w-full mt-1 p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700" /></div>
-                                {statsView === 'calculadora' && <>
-                                    <div><label className="text-xs font-medium text-slate-500">Matéria</label><select name="materia" value={filters.materia} onChange={handleFilterChange} className="w-full mt-1 p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700"><option value="todos">Todas</option><option value="civel">Cível</option><option value="crime">Crime</option></select></div>
-                                    <div><label className="text-xs font-medium text-slate-500">Prazo</label><select name="prazo" value={filters.prazo} onChange={handleFilterChange} className="w-full mt-1 p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700"><option value="todos">Todos</option><option value="5">5 Dias</option><option value="15">15 Dias</option></select></div>
-                                </>}
-                                {adminUserData.role === 'admin' && (
-                                    <div>
-                                        <label className="text-xs font-medium text-slate-500">Setor</label>
-                                        <select name="setorId" value={filters.setorId} onChange={handleFilterChange} className="w-full mt-1 p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700">
-                                            <option value="todos">Todos</option>
-                                            {setores.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
-                                        </select>
+                    {!hasSearched ? (
+                        <div className="text-center py-20 bg-slate-50 dark:bg-slate-900/30 rounded-3xl border-2 border-dashed border-slate-200 dark:border-slate-700">
+                            <span className="material-icons text-6xl text-slate-300 dark:text-slate-600 mb-4">analytics</span>
+                            <p className="text-lg font-medium text-slate-500 dark:text-slate-400">Configure os filtros acima para visualizar as estatísticas.</p>
+                        </div>
+                    ) : filteredData.length === 0 ? (
+                        <div className="text-center py-20 bg-slate-50 dark:bg-slate-900/30 rounded-3xl border-2 border-dashed border-slate-200 dark:border-slate-700 animate-fade-in">
+                            {loading ? (
+                                <div className="max-w-4xl mx-auto px-4">
+                                    <SkeletonLoader />
+                                </div>
+                            ) : (
+                                <>
+                                    <span className="material-icons text-6xl text-slate-300 dark:text-slate-600 mb-4">search_off</span>
+                                    <p className="text-slate-500 dark:text-slate-400">Nenhum registro encontrado para este período.</p>
+                                </>
+                            )}
+                        </div>
+                    ) : (
+                        <>
+                            {/* 2. KPI Cards Section (Collapsible) */}
+                            <div className="bg-white/40 dark:bg-slate-800/40 rounded-3xl border border-slate-200/50 dark:border-slate-700/50 overflow-hidden transition-all duration-300">
+                                <button
+                                    onClick={() => setCollapsedSections(prev => ({ ...prev, kpis: !prev.kpis }))}
+                                    className="w-full px-6 py-4 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors"
+                                >
+                                    <div className="flex items-center gap-2">
+                                        <span className="material-icons text-indigo-600 dark:text-indigo-400">dashboard</span>
+                                        <span className="font-bold text-slate-800 dark:text-slate-100">Indicadores Chave (KPIs)</span>
+                                    </div>
+                                    <span className={`material-icons transition-transform duration-300 ${collapsedSections.kpis ? '' : 'rotate-180'}`}>expand_more</span>
+                                </button>
+                                {!collapsedSections.kpis && (
+                                    <div className="p-6 pt-0 animate-fade-in">
+                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                            <div className="bg-gradient-to-br from-indigo-500 to-purple-600 text-white p-6 rounded-2xl shadow-lg relative overflow-hidden group hover:scale-[1.02] transition-transform duration-300">
+                                                <div className="absolute top-0 right-0 p-4 opacity-20 group-hover:opacity-30 transition-opacity"><span className="material-icons text-8xl text-white">bar_chart</span></div>
+                                                <h3 className="text-xs font-bold text-indigo-100 uppercase tracking-wider mb-2">Total de Usos</h3>
+                                                <p className="text-4xl font-extrabold text-white mb-2">{stats.total}</p>
+                                                <div className="flex items-center text-xs font-medium text-white/90 bg-white/20 px-2 py-1 rounded w-fit backdrop-blur-sm"><span className="material-icons text-xs mr-1">trending_up</span> No período selecionado</div>
+                                            </div>
+                                            <div className="bg-gradient-to-br from-emerald-500 to-teal-600 text-white p-6 rounded-2xl shadow-lg relative overflow-hidden group hover:scale-[1.02] transition-transform duration-300">
+                                                <div className="absolute top-0 right-0 p-4 opacity-20 group-hover:opacity-30 transition-opacity"><span className="material-icons text-8xl text-white">person</span></div>
+                                                <h3 className="text-xs font-bold text-emerald-100 uppercase tracking-wider mb-2">Top Usuário</h3>
+                                                <p className="text-2xl font-bold text-white truncate mb-1" title={topUsers[0]?.[0]}>{topUsers[0]?.[0] || 'N/A'}</p>
+                                                <p className="text-sm text-emerald-100/90">Responsável por <strong className="text-white">{topUsers[0]?.[1] || 0}</strong> operações</p>
+                                            </div>
+                                            <div className="bg-gradient-to-br from-amber-400 to-orange-500 text-white p-6 rounded-2xl shadow-lg relative overflow-hidden group hover:scale-[1.02] transition-transform duration-300">
+                                                <div className="absolute top-0 right-0 p-4 opacity-20 group-hover:opacity-30 transition-opacity"><span className="material-icons text-8xl text-white">lightbulb</span></div>
+                                                <h3 className="text-xs font-bold text-amber-100 uppercase tracking-wider mb-2">{statsView === 'calculadora' ? 'Matéria Principal' : 'Dia de Pico'}</h3>
+                                                <p className="text-2xl font-bold text-white capitalize truncate mb-1">{statsView === 'calculadora' ? (Object.entries(stats.perMateria).sort((a, b) => b[1] - a[1])[0]?.[0] || 'N/A') : (Object.entries(stats.byDay).sort((a, b) => b[1] - a[1])[0]?.[0] || 'N/A')}</p>
+                                                <p className="text-sm text-amber-100/90">Maior volume registrado</p>
+                                            </div>
+                                        </div>
                                     </div>
                                 )}
-                                <div className="lg:col-span-full"><label className="text-xs font-medium text-slate-500">Utilizador</label><select name="email" value={filters.email} onChange={handleFilterChange} className="w-full mt-1 p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700"><option value="todos">Todos</option>{usersForFilterDropdown.map(u => <option key={u} value={u}>{u}</option>)}</select></div>
                             </div>
-                            <div className="border-t border-slate-200 dark:border-slate-700 pt-4">
-                                <label className="text-xs font-medium text-slate-500">Pesquisar por ID do Utilizador</label>
-                                <div className="flex gap-4 items-center">
-                                    <input type="text" name="userId" placeholder="Cole o ID do utilizador aqui..." value={filters.userId} onChange={handleFilterChange} className="w-full mt-1 p-2 text-sm rounded-md bg-white/50 dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700" />
+
+                            {/* 3. Global Charts Section (Collapsible) */}
+                            <div className="bg-white/40 dark:bg-slate-800/40 rounded-3xl border border-slate-200/50 dark:border-slate-700/50 overflow-hidden transition-all duration-300">
+                                <button
+                                    onClick={() => setCollapsedSections(prev => ({ ...prev, charts: !prev.charts }))}
+                                    className="w-full px-6 py-4 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors"
+                                >
+                                    <div className="flex items-center gap-2">
+                                        <span className="material-icons text-purple-600 dark:text-purple-400">insights</span>
+                                        <span className="font-bold text-slate-800 dark:text-slate-100">Gráficos de Tendência e Distribuição</span>
+                                    </div>
+                                    <span className={`material-icons transition-transform duration-300 ${collapsedSections.charts ? '' : 'rotate-180'}`}>expand_more</span>
+                                </button>
+                                {!collapsedSections.charts && (
+                                    <div className="p-6 pt-0 animate-fade-in space-y-6">
+                                        <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
+                                            <h4 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-4">Volume de Utilização por Dia</h4>
+                                            <div className="h-[300px]">
+                                                <Bar data={chartDataByDay} options={{ ...chartOptions, maintainAspectRatio: false }} />
+                                            </div>
+                                        </div>
+
+                                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                                            <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 h-full">
+                                                <h4 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-4">Distribuição por Matéria</h4>
+                                                <div className="h-64"><Pie data={chartDataMateria} options={{ maintainAspectRatio: false }} /></div>
+                                            </div>
+                                            <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 h-full">
+                                                <h4 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-4">Distribuição por Prazo</h4>
+                                                <div className="h-64"><Pie data={chartDataPrazo} options={{ maintainAspectRatio: false }} /></div>
+                                            </div>
+                                            <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 h-full">
+                                                <h4 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-4">Utilização por Setor</h4>
+                                                <div className="h-64"><HorizontalBar data={chartDataSector} options={{ ...chartOptions, maintainAspectRatio: false }} /></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* 4. Top Usuários Section */}
+                            <div className="bg-white/40 dark:bg-slate-800/40 rounded-3xl border border-slate-200/50 dark:border-slate-700/50 overflow-hidden">
+                                <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/20 flex justify-between items-center">
+                                    <h3 className="font-bold text-slate-700 dark:text-slate-200 flex items-center gap-2">
+                                        <span className="material-icons text-amber-500">emoji_events</span> Hall da Fama (Mês Atual)
+                                    </h3>
+                                    <span className="text-[10px] text-slate-400 uppercase font-bold tracking-widest italic">Baseado em volume de cálculos</span>
+                                </div>
+                                <div className="p-6">
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+                                        {topUsers.map(([email, count], idx) => {
+                                            let badge = null;
+                                            if (idx === 0) badge = "🥇";
+                                            else if (idx === 1) badge = "🥈";
+                                            else if (idx === 2) badge = "🥉";
+
+                                            return (
+                                                <div key={idx} className={`p-4 rounded-2xl border transition-all duration-300 flex flex-col items-center text-center ${idx < 3 ? 'bg-indigo-50/50 dark:bg-indigo-900/20 border-indigo-100 dark:border-indigo-800 scale-[1.05] shadow-md z-10' : 'bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 opacity-80'
+                                                    }`}>
+                                                    <div className="relative mb-3">
+                                                        <div className={`w-12 h-12 rounded-full flex items-center justify-center text-xl font-bold text-white shadow-inner ${idx === 0 ? 'bg-gradient-to-tr from-amber-400 to-yellow-600' :
+                                                            idx === 1 ? 'bg-gradient-to-tr from-slate-300 to-slate-500' :
+                                                                idx === 2 ? 'bg-gradient-to-tr from-orange-400 to-orange-700' : 'bg-slate-200 dark:bg-slate-700 text-slate-400 dark:text-slate-500'
+                                                            }`}>
+                                                            {badge || (idx + 1)}
+                                                        </div>
+                                                    </div>
+                                                    <div className="text-xs font-bold text-slate-700 dark:text-slate-200 truncate w-full mb-1" title={email}>{email.split('@')[0]}</div>
+                                                    <div className="text-[10px] text-slate-400 font-mono">{count} sessões</div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
                                 </div>
                             </div>
-                            <div className="flex justify-end gap-2">
-                                <button onClick={handleFilter} className="px-4 py-2 text-sm font-semibold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-2">
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" /></svg>
-                                    Filtrar
-                                </button>
-                                <button onClick={handleExport} disabled={filteredData.length === 0} className="px-4 py-2 text-sm font-semibold bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 flex items-center gap-2">
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
-                                    Baixar Relatório
-                                </button>
-                                <button onClick={handleBulkExport} disabled={filteredData.length === 0} className="px-4 py-2 text-sm font-semibold bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 flex items-center gap-2">
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" clipRule="evenodd" /></svg>
-                                    Extração Completa (ZIP)
-                                </button>
-                                <button onClick={handleDeleteClick} disabled={filteredData.length === 0 && allData.length === 0} className="px-4 py-2 text-sm font-semibold bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 flex items-center gap-2">
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
-                                    Excluir Registros
-                                </button>
-                            </div>
-                        </div>
 
-                        {!hasSearched ? (
-                            <div className="text-center p-8 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg"><p className="text-slate-500 dark:text-slate-400">Os gráficos acima mostram o uso geral. Use os filtros para ver detalhes.</p></div>
-                        ) : filteredData.length === 0 ? (
-                            <div className="text-center p-8 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg">
-                                {loading ? <p className="text-slate-500 dark:text-slate-400">Buscando dados...</p> : <p className="text-slate-500 dark:text-slate-400">Nenhum resultado encontrado para os filtros selecionados.</p>}
-                            </div>
-                        ) : (
-                            <>
-                                <div className="space-y-6">
-                                    <div className="p-4 bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 h-64">
-                                        <h3 className="font-semibold text-center mb-2 text-slate-800 dark:text-slate-100">Utilização nos Últimos 7 Dias</h3>
-                                        <Bar data={chartDataByDay} options={{ responsive: true, maintainAspectRatio: false }} />
+                            {/* 5. Detailed Records Table (Collapsible) */}
+                            <div className="bg-white/40 dark:bg-slate-800/40 rounded-3xl border border-slate-200/50 dark:border-slate-700/50 overflow-hidden transition-all duration-300">
+                                <button
+                                    onClick={() => setCollapsedSections(prev => ({ ...prev, table: !prev.table }))}
+                                    className="w-full px-6 py-4 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors"
+                                >
+                                    <div className="flex items-center gap-2">
+                                        <span className="material-icons text-emerald-600 dark:text-emerald-400">table_view</span>
+                                        <span className="font-bold text-slate-800 dark:text-slate-100">Registros Detalhados</span>
                                     </div>
-                                    <div>
-                                        {/* Table */}
-                                        <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
-                                            <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-slate-50 dark:bg-slate-900/30">
-                                                <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">Registros Detalhados</h3>
-                                                <button onClick={handleExport} disabled={filteredData.length === 0} className="text-xs font-bold text-green-600 hover:text-green-700 flex items-center gap-1 disabled:opacity-50">
-                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
-                                                    Exportar Excel
+                                    <div className="flex items-center gap-4">
+                                        <span className="text-xs font-semibold px-2 py-0.5 bg-white dark:bg-slate-700 rounded-md text-slate-500">{filteredData.length} registros</span>
+                                        <span className={`material-icons transition-transform duration-300 ${collapsedSections.table ? '' : 'rotate-180'}`}>expand_more</span>
+                                    </div>
+                                </button>
+                                {!collapsedSections.table && (
+                                    <div className="p-6 pt-0 animate-fade-in">
+                                        <div className="flex justify-between items-center mb-4">
+                                            <button onClick={handleExport} className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-all shadow-md hover:shadow-lg flex items-center gap-2 text-sm font-semibold">
+                                                <span className="material-icons text-sm">download</span> Exportar Excel
+                                            </button>
+                                            {adminUserData.role === 'admin' && (
+                                                <button onClick={handleDeleteClick} className="px-4 py-2 bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 rounded-lg transition-all text-sm font-semibold flex items-center gap-2">
+                                                    <span className="material-icons text-sm">delete_sweep</span> Limpar Período
                                                 </button>
-                                            </div>
+                                            )}
+                                        </div>
+
+                                        <div className="overflow-hidden bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
                                             <div className="overflow-x-auto">
                                                 <table className="w-full text-sm text-left">
                                                     <thead className="text-xs text-slate-500 uppercase bg-slate-50 dark:bg-slate-900/50 border-b border-slate-100 dark:border-slate-700">
                                                         <tr>
-                                                            <th className="px-6 py-3 font-bold">Utilizador</th>
-                                                            <th className="px-6 py-3 font-bold">Tipo</th>
-                                                            <th className="px-6 py-3 font-bold">Processo</th>
-                                                            <th className="px-6 py-3 font-bold">Detalhes</th>
-                                                            <th className="px-6 py-3 font-bold text-right">Data</th>
+                                                            <th className="px-6 py-4">Usuário</th>
+                                                            <th className="px-6 py-4">Matéria</th>
+                                                            <th className="px-6 py-4">Prazo</th>
+                                                            <th className="px-6 py-4">Processo</th>
+                                                            <th className="px-6 py-4">Data/Hora</th>
+                                                            <th className="px-6 py-4 text-center">Ações</th>
                                                         </tr>
                                                     </thead>
                                                     <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
                                                         {paginatedData.map(item => (
-                                                            <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors">
-                                                                <td className="px-6 py-4 font-medium text-slate-700 dark:text-slate-200">
-                                                                    <a href="#" onClick={(e) => { e.preventDefault(); handleUserClick(item.userEmail) }} className="text-blue-600 hover:underline">{item.userName || item.userEmail}</a>
+                                                            <tr key={item.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition-colors group">
+                                                                <td className="px-6 py-4">
+                                                                    <div className="font-medium text-slate-800 dark:text-slate-100">{item.userName || item.userEmail}</div>
+                                                                    <div className="text-[10px] text-slate-400">{item.userEmail}</div>
                                                                 </td>
-                                                                <td className="px-6 py-4 text-slate-500 capitalize">{(item.type || 'calculadora').split('_')[0]}</td>
-                                                                <td className="px-6 py-4 text-slate-500">{item.numeroProcesso}</td>
-                                                                <td className="px-6 py-4 text-slate-500">
-                                                                    {item.materia ? (
-                                                                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${item.materia === 'civel' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300' : 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300'}`}>
-                                                                            {item.materia}, {item.prazo}d
-                                                                        </span>
-                                                                    ) : '-'}
+                                                                <td className="px-6 py-4"><span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${item.materia === 'civel' ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'}`}>{item.materia}</span></td>
+                                                                <td className="px-6 py-4 font-mono text-xs">{item.prazo} dias</td>
+                                                                <td className="px-6 py-4 text-slate-500 font-mono text-xs">{item.numeroProcesso || '-'}</td>
+                                                                <td className="px-6 py-4 text-slate-400 text-xs">{item.timestamp ? formatarData(item.timestamp.toDate()) : '-'}</td>
+                                                                <td className="px-6 py-4 text-center">
+                                                                    <button onClick={() => setSelectedUserForStats({ name: item.userName || item.userEmail, data: allData.filter(d => d.userId === item.userId) })} className="p-2 text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg transition-colors" title="Ver perfil do usuário">
+                                                                        <span className="material-icons text-sm">visibility</span>
+                                                                    </button>
                                                                 </td>
-                                                                <td className="px-6 py-4 text-right text-slate-500 font-mono text-xs">{item.timestamp ? formatarData(item.timestamp.toDate()) : ''}</td>
                                                             </tr>
                                                         ))}
-                                                        {paginatedData.length === 0 && (
-                                                            <tr><td colSpan="5" className="px-6 py-8 text-center text-slate-500">Nenhum registro encontrado.</td></tr>
-                                                        )}
                                                     </tbody>
                                                 </table>
                                             </div>
-                                            {filteredData.length > 0 && <PaginationControls />}
+                                            <div className="p-4 border-t border-slate-100 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/20">
+                                                <PaginationControls />
+                                            </div>
                                         </div>
                                     </div>
-                                </div>
-                            </>
-                        )}
-                    </div>
+                                )}
+                            </div>
+                        </>
+                    )}
                 </div>
             )}
-            {adminSection === 'calendar' && (
-                <CalendarioAdminPage />
-            )}
-            {adminSection === 'chamados' && (
-                <BugReportsPage />
-            )}
-            {adminSection === 'audit' && (
-                <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
-                    <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/30">
-                        <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">Logs de Auditoria (Últimos 50)</h3>
-                    </div>
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-sm text-left">
-                            <thead className="text-xs text-slate-500 uppercase bg-slate-50 dark:bg-slate-900/50 border-b border-slate-100 dark:border-slate-700">
-                                <tr><th className="px-6 py-3">Data</th><th className="px-6 py-3">Ação</th><th className="px-6 py-3">Usuário</th><th className="px-6 py-3">Detalhes</th></tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
-                                {auditLogs.map(log => (
-                                    <tr key={log.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/30">
-                                        <td className="px-6 py-4 whitespace-nowrap">{log.timestamp ? new Date(log.timestamp.toDate()).toLocaleString() : ''}</td>
-                                        <td className="px-6 py-4 font-bold text-slate-700 dark:text-slate-300">{log.action}</td>
-                                        <td className="px-6 py-4">{log.performedByEmail}</td>
-                                        <td className="px-6 py-4 text-slate-500 truncate max-w-xs" title={log.details}>{log.details}</td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            )}
-            {adminSection === 'minutas' && (
-                <MinutasAdminPage />
-            )}
+
             {adminSection === 'users' && (
                 <div className="flex flex-col lg:flex-row gap-6 animate-fade-in">
                     {/* Coluna Esquerda: Gerenciamento de Setores (Apenas Admin Global) */}
@@ -3192,7 +3209,6 @@ const AdminPage = ({ setCurrentArea }) => {
                         </div>
                     )}
 
-                    {/* Coluna Direita: Gerenciamento de Usuários */}
                     <div className={`${adminUserData.role === 'admin' ? 'lg:w-2/3' : 'w-full'} space-y-6`}>
                         <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
                             <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mb-6">
@@ -3291,40 +3307,143 @@ const AdminPage = ({ setCurrentArea }) => {
                     </div>
                 </div>
             )}
-            {editingUser && (
-                <UserManagementModal
-                    user={editingUser}
-                    setores={setores}
-                    adminUser={adminUserData}
-                    onClose={handleCloseUserManagementModal}
-                    onSave={handleSaveUserPermissions}
-                />
-            )}
-            {showDeleteModal && (
-                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
-                    <div className="bg-white dark:bg-slate-800 w-full max-w-md rounded-2xl shadow-2xl p-6 border border-slate-200 dark:border-slate-700">
-                        <h3 className="text-xl font-bold text-slate-800 dark:text-slate-100 mb-4">Excluir Registros por Período</h3>
-                        <p className="text-sm text-slate-600 dark:text-slate-300 mb-4">Selecione o intervalo de datas dos registros que deseja excluir permanentemente.</p>
+            {adminSection === 'minutas' && <MinutasAdminPage />}
+            {adminSection === 'calendar' && <CalendarioAdminPage />}
+            {adminSection === 'chamados' && <BugReportsPage />}
+            {adminSection === 'broadcast' && (
+                <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-xl p-6 sm:p-8 rounded-2xl shadow-lg border border-slate-200/50 dark:border-slate-700/50 space-y-6 animate-fade-in-up">
+                    <div className="flex items-center gap-3 mb-2">
+                        <div className="p-2 bg-indigo-100 dark:bg-indigo-900/30 rounded-lg text-indigo-600 dark:text-indigo-400">
+                            <span className="material-icons">campaign</span>
+                        </div>
+                        <div>
+                            <h2 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 to-purple-600 dark:from-indigo-400 dark:to-purple-400">Aviso Global</h2>
+                            <p className="text-slate-500 text-sm">Esta mensagem será exibida para todos os usuários no topo da página inicial.</p>
+                        </div>
+                    </div>
 
-                        <div className="space-y-4">
-                            <div>
-                                <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Data Inicial</label>
-                                <input type="date" value={deleteRange.start} onChange={e => setDeleteRange({ ...deleteRange, start: e.target.value })} className="w-full p-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-200" />
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Data Final</label>
-                                <input type="date" value={deleteRange.end} onChange={e => setDeleteRange({ ...deleteRange, end: e.target.value })} className="w-full p-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-200" />
-                            </div>
+                    <div className="space-y-5 bg-white/40 dark:bg-slate-900/40 p-6 rounded-xl border border-slate-200/50 dark:border-slate-700/50">
+                        <div className="flex items-center gap-3 p-3 bg-indigo-50/50 dark:bg-indigo-900/10 rounded-lg border border-indigo-100/50 dark:border-indigo-800/20">
+                            <label className="relative inline-flex items-center cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    className="sr-only peer"
+                                    checked={broadcastMessage.ativo}
+                                    onChange={e => setBroadcastMessage({ ...broadcastMessage, ativo: e.target.checked })}
+                                />
+                                <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-indigo-300 dark:peer-focus:ring-indigo-800 rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-slate-600 peer-checked:bg-indigo-600"></div>
+                                <span className="ml-3 text-sm font-medium text-slate-700 dark:text-slate-300">Exibir aviso para os usuários</span>
+                            </label>
                         </div>
 
-                        <div className="flex justify-end gap-3 mt-6">
-                            <button onClick={() => setShowDeleteModal(false)} className="px-4 py-2 text-sm font-semibold bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-200 dark:hover:bg-slate-600">Cancelar</button>
-                            <button onClick={handleConfirmDelete} className="px-4 py-2 text-sm font-semibold bg-red-600 text-white rounded-lg hover:bg-red-700">Excluir</button>
+                        <div className="space-y-2">
+                            <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300">Conteúdo da Mensagem</label>
+                            <textarea
+                                value={broadcastMessage.mensagem}
+                                onChange={e => setBroadcastMessage({ ...broadcastMessage, mensagem: e.target.value })}
+                                rows="4"
+                                className="w-full p-4 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all shadow-inner placeholder:text-slate-400"
+                                placeholder="Digite aqui o que os usuários devem ver..."
+                            ></textarea>
+                        </div>
+
+                        <div className="flex justify-end pt-2">
+                            <button
+                                onClick={handleSaveBroadcast}
+                                disabled={isSavingBroadcast}
+                                className="flex items-center gap-2 px-8 py-3 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white font-bold rounded-xl transition-all shadow-lg hover:shadow-indigo-500/25 disabled:opacity-50 active:scale-95"
+                            >
+                                <span className="material-icons text-sm">{isSavingBroadcast ? 'sync' : 'save'}</span>
+                                {isSavingBroadcast ? 'Salvando...' : 'Salvar Alterações'}
+                            </button>
                         </div>
                     </div>
                 </div>
             )}
-        </div>
+            {
+                adminSection === 'audit' && (
+                    <div className="space-y-6 animate-fade-in-up">
+                        <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-xl p-6 rounded-2xl shadow-sm border border-slate-200/50 dark:border-slate-700/50">
+                            <h2 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 to-purple-600 dark:from-indigo-400 dark:to-purple-400">Log de Auditoria</h2>
+                            <p className="text-slate-500 text-sm mt-1">Acompanhe as principais ações administrativas realizadas.</p>
+                        </div>
+
+                        <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-sm text-left">
+                                    <thead className="text-xs text-slate-500 uppercase bg-slate-50 dark:bg-slate-900/60 border-b border-slate-100 dark:border-slate-700">
+                                        <tr>
+                                            <th className="px-6 py-4 font-bold tracking-wider">Usuário</th>
+                                            <th className="px-6 py-4 font-bold tracking-wider">Ação</th>
+                                            <th className="px-6 py-4 font-bold tracking-wider">Detalhes</th>
+                                            <th className="px-6 py-4 font-bold tracking-wider text-right">Data e Hora</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50">
+                                        {(auditLogs || []).length > 0 ? auditLogs.map((log, idx) => (
+                                            <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-900/40 transition-colors">
+                                                <td className="px-6 py-4 font-medium text-slate-700 dark:text-slate-200">{log.userEmail}</td>
+                                                <td className="px-6 py-4">
+                                                    <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 text-xs">
+                                                        {log.action}
+                                                    </span>
+                                                </td>
+                                                <td className="px-6 py-4 text-slate-500 truncate max-w-xs" title={log.details}>{log.details}</td>
+                                                <td className="px-6 py-4 text-right text-slate-400 font-mono text-xs">
+                                                    {log.timestamp?.toDate ? formatarData(log.timestamp.toDate()) : (log.timestamp ? formatarData(new Date(log.timestamp)) : '-')}
+                                                </td>
+                                            </tr>
+                                        )) : (
+                                            <tr>
+                                                <td colSpan="4" className="px-6 py-8 text-center text-slate-400 italic">Nenhum registro de auditoria encontrado.</td>
+                                            </tr>
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                )
+            }
+
+            {
+                editingUser && (
+                    <UserManagementModal
+                        user={editingUser}
+                        setores={setores}
+                        adminUser={adminUserData}
+                        onClose={handleCloseUserManagementModal}
+                        onSave={handleSaveUserPermissions}
+                    />
+                )
+            }
+            {
+                showDeleteModal && (
+                    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
+                        <div className="bg-white dark:bg-slate-800 w-full max-md rounded-2xl shadow-2xl p-6 border border-slate-200 dark:border-slate-700">
+                            <h3 className="text-xl font-bold text-slate-800 dark:text-slate-100 mb-4">Excluir Registros por Período</h3>
+                            <p className="text-sm text-slate-600 dark:text-slate-300 mb-4">Selecione o intervalo de datas dos registros que deseja excluir permanentemente.</p>
+
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Data Inicial</label>
+                                    <input type="date" value={deleteRange.start} onChange={e => setDeleteRange({ ...deleteRange, start: e.target.value })} className="w-full p-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-200" />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Data Final</label>
+                                    <input type="date" value={deleteRange.end} onChange={e => setDeleteRange({ ...deleteRange, end: e.target.value })} className="w-full p-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-200" />
+                                </div>
+                            </div>
+
+                            <div className="flex justify-end gap-3 mt-6">
+                                <button onClick={() => setShowDeleteModal(false)} className="px-4 py-2 text-sm font-semibold bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-200 dark:hover:bg-slate-600">Cancelar</button>
+                                <button onClick={handleConfirmDelete} className="px-4 py-2 text-sm font-semibold bg-red-600 text-white rounded-lg hover:bg-red-700">Excluir</button>
+                            </div>
+                        </div>
+                    </div>
+                )
+            }
+        </div >
     );
 };
 
@@ -3833,28 +3952,9 @@ const ProfileModal = ({ user, userData, onClose, onUpdate }) => {
     );
 };
 
-const Sidebar = ({ isOpen, setIsOpen, isCollapsed, toggleCollapse }) => {
+const Sidebar = ({ isOpen, setIsOpen, isCollapsed, toggleCollapse, deferredPrompt, onInstallClick }) => {
     const { user, userData, openCalendario, currentArea, setCurrentArea, isAdmin, isSetorAdmin } = useAuth();
     const { openBugReport } = useContext(BugReportContext);
-    const [deferredPrompt, setDeferredPrompt] = useState(null);
-
-    useEffect(() => {
-        const handler = (e) => {
-            e.preventDefault();
-            setDeferredPrompt(e);
-        };
-        window.addEventListener('beforeinstallprompt', handler);
-        return () => window.removeEventListener('beforeinstallprompt', handler);
-    }, []);
-
-    const handleInstallClick = async () => {
-        if (!deferredPrompt) return;
-        deferredPrompt.prompt();
-        const { outcome } = await deferredPrompt.userChoice;
-        if (outcome === 'accepted') {
-            setDeferredPrompt(null);
-        }
-    };
 
     const menuItems = [
         { id: 'Calculadora', label: 'Calculadora', icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg> },
@@ -3907,7 +4007,7 @@ const Sidebar = ({ isOpen, setIsOpen, isCollapsed, toggleCollapse }) => {
                             {!isCollapsed && 'Reportar Problema'}
                         </button>
                         {deferredPrompt && (
-                            <button onClick={handleInstallClick} className={`w-full flex items-center ${isCollapsed ? 'justify-center px-2' : 'px-3'} py-2 text-sm font-medium text-tjpr-gold rounded-lg hover:bg-tjpr-navy-800 hover:text-tjpr-gold transition-colors mt-2`} title={isCollapsed ? 'Instalar App' : ''}>
+                            <button onClick={onInstallClick} className={`w-full flex items-center ${isCollapsed ? 'justify-center px-2' : 'px-3'} py-2 text-sm font-medium text-tjpr-gold rounded-lg hover:bg-tjpr-navy-800 hover:text-tjpr-gold transition-colors mt-2`} title={isCollapsed ? 'Instalar App' : ''}>
                                 <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 ${isCollapsed ? '' : 'mr-3'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
                                 {!isCollapsed && 'Instalar App'}
                             </button>
@@ -4082,6 +4182,36 @@ const GlobalAlert = () => {
     return <div className="bg-indigo-600 text-white text-center py-2 px-4 font-bold text-sm shadow-md animate-fade-in relative z-30">{msg.mensagem}</div>;
 };
 
+const PWAInstallPrompt = ({ deferredPrompt, onInstall, isIOS, onDismiss }) => {
+    if (!deferredPrompt && !isIOS) return null;
+
+    return (
+        <div className="fixed bottom-4 left-4 right-4 z-[9999] animate-fade-in-up">
+            <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 p-4 flex items-center gap-4">
+                <div className="w-12 h-12 bg-blue-100 dark:bg-blue-900/30 rounded-xl flex items-center justify-center flex-shrink-0 text-blue-600 dark:text-blue-400">
+                    <span className="material-icons">install_mobile</span>
+                </div>
+                <div className="flex-1 min-w-0">
+                    <h4 className="text-sm font-bold text-slate-800 dark:text-white truncate">Instalar Prazos TJPR</h4>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                        {isIOS ? 'Clique em Compartilhar > Adicionar à Tela de Início' : 'Aceda mais rápido instalando como app.'}
+                    </p>
+                </div>
+                <div className="flex gap-2">
+                    {!isIOS && (
+                        <button onClick={onInstall} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg transition-colors">
+                            Instalar
+                        </button>
+                    )}
+                    <button onClick={onDismiss} className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+                        <span className="material-icons text-sm">close</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 // --- Componente Principal ---
 const App = () => {
     const { user, userData, isAdmin, loading, refreshUser, currentArea, setCurrentArea } = useAuth();
@@ -4092,6 +4222,45 @@ const App = () => {
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
     const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
     const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false);
+    const [deferredPrompt, setDeferredPrompt] = useState(null);
+    const [showInstallPrompt, setShowInstallPrompt] = useState(false);
+    const [isIOS, setIsIOS] = useState(false);
+
+    useEffect(() => {
+        // Detecta iOS
+        const isIOSDevice = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+        const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
+
+        if (isIOSDevice && !isStandalone) {
+            setIsIOS(true);
+            const dismissed = localStorage.getItem('pwa_prompt_dismissed');
+            if (!dismissed) setShowInstallPrompt(true);
+        }
+
+        const handler = (e) => {
+            e.preventDefault();
+            setDeferredPrompt(e);
+            const dismissed = localStorage.getItem('pwa_prompt_dismissed');
+            if (!dismissed) setShowInstallPrompt(true);
+        };
+        window.addEventListener('beforeinstallprompt', handler);
+        return () => window.removeEventListener('beforeinstallprompt', handler);
+    }, []);
+
+    const handleInstallClick = async () => {
+        if (!deferredPrompt) return;
+        deferredPrompt.prompt();
+        const { outcome } = await deferredPrompt.userChoice;
+        if (outcome === 'accepted') {
+            setDeferredPrompt(null);
+            setShowInstallPrompt(false);
+        }
+    };
+
+    const dismissInstallPrompt = () => {
+        setShowInstallPrompt(false);
+        localStorage.setItem('pwa_prompt_dismissed', 'true');
+    };
 
     useEffect(() => {
         // Adiciona o estilo de animação ao head do documento uma única vez.
@@ -4150,7 +4319,14 @@ const App = () => {
     // Se o usuário estiver logado e verificado, exibe a aplicação principal.
     return (
         <div id="app-wrapper" className="h-screen flex bg-slate-50 dark:bg-slate-900 overflow-hidden">
-            <Sidebar isOpen={isSidebarOpen} setIsOpen={setIsSidebarOpen} isCollapsed={isSidebarCollapsed} toggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)} />
+            <Sidebar
+                isOpen={isSidebarOpen}
+                setIsOpen={setIsSidebarOpen}
+                isCollapsed={isSidebarCollapsed}
+                toggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+                deferredPrompt={deferredPrompt}
+                onInstallClick={handleInstallClick}
+            />
 
             <div className="flex-1 flex flex-col overflow-hidden relative">
                 <GlobalAlert />
@@ -4186,6 +4362,14 @@ const App = () => {
             {showProfile && <ProfileModal user={user} userData={userData} onClose={() => setShowProfile(false)} onUpdate={refreshUser} />}
             {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
             {showPrivacyPolicy && <PrivacyPolicyModal onClose={() => setShowPrivacyPolicy(false)} />}
+            {showInstallPrompt && (
+                <PWAInstallPrompt
+                    deferredPrompt={deferredPrompt}
+                    onInstall={handleInstallClick}
+                    isIOS={isIOS}
+                    onDismiss={dismissInstallPrompt}
+                />
+            )}
             <CookieConsent />
             <UserIDWatermark isSidebarCollapsed={isSidebarCollapsed} />
         </div>

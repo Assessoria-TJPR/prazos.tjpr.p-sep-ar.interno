@@ -195,6 +195,41 @@ html, body, #root {
     transition-duration: 150ms;
 }
 
+/* Touch Optimizations */
+@media (pointer: coarse) {
+    button, 
+    a, 
+    input, 
+    select {
+        min-height: 44px;
+        min-width: 44px;
+    }
+    
+    .tjpr-button-primary {
+        padding: 0.875rem 1.75rem;
+    }
+}
+
+button {
+    touch-action: manipulation;
+}
+
+/* Responsiveness Fixes */
+@media (max-width: 640px) {
+    .h-screen {
+        height: 100dvh; /* Dynamic viewport height for mobile browsers */
+    }
+    
+    main {
+        padding: 1rem !important;
+    }
+    
+    .tjpr-card {
+        padding: 1rem !important;
+        border-radius: var(--radius-md);
+    }
+}
+
 /* Watermark */
 .watermark-overlay {
     position: absolute;
