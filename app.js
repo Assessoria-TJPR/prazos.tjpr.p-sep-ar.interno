@@ -536,7 +536,8 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
             }
 
             if (dataCorrente.getDay() === 0 || dataCorrente.getDay() === 6 || infoDiaNaoUtil) {
-                if (infoDiaNaoUtil && (considerarDecretosNoMeio || considerarInstabilidadesNoMeio)) {
+                if (infoDiaNaoUtil) {
+                    // SEMPRE coleta feriados e recessos (automáticos) ou decretos/instabilidades se comprovados
                     diasNaoUteisEncontrados.push({ data: new Date(dataCorrente.getTime()), ...infoDiaNaoUtil });
                 }
             } else {
@@ -609,6 +610,20 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
         // CORREÇÃO: Usamos 'prazo - 1' pois para dias corridos, se o dia 1 é o início, somamos 14 dias para chegar ao 15º.
         // Isso alinha com o resultado esperado do usuário (27/10 + 15 dias = 10/11).
         const diasASomar = (prazo > 0 ? prazo - 1 : 0);
+
+        // Loop para coletar feriados e recessos automáticos DENTRO do período de dias corridos para exibição na UI
+        const dataVigilancia = new Date(inicioAjustado.getTime());
+        const dataLimiteBruta = new Date(inicioAjustado.getTime());
+        dataLimiteBruta.setDate(dataLimiteBruta.getDate() + diasASomar);
+
+        while (dataVigilancia <= dataLimiteBruta) {
+            const motivoAuto = getMotivoDiaNaoUtil(dataVigilancia, true, 'feriado') || getMotivoDiaNaoUtil(dataVigilancia, true, 'recesso');
+            if (motivoAuto && !((motivoAuto.tipo === 'recesso' || motivoAuto.tipo === 'recesso_grouped') && ignorarRecesso)) {
+                diasNaoUteisEncontrados.push({ data: new Date(dataVigilancia.getTime()), ...motivoAuto });
+            }
+            dataVigilancia.setDate(dataVigilancia.getDate() + 1);
+        }
+
         dataFinalBruta.setDate(dataFinalBruta.getDate() + diasASomar);
 
         // Após o loop principal, verifica se a data final caiu em um dia não útil e prorroga se necessário.
