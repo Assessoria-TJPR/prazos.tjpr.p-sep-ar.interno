@@ -876,13 +876,8 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
                 return {
                     ...prev,
                     comDecreto: { ...semDecreto }, // Restaura o cenário 2
-                    inicioPrazo: inicioPrazoOriginal, // Restaura o início do prazo original do cálculo inicial
-                    suspensoesComprovaveis: prev.suspensoesComprovaveis.filter(s => {
-                        // Mantém apenas as suspensões do início e a primeira do final
-                        const dataStr = s.data.toISOString().split('T')[0];
-                        const inicioDisp = new Date(dataDisponibilizacaoAtual + 'T00:00:00');
-                        return s.data <= semDecreto.prazoFinal || s.data <= inicioPrazoOriginal;
-                    })
+                    inicioPrazo: inicioPrazoOriginal // Restaura o início do prazo original do cálculo inicial
+                    // CORREÇÃO: Não filtramos suspensoesComprovaveis para manter a visualização de dois cenários
                 };
             }
 
