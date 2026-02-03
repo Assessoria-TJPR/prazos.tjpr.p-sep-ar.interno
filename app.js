@@ -389,6 +389,14 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
             return { motivo: 'Dia da Justiça (Feriado Regimental)', tipo: 'feriado' };
         }
 
+        // PATCH: Dia da Consciência Negra (Feriado Nacional a partir de 2024)
+        if (dateString.endsWith('-11-20') && (tipo === 'todos' || tipo === 'feriado')) {
+            const ano = parseInt(dateString.split('-')[0]);
+            if (ano >= 2024) {
+                return { motivo: 'Dia da Consciência Negra (Feriado Nacional)', tipo: 'feriado' };
+            }
+        }
+
 
         if (tipo === 'todos' || tipo === 'feriado') {
             // Agora feriadosMap pode conter objetos com link
@@ -410,16 +418,15 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
         const month = date.getMonth() + 1;
         const day = date.getDate();
 
-        // Proteção para recessoForense
-        if (recessoForense) {
-            const { janeiro, dezembro } = recessoForense;
-            // Se a opção de ignorar recesso estiver marcada (apenas para Crime - Réu Preso/Maria da Penha), retorna null.
-            if ((tipo === 'todos' || tipo === 'recesso') && !ignorarRecesso) {
-                if ((janeiro && month === 1 && day >= janeiro.inicio && day <= janeiro.fim) ||
-                    (dezembro && month === 12 && day >= dezembro.inicio && day <= dezembro.fim))
-                    return { motivo: 'Recesso Forense', tipo: 'recesso' };
+        // PATCH: Recesso Forense e Suspensão de Prazos (Art. 220 CPC)
+        // No TJPR, os prazos ficam suspensos obrigatoriamente de 20/12 a 20/01.
+        // Esta regra é fixa e deve prevalecer para evitar lacunas (como o dia 01/01).
+        if (!ignorarRecesso && (tipo === 'todos' || tipo === 'recesso' || tipo === 'feriado')) {
+            if ((month === 12 && day >= 20) || (month === 1 && day <= 20)) {
+                return { motivo: 'Recesso Forense / Suspensão de Prazos (Art. 220 CPC)', tipo: 'recesso' };
             }
         }
+
         return null;
     };
 
