@@ -356,3 +356,102 @@ const TJPRModal = ({ isOpen, onClose, title, children, maxWidth = '2xl', icon })
         </div>
     );
 };
+
+/**
+ * PrivacyPolicyModal - Modal de Política de Privacidade
+ */
+const PrivacyPolicyModal = ({ onClose }) => {
+    return (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[70] p-4" onClick={onClose}>
+            <div className="bg-white dark:bg-slate-800 w-full max-w-2xl rounded-2xl shadow-2xl flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
+                <div className="flex justify-between items-center p-6 border-b border-slate-200 dark:border-slate-700">
+                    <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Política de Privacidade e Termos de Uso</h2>
+                    <button onClick={onClose} className="text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 transition">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                    </button>
+                </div>
+                <div className="p-6 space-y-4 overflow-y-auto text-slate-700 dark:text-slate-300 text-sm leading-relaxed">
+                    <h3 className="text-lg font-bold text-slate-900 dark:text-white">1. Coleta de Dados</h3>
+                    <p>Para o funcionamento desta ferramenta (Calculadora de Prazos e Painel Administrativo), coletamos os seguintes dados pessoais:</p>
+                    <ul className="list-disc pl-5 space-y-1">
+                        <li><strong>Identificação:</strong> Nome, E-mail e Setor de lotação.</li>
+                        <li><strong>Dados de Uso:</strong> Registros de cálculos realizados, números de processos consultados, data e hora das ações.</li>
+                        <li><strong>Técnicos:</strong> Endereço IP e User-Agent (navegador) para fins de segurança e auditoria.</li>
+                    </ul>
+
+                    <h3 className="text-lg font-bold text-slate-900 dark:text-white mt-4">2. Finalidade</h3>
+                    <p>Os dados são utilizados estritamente para:</p>
+                    <ul className="list-disc pl-5 space-y-1">
+                        <li>Autenticação e controle de acesso ao sistema.</li>
+                        <li>Geração de histórico de cálculos para o próprio usuário.</li>
+                        <li>Auditoria e estatísticas de uso para a administração do sistema (TJPR).</li>
+                        <li>Melhoria contínua da ferramenta através da análise de erros reportados.</li>
+                    </ul>
+
+                    <h3 className="text-lg font-bold text-slate-900 dark:text-white mt-4">3. Armazenamento e Segurança</h3>
+                    <p>Os dados são armazenados em nuvem utilizando os serviços do Google Firebase, com regras de segurança que restringem o acesso apenas a usuários autorizados e administradores do sistema.</p>
+
+                    <h3 className="text-lg font-bold text-slate-900 dark:text-white mt-4">4. Seus Direitos (LGPD)</h3>
+                    <p>Conforme a Lei Geral de Proteção de Dados (Lei nº 13.709/2018), você tem direito a:</p>
+                    <ul className="list-disc pl-5 space-y-1">
+                        <li>Acessar seus dados (disponível no Perfil e Histórico).</li>
+                        <li>Corrigir dados incompletos ou desatualizados.</li>
+                        <li>Solicitar a exclusão de sua conta e dados pessoais (disponível na opção "Excluir Conta" no perfil).</li>
+                    </ul>
+
+                    <h3 className="text-lg font-bold text-slate-900 dark:text-white mt-4">5. Cookies e Armazenamento Local</h3>
+                    <p>Utilizamos armazenamento local (LocalStorage) para salvar suas preferências de tema e configurações da calculadora. Não utilizamos cookies de rastreamento publicitário.</p>
+                </div>
+                <div className="p-6 border-t border-slate-200 dark:border-slate-700">
+                    <button onClick={onClose} className="w-full bg-blue-600 text-white font-bold py-3 rounded-xl hover:bg-blue-700 transition-all">Entendi</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+/**
+ * CookieConsent - Banner de consentimento de cookies/LGPD
+ */
+const CookieConsent = () => {
+    const [visible, setVisible] = React.useState(false);
+
+    React.useEffect(() => {
+        const consent = localStorage.getItem('lgpd_consent');
+        if (!consent) {
+            setVisible(true);
+        }
+    }, []);
+
+    const handleAccept = () => {
+        localStorage.setItem('lgpd_consent', 'true');
+        setVisible(false);
+    };
+
+    if (!visible) return null;
+
+    return (
+        <div className="fixed bottom-0 left-0 right-0 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 p-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)] z-[80] animate-fade-in">
+            <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
+                <div className="text-sm text-slate-600 dark:text-slate-300">
+                    <p><strong>Este sistema utiliza dados para funcionamento.</strong></p>
+                    <p>Utilizamos armazenamento local para salvar suas preferências e coletamos dados de uso para fins de auditoria e melhoria, em conformidade com a LGPD. Ao continuar, você concorda com nossa Política de Privacidade.</p>
+                </div>
+                <div className="flex gap-3 flex-shrink-0">
+                    <button
+                        onClick={() => document.dispatchEvent(new CustomEvent('openPrivacyPolicy'))}
+                        className="px-4 py-2 text-sm font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
+                    >
+                        Ler Política
+                    </button>
+                    <button
+                        onClick={handleAccept}
+                        className="px-6 py-2 text-sm font-bold bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
+                    >
+                        Concordar e Fechar
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
