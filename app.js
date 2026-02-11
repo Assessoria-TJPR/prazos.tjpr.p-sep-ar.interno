@@ -382,11 +382,9 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
 
         const dateString = date.toISOString().split('T')[0];
 
-        // PATCH: Força o dia 08/12/2025 (Dia da Justiça original) como feriado.
-        // Mesmo com a transferência para o dia 18, o dia 08 deve ser contado como suspensão no cálculo base
-        // para que, somado aos decretos de 18 e 19, o prazo chegue a 28/01.
-        if (dateString === '2025-12-08' && (tipo === 'todos' || tipo === 'feriado')) {
-            return { motivo: 'Dia da Justiça (Feriado Regimental)', tipo: 'feriado' };
+        // PATCH: Dia da Justiça transferido de 08/12 para 18/12 em 2025 (Decreto 808/2024 TJPR)
+        if (dateString === '2025-12-18' && (tipo === 'todos' || tipo === 'decreto')) {
+            return { motivo: 'Dia da Justiça (Feriado Regimental - Transf. p/ Decreto 808/2024)', tipo: 'decreto' };
         }
 
         // PATCH: Dia da Consciência Negra (Feriado Nacional a partir de 2024)
@@ -646,12 +644,6 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
 
             const eFimDeSemana = prazoFinalAjustado.getDay() === 0 || prazoFinalAjustado.getDay() === 6;
 
-            // EXCEÇÃO SOLICITADA PELO USUÁRIO (Crime):
-            // O prazo pode terminar no dia 08/12/2025 (Dia da Justiça) sem prorrogação automática.
-            const dateStr = prazoFinalAjustado.toISOString().split('T')[0];
-            if (dateStr === '2025-12-08') {
-                break;
-            }
 
             if (infoDiaFinalNaoUtil || eFimDeSemana) {
                 if (infoDiaFinalNaoUtil) diasProrrogados.push({ data: new Date(prazoFinalAjustado.getTime()), ...infoDiaFinalNaoUtil });
@@ -1322,7 +1314,7 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
                                 className="w-5 h-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                             />
                             <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                                Réu preso ou Lei Maria da Penha (ignorar recesso)
+                                Réu preso, Lei Maria da Penha ou Infância e Juventude (ignorar recesso)
                             </span>
                         </label>
                     </div>
