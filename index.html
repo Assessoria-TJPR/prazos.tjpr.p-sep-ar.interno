@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Modulo Prazos - P-SEP-AR - TJPR</title>
+    <link rel="icon" href="data:,">
+    <link rel="manifest" href="manifest.json">
+
+    <!-- PWA iOS Support -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Prazos TJPR">
+    <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/2666/2666505.png">
+
+    <!-- Google Material Icons -->
+    <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="style.css">
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        'tjpr-navy': {
+                            900: '#0D1B2A',
+                            800: '#1B263B',
+                            700: '#415A77',
+                            600: '#778DA9',
+                            500: '#90A9C9',
+                        },
+                        'tjpr-gold': '#D4AF37',
+                        'tjpr-success': '#2E7D32',
+                        'tjpr-warning': '#F57C00',
+                        'tjpr-error': '#C62828',
+                    },
+                    fontFamily: {
+                        'sans': ['Inter', 'system-ui', 'sans-serif'],
+                    },
+                }
+            }
+        }
+    </script>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- React Image Crop -->
+    <link rel="stylesheet" href="https://unpkg.com/react-image-crop/dist/ReactCrop.css" />
+    <script src="https://unpkg.com/react-image-crop/dist/ReactCrop.umd.js"></script>
+
+    <!-- SDKs do Firebase -->
+    <script src="https://www.gstatic.com/firebasejs/9.15.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.15.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.15.0/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.15.0/firebase-storage-compat.js"></script>
+
+    <!-- Chart.js e SheetJS (para gráficos e Excel) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.9.4/Chart.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/react-chartjs-2@2.11.2/dist/react-chartjs-2.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+    <!-- Biblioteca para gerar DOCX -->
+    <!-- Bibliotecas de geração de DOCX removidas para usar abordagem de HTML para DOC -->
+    <!-- Biblioteca para salvar arquivos (alternativa robusta para download) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+
+</head>
+
+<body
+    class="bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 overflow-hidden font-sans antialiased selection:bg-blue-500 selection:text-white">
+    <!-- 
+        A classe `overflow-hidden` no body impede a barra de rolagem do navegador,
+        deixando o controle de rolagem para o componente React.
+    -->
+    <div id="root"></div>
+
+    <!-- O Babel irá transpilar este arquivo .js externo -->
+    <script src="firebase-init.js" type="text/babel"></script>
+    <script src="contexts.js" type="text/babel"></script>
+    <script src="utils.js" type="text/babel"></script>
+    <script src="regrasCNJ.js" type="text/babel"></script>
+    <script src="regrasCrime.js" type="text/babel"></script>
+    <script src="regrasCivel.js" type="text/babel"></script>
+    <script src="minutas-default.js" type="text/babel"></script> <!-- Carrega os modelos padrão -->
+    <script src="migration-scripts.js" type="text/babel"></script> <!-- Scripts de migração -->
+    <script src="MinutasAdminPage.js?v=6" type="text/babel"></script> <!-- Carrega o componente da página -->
+    <script src="CalendarAdminPage.js?v=6" type="text/babel"></script>
+    <!-- Os arquivos de Estatísticas e Usuários serão criados a seguir -->
+    <script src="BugReportsPage.js?v=6" type="text/babel"></script>
+
+    <!-- Componentes do Design System TJPR -->
+    <script src="components.js?v=6" type="text/babel"></script>
+    <script src="login.js?v=6" type="text/babel"></script>
+
+    <script src="app.js?v=6" type="text/babel"></script>
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js')
+                    .then(registration => {
+                        console.log('SW registrado: ', registration.scope);
+                    })
+                    .catch(err => {
+                        console.log('Falha no registro do SW: ', err);
+                    });
+            });
+        }
+    </script>
+</body>
+
+</html>
