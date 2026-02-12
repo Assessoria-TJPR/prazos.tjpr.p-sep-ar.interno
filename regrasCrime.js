@@ -16,50 +16,56 @@ const calcularPrazoCrime = (dataPublicacaoComDecreto, inicioDoPrazoComDecreto, p
         return { dataPublicacao: dataPublicacaoComDecreto, inicioPrazo: inicioDoPrazoComDecreto, semDecreto: resultadoEspecial, comDecreto: resultadoEspecial, suspensoesComprovaveis: [], prazo: prazoNumerico, tipo: 'crime' };
     }
 
-    // Calcula cenário SEM decreto (apenas feriados e recessos)
-    // Para Crime, decretos NÃO adiam o início do prazo (prazo de dias corridos começa mesmo em dia de decreto)
+    // PASSO 1: A partir da Disponibilização, calcula a Publicação (D+1 Útil)
+    // Regra Crime: Publicação é o primeiro dia útil após disponibilização.
+    // User Update: "A publicação pode cair em dia de decreto, não precisa pular".
+    // Portanto, calculamos a publicação IGNORANDO decretos (passando 'false').
+    const { proximoDia: dataPublicacaoSemDecreto, suspensoesEncontradas: suspensoesPubSemDecreto } = getProximoDiaUtilParaPublicacao(inicioDisponibilizacao, false);
 
-    // PASSO 1: Calcular a Disponibilização EFETIVA Sem Decreto
-    // Se a data inputada (inicioDisponibilizacao) for feriado/recesso, ela move para o proximo dia util.
-    // Usamos um truque: voltamos um dia e buscamos o próximo útil.
-    const ontemData = new Date(inicioDisponibilizacao);
-    ontemData.setDate(ontemData.getDate() - 1);
+    // PASSO 2: A partir da Publicação, calcula o Início do Prazo (D+1 Útil - Súmula 310 STF)
+    // User Update: "O início do prazo é no dia 24". (Pub 21/11 -> Início 24/11).
+    // Isso confirma a lógica de Salto Duplo (Disponibilização -> Publicação -> Início) para este caso,
+    // onde a Intimação (se existir processualmente) ocorre na própria Publicação ou não adiciona um dia útil extra na contagem padrão.
+    const { proximoDia: inicioDoPrazoSemDecreto, suspensoesEncontradas: suspensoesInicioSemDecreto } = getProximoDiaUtilParaPublicacao(dataPublicacaoSemDecreto, false);
 
-    // Calcula disp efetiva ignorando decretos
-    const { proximoDia: dataDispEfetivaSemDecreto, suspensoesEncontradas: suspensoesDispSemDecreto } = getProximoDiaUtilParaPublicacao(ontemData, false);
-
-    // PASSO 2: A partir da Disp Efetiva, calcula a Publicação
-    const { proximoDia: dataPublicacaoSemDecreto, suspensoesEncontradas: suspensoesPubSemDecreto } = getProximoDiaUtilParaPublicacao(dataDispEfetivaSemDecreto, false);
-
-    // Combina suspensões encontradas nos dois passos (Disp -> Efetiva e Efetiva -> Pub)
-    // CORREÇÃO: Usar um Set para evitar dias duplicados, se ocorrerem na transição
-    const todasSuspensoes = [...(suspensoesDispSemDecreto || []), ...(suspensoesPubSemDecreto || [])];
+    // Combina suspensões encontradas (apenas feriados/recessos que realmente pularam dias)
+    const todasSuspensoes = [
+        ...(suspensoesPubSemDecreto || []),
+        ...(suspensoesInicioSemDecreto || [])
+    ];
     const suspensoesIds = new Set();
-    const suspensoesNaPublicacao = todasSuspensoes.filter(s => {
+    const suspensoesIniciais = todasSuspensoes.filter(s => {
         const id = s.data.toISOString().split('T')[0];
         if (suspensoesIds.has(id)) return false;
         suspensoesIds.add(id);
         return true;
     });
 
-    // CORREÇÃO CRIME: Se a publicação for sexta-feira, o prazo começa a contar na segunda (Súmula 310 STF).
-    // Usamos getProximoDiaUtilParaPublicacao(..., false) para encontrar o start date correto ignorando decretos/instabilidades.
-    const { proximoDia: inicioDoPrazoSemDecreto } = getProximoDiaUtilParaPublicacao(dataPublicacaoSemDecreto, false);
-
-    // Verificar se o dia de início do prazo tem decreto (para mostrar como comprovável)
+    // Verificar se o dia de início do prazo tem decreto
     const decretoNoInicioDoPrazo = getMotivoDiaNaoUtil(inicioDoPrazoSemDecreto, true, 'decreto') ||
         getMotivoDiaNaoUtil(inicioDoPrazoSemDecreto, true, 'instabilidade');
 
-    // Para 'crime', o cálculo base é em dias corridos, mas 'semDecreto' ignora decretos/instabilidades.
-    // 'false' no último parametro indica para ignorar decretos.
+    // CALCULO DO PRAZO
+    // Cenário 1: Sem Decreto
     const resultadoSemDecreto = calcularPrazoFinalDiasCorridos(inicioDoPrazoSemDecreto, prazoNumerico, new Set(), ignorarRecesso, false);
 
-    // [CORREÇÃO] Recalcula os marcos iniciais do Cenário 2 com base nos dias REALMENTE comprovados.
-    // Isso garante que o Cenário 2 inicie igual ao Cenário 1 se nada estiver marcado.
-    const { proximoDia: dataPubEfetivaComDecretoLocal } = getProximoDiaUtilComprovado(inicioDisponibilizacao, diasComprovados);
-    const { proximoDia: inicioDoPrazoEfetivoComDecretoLocal } = getProximoDiaUtilComprovado(dataPubEfetivaComDecretoLocal, diasComprovados);
+    // Cenário 2: Com Decreto
+    // Como a user disse que "Publicação pode cair em dia de decreto", a Data de Publicação e o Início da Contagem
+    // NÃO mudam baseados na presença do decreto na publicação (21/11).
+    // O decreto apenas conta como suspensão SE afetar o decurso do prazo (após o início).
+    // Mas mantemos a lógica de 'diasComprovados' para o cálculo final do prazo, caso suspenda dias do meio/fim.
 
-    // Passamos 'true' para considerar decretos na prorrogação final, MAS apenas se estiverem no Set 'diasComprovados'.
+    // [IMPORTANTE] Se o decreto cair EXATAMENTE no dia que seria o início do prazo, aí sim ele poderia prorrogar o início?
+    // Pela regra de dias corridos (CPP Art 798), o prazo corre... mas se o início é feriado/suspensão, prorroga?
+    // Súmula 310: "não se computando o dia do começo". Começa no primeiro dia útil.
+    // Se 24/11 fosse decreto, começaria 25/11.
+    // Como estamos usando 'getProximoDiaUtilParaPublicacao(..., false)' para inicioDoPrazoSemDecreto,
+    // precisamos recalcular o inicio efetivo SE houver decretos comprovados NO DIA DO INÍCIO?
+    // User disse: "Inicio no dia 24 e não 25". (24 é segunda, util).
+    // Se houver decreto dia 24, e usuário marcar, aí sim pularia.
+
+    const { proximoDia: inicioDoPrazoEfetivoComDecretoLocal } = getProximoDiaUtilComprovado(dataPublicacaoSemDecreto, diasComprovados);
+
     const resultadoComDecretoInicial = calcularPrazoFinalDiasCorridos(inicioDoPrazoEfetivoComDecretoLocal, prazoNumerico, diasComprovados || new Set(), ignorarRecesso, true);
 
     // Identifica suspensões comprováveis
@@ -71,17 +77,20 @@ const calcularPrazoCrime = (dataPublicacaoComDecreto, inicioDoPrazoComDecreto, p
 
     const suspensoesParaUI = [];
 
-    // 0. Recalcula o caminho da Publicação COM DECRETOS para encontrar suspensões que afetaram esta etapa.
-    // Necessário para capturar decretos que caem exatamente na data que seria a publicação (ex: 27/10),
-    // empurrando-a para frente. O cálculo original "semDecreto" ignora esses dias.
-    const { proximoDia: dataDispEfetivaComDecreto, suspensoesEncontradas: suspensoesDispComDecreto } = getProximoDiaUtilParaPublicacao(ontemData, true);
-    const { proximoDia: dataPubComDecretoCalculada, suspensoesEncontradas: suspensoesPubComDecreto } = getProximoDiaUtilParaPublicacao(dataDispEfetivaComDecreto, true);
+    // 0. Coleta suspensões comprováveis dos marcos iniciais (Salto Duplo)
+    // Usamos o caminho COM DECRETOS para encontrar os dias que empurraram os marcos para frente,
+    // caso o usuário marque as opções.
+    const { suspensoesEncontradas: suspPubComDecreto } = getProximoDiaUtilParaPublicacao(inicioDisponibilizacao, true);
+    // Para Intimação/Início, usamos a data de publicação calculada (sem decreto) como base
+    const { suspensoesEncontradas: suspInicioMax } = getProximoDiaUtilParaPublicacao(dataPublicacaoSemDecreto, true);
 
-    const todasSuspensoesPub = [...(suspensoesDispComDecreto || []), ...(suspensoesPubComDecreto || [])];
+    const todasSuspensoesIniciaisComDecreto = [
+        ...(suspPubComDecreto || []),
+        ...(suspInicioMax || [])
+    ];
 
-    todasSuspensoesPub.forEach(suspensao => {
+    todasSuspensoesIniciaisComDecreto.forEach(suspensao => {
         if (filtroComprovavel(suspensao.tipo)) {
-            // Verifica duplicidade
             const dStr = suspensao.data.toISOString().split('T')[0];
             if (!suspensoesParaUI.some(s => s.data.toISOString().split('T')[0] === dStr)) {
                 suspensoesParaUI.push(suspensao);

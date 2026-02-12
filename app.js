@@ -701,34 +701,29 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
 
             const prazoNumerico = prazoSelecionado;
 
-            // Lógica de Disponibilização Efetiva:
-            // Se a data informada (inicioDisponibilizacao) for dia não útil, a disponibilização considera-se realizada no primeiro dia útil seguinte.
-            // Para calcular isso corretamente usando a função existente, voltamos um dia e pedimos o próximo útil.
-            const ontemDisp = new Date(inicioDisponibilizacao);
-            ontemDisp.setDate(ontemDisp.getDate() - 1);
+            // FIX: Define variables for trace logic
+            const dataDispEfetiva = inicioDisponibilizacao;
+            const suspensoesDispEfetiva = [];
 
-            // Passamos 'diasComprovados' para garantir que decretos marcados sejam considerados "não úteis" para fins de disponibilização.
-            const { proximoDia: dataDispEfetiva, suspensoesEncontradas: suspensoesDispEfetiva } = getProximoDiaUtilParaPublicacao(ontemDisp, true, diasComprovados);
+            // 1. PASSO: Publicação (Primeiro dia útil após disponibilização)
+            // Regra Crime (User Update): "A publicação pode cair em dia de decreto, não precisa pular".
+            // Para 'crime', passamos 'false' para ignorar decretos na determinação da data de publicação.
+            const considerarDecretosPub = (tipoPrazo === 'crime' || tipoPrazo === 'juizado_crim') ? false : true;
 
-            // Agora calculamos a publicação a partir da Disponibilização Efetiva
-            const { proximoDia: dataPublicacaoComDecreto, suspensoesEncontradas: suspensoesPublicacaoComDecreto } = getProximoDiaUtilParaPublicacao(dataDispEfetiva, true, diasComprovados);
+            // Se for crime, ignoramos decretos para fixar a data de publicação.
+            // Mas ainda passamos 'diasComprovados' caso a função precise (embora com false ela ignore).
+            const { proximoDia: dataPublicacaoComDecreto, suspensoesEncontradas: suspensoesPublicacaoComDecreto } = getProximoDiaUtilParaPublicacao(inicioDisponibilizacao, considerarDecretosPub, diasComprovados);
 
-            // Adiciona as suspensões da fase de disponibilização à lista
-            if (suspensoesDispEfetiva) {
-                suspensoesPublicacaoComDecreto.unshift(...suspensoesDispEfetiva);
-            }
-
-            // CORREÇÃO: Calculamos o início do prazo a partir da publicação
-            // CASCATA: Para o cálculo padrão/inicial, NÃO consideramos decretos/instabilidades automaticamente no início.
-            // O usuário deve marcar a checkbox para comprovar. Portanto, usamos 'false' aqui.
+            // 2. PASSO: Início do Prazo (D+1 Útil)
+            // Regra Crime (User Update): "O início do prazo é no dia 24". (Pub 21 -> Start 24).
+            // Isso é um Salto Duplo simples. Pub -> Start.
+            // Para o início, também ignoramos decretos automaticamente (o usuário deve marcar se quiser pular).
             const { proximoDia: inicioDoPrazoComDecreto, suspensoesEncontradas: suspensoesInicioComDecreto } = getProximoDiaUtilParaPublicacao(dataPublicacaoComDecreto, false);
 
-
-            // REMOVIDO: Lógica manual de adicionar suspensões nas datas exatas de Disponibilização/Publicação
-            // O usuário informou que instabilidades nessas datas não devem contar (não devem suspender o ato).
-            // A função getProximoDiaUtilParaPublicacao já lida com o salto para o próximo dia útil.
-
-            const diasNaoUteisDoInicioComDecreto = [...suspensoesPublicacaoComDecreto, ...suspensoesInicioComDecreto];
+            const diasNaoUteisDoInicioComDecreto = [
+                ...suspensoesPublicacaoComDecreto,
+                ...suspensoesInicioComDecreto
+            ];
 
             // Agrupa as funções auxiliares para passá-las para as funções de regras
             const helpers = {
@@ -741,13 +736,14 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
             };
 
             let res;
-            // Para 'civel', usa a lógica de dias úteis. Para 'crime', usa a lógica de dias corridos com possibilidade de comprovação.
-            if (tipoPrazo === 'civel' || tipoPrazo === 'juizado_civel') {
-                res = calcularPrazoCivel(
+            if (tipoPrazo === 'civel') {
+                res = calcularPrazoCivel(dataPublicacaoComDecreto, inicioDoPrazoComDecreto, prazoNumerico, diasNaoUteisDoInicioComDecreto, inicioDisponibilizacao, helpers, diasComprovados);
+            } else if (tipoPrazo === 'cpp') {
+                res = calcularPrazoCPP(
                     dataPublicacaoComDecreto,
                     inicioDoPrazoComDecreto,
                     prazoNumerico,
-                    suspensoesInicioComDecreto,
+                    diasNaoUteisDoInicioComDecreto,
                     inicioDisponibilizacao, // Recolocando inicioDisponibilizacao
                     helpers,
                     diasComprovados
@@ -757,7 +753,7 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
                     dataPublicacaoComDecreto,
                     inicioDoPrazoComDecreto,
                     prazoNumerico,
-                    suspensoesInicioComDecreto,
+                    diasNaoUteisDoInicioComDecreto,
                     inicioDisponibilizacao, // Correção: Passando o objeto Date, não string
                     helpers,
                     diasComprovados, // Passando dias comprovados
@@ -812,7 +808,7 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
             traceSteps.push({
                 step: 'Data da Publicação',
                 date: dataPublicacaoComDecreto,
-                description: 'Primeiro dia útil após a disponibilização considerada'
+                description: 'Primeiro dia útil após a disponibilização'
             });
 
             // 4. Início do Prazo
