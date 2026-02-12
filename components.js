@@ -176,32 +176,7 @@ const TJPRHeader = ({ user, onLogout, onToggleDarkMode, isDarkMode, onOpenProfil
                     </div>
 
                     {/* Navigation (if navigation is provided) */}
-                    {onNavigate && (
-                        <nav className="hidden md:flex items-center gap-2">
-                            <button
-                                onClick={() => onNavigate('Calculadora')}
-                                className={`px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2 ${currentArea === 'Calculadora'
-                                    ? 'bg-white/20 text-white'
-                                    : 'text-white/70 hover:bg-white/10 hover:text-white'
-                                    }`}
-                            >
-                                <span className="material-icons text-sm">calculate</span>
-                                Calculadora
-                            </button>
-                            {isAdmin && (
-                                <button
-                                    onClick={() => onNavigate('Admin')}
-                                    className={`px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2 ${currentArea === 'Admin'
-                                        ? 'bg-white/20 text-white'
-                                        : 'text-white/70 hover:bg-white/10 hover:text-white'
-                                        }`}
-                                >
-                                    <span className="material-icons text-sm">settings</span>
-                                    Administração
-                                </button>
-                            )}
-                        </nav>
-                    )}
+
 
                     {/* Actions */}
                     <div className="flex items-center gap-3">

@@ -2531,7 +2531,7 @@ const AdminPage = ({ setCurrentArea, initialSection }) => {
                     {adminUserData.role === 'admin' && <button onClick={() => setAdminSection('calendar')} className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors ${adminSection === 'calendar' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>Gerir Calendário</button>}
                     {adminUserData.role === 'admin' && <button onClick={() => setAdminSection('chamados')} className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors ${adminSection === 'chamados' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>Chamados</button>}
                     {adminUserData.role === 'admin' && <button onClick={() => setAdminSection('broadcast')} className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors ${adminSection === 'broadcast' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>Aviso Global</button>}
-                    {adminUserData.role === 'admin' && <button onClick={() => setAdminSection('audit')} className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors ${adminSection === 'audit' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>Auditoria</button>}
+
                 </div>
             </div>
 
@@ -2982,51 +2982,7 @@ const AdminPage = ({ setCurrentArea, initialSection }) => {
                     </div>
                 </div>
             )}
-            {
-                adminSection === 'audit' && (
-                    <div className="space-y-6 animate-fade-in-up">
-                        <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-xl p-6 rounded-2xl shadow-sm border border-slate-200/50 dark:border-slate-700/50">
-                            <h2 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 to-purple-600 dark:from-indigo-400 dark:to-purple-400">Log de Auditoria</h2>
-                            <p className="text-slate-500 text-sm mt-1">Acompanhe as principais ações administrativas realizadas.</p>
-                        </div>
 
-                        <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
-                            <div className="overflow-x-auto">
-                                <table className="w-full text-sm text-left">
-                                    <thead className="text-xs text-slate-500 uppercase bg-slate-50 dark:bg-slate-900/60 border-b border-slate-100 dark:border-slate-700">
-                                        <tr>
-                                            <th className="px-6 py-4 font-bold tracking-wider">Usuário</th>
-                                            <th className="px-6 py-4 font-bold tracking-wider">Ação</th>
-                                            <th className="px-6 py-4 font-bold tracking-wider">Detalhes</th>
-                                            <th className="px-6 py-4 font-bold tracking-wider text-right">Data e Hora</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50">
-                                        {(auditLogs || []).length > 0 ? auditLogs.map((log, idx) => (
-                                            <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-900/40 transition-colors">
-                                                <td className="px-6 py-4 font-medium text-slate-700 dark:text-slate-200">{log.userEmail}</td>
-                                                <td className="px-6 py-4">
-                                                    <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 text-xs">
-                                                        {log.action}
-                                                    </span>
-                                                </td>
-                                                <td className="px-6 py-4 text-slate-500 truncate max-w-xs" title={log.details}>{log.details}</td>
-                                                <td className="px-6 py-4 text-right text-slate-400 font-mono text-xs">
-                                                    {log.timestamp?.toDate ? formatarData(log.timestamp.toDate()) : (log.timestamp ? formatarData(new Date(log.timestamp)) : '-')}
-                                                </td>
-                                            </tr>
-                                        )) : (
-                                            <tr>
-                                                <td colSpan="4" className="px-6 py-8 text-center text-slate-400 italic">Nenhum registro de auditoria encontrado.</td>
-                                            </tr>
-                                        )}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    </div>
-                )
-            }
 
             {
                 editingUser && (
