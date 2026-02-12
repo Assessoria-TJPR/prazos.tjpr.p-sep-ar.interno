@@ -155,7 +155,7 @@ const TJPRInput = ({
 /**
  * TJPRHeader - Cabeçalho institucional do sistema
  */
-const TJPRHeader = ({ user, onLogout, onToggleDarkMode, isDarkMode, onOpenProfile, currentArea, onNavigate, isAdmin }) => {
+const TJPRHeader = ({ user, onLogout, onToggleDarkMode, isDarkMode, onOpenProfile, currentArea, onNavigate, isAdmin, notifications, onToggleNotifications }) => {
     const [isMenuOpen, setIsMenuOpen] = useState(false);
 
     return (
@@ -205,6 +205,20 @@ const TJPRHeader = ({ user, onLogout, onToggleDarkMode, isDarkMode, onOpenProfil
 
                     {/* Actions */}
                     <div className="flex items-center gap-3">
+                        {/* Notifications Toggle */}
+                        {onToggleNotifications && (
+                            <button
+                                onClick={onToggleNotifications}
+                                className="relative p-2 rounded-lg hover:bg-tjpr-navy-700 transition-colors"
+                                title="Notificações"
+                            >
+                                <span className="material-icons text-white">notifications</span>
+                                {notifications && notifications.length > 0 && (
+                                    <span className="absolute top-1.5 right-1.5 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-tjpr-navy-900 pointer-events-none"></span>
+                                )}
+                            </button>
+                        )}
+
                         {/* Dark Mode Toggle */}
                         <button
                             onClick={onToggleDarkMode}
@@ -455,3 +469,51 @@ const CookieConsent = () => {
         </div>
     );
 };
+
+const NotificationsPanel = ({ notifications, onMarkAsRead, isOpen, onClose, onNotificationClick }) => {
+    if (!isOpen) return null;
+
+    return (
+        <React.Fragment>
+            <div className="fixed inset-0 z-[40]" onClick={onClose}></div>
+            <div className="absolute top-16 right-4 w-80 max-h-[80vh] bg-white dark:bg-slate-800 rounded-lg shadow-xl border border-slate-200 dark:border-slate-700 overflow-hidden z-[50] animate-fade-in-up origin-top-right">
+                <div className="p-4 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-slate-50 dark:bg-slate-900/50">
+                    <h3 className="font-bold text-slate-800 dark:text-slate-100">Notificações</h3>
+                    {notifications.length > 0 && (
+                        <button onClick={onMarkAsRead} className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline">
+                            Marcar todas como lidas
+                        </button>
+                    )}
+                </div>
+                <div className="overflow-y-auto max-h-[60vh]">
+                    {notifications.length === 0 ? (
+                        <div className="p-8 text-center text-slate-500 dark:text-slate-400">
+                            <span className="material-icons text-4xl mb-2 text-slate-300 dark:text-slate-600">notifications_off</span>
+                            <p className="text-sm">Nenhuma notificação nova.</p>
+                        </div>
+                    ) : (
+                        <div className="divide-y divide-slate-100 dark:divide-slate-700/50">
+                            {notifications.map(notif => (
+                                <div
+                                    key={notif.id}
+                                    onClick={() => onNotificationClick && onNotificationClick(notif)}
+                                    className={`p-4 hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors cursor-pointer ${!notif.read ? 'bg-indigo-50/50 dark:bg-indigo-900/10' : ''}`}
+                                >
+                                    <div className="flex gap-3">
+                                        <div className={`mt-1 w-2 h-2 rounded-full flex-shrink-0 ${!notif.read ? 'bg-indigo-500' : 'bg-transparent'}`}></div>
+                                        <div className="flex-1">
+                                            <p className="text-sm text-slate-800 dark:text-slate-200">{notif.message}</p>
+                                            <p className="text-xs text-slate-400 mt-1">{formatarData(notif.createdAt?.toDate())}</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            </div>
+        </React.Fragment>
+    );
+};
+
+window.NotificationsPanel = NotificationsPanel;
