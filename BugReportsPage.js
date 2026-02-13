@@ -4,6 +4,7 @@ const BugReportsPage = () => {
     const [chamados, setChamados] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
+    const [activeTab, setActiveTab] = useState('aberto'); // Estado para a aba ativa
 
     const fetchChamados = useCallback(async () => {
         if (!db) return;
@@ -63,13 +64,20 @@ const BugReportsPage = () => {
     const [currentPage, setCurrentPage] = useState(1);
     const itemsPerPage = 5;
 
+    // Filter logic
+    const filteredChamados = chamados.filter(report => {
+        if (activeTab === 'aberto') return report.status === 'aberto';
+        if (activeTab === 'resolvido') return report.status === 'resolvido';
+        return true;
+    });
+
     // Reset page when reports change (e.g. filter)
     useEffect(() => {
         setCurrentPage(1);
-    }, [chamados]);
+    }, [activeTab, chamados]); // Reset page on tab change too
 
-    const totalPages = Math.ceil(chamados.length / itemsPerPage);
-    const paginatedReports = chamados.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+    const totalPages = Math.ceil(filteredChamados.length / itemsPerPage);
+    const paginatedReports = filteredChamados.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
     const handlePageChange = (newPage) => {
         if (newPage >= 1 && newPage <= totalPages) {
@@ -81,6 +89,24 @@ const BugReportsPage = () => {
         if (!db) return;
         try {
             await db.collection('bug_reports').doc(chamado.id).update({ status: newStatus, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+
+            // Notification Logic
+            if (newStatus === 'resolvido' && chamado.userId) {
+                try {
+                    await db.collection('notifications').add({
+                        userId: chamado.userId,
+                        message: `O seu reporte: "${chamado.description.substring(0, 40)}${chamado.description.length > 40 ? '...' : ''}" foi marcado como resolvido.`,
+                        read: false,
+                        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                        type: 'bug_resolved',
+                        link: '/bug-reports' // Contextual link, though navigation handles it
+                    });
+                } catch (notifError) {
+                    console.error("Erro ao criar notificação:", notifError);
+                    // Non-blocking error
+                }
+            }
+
             fetchChamados();
         } catch (err) {
             console.error("Erro ao atualizar status:", err);
@@ -116,15 +142,36 @@ const BugReportsPage = () => {
         <>
             <TJPRCard
                 title="Caixa de Chamados de Problemas"
-                subtitle={`${chamados.length} ${chamados.length === 1 ? 'chamado encontrado' : 'chamados encontrados'}`}
+                subtitle="Gerencie os chamados e feedbacks dos usuários."
                 icon="bug_report"
+                actions={
+                    <div className="flex bg-slate-100 dark:bg-slate-900/50 p-1 rounded-lg">
+                        <button
+                            onClick={() => setActiveTab('aberto')}
+                            className={`px-4 py-2 text-sm font-semibold rounded-md transition-all flex items-center gap-2 ${activeTab === 'aberto' ? 'bg-white dark:bg-slate-700 shadow-sm text-indigo-600 dark:text-white' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'}`}
+                        >
+                            Em Aberto
+                            <span className={`px-1.5 py-0.5 text-xs rounded-full ${activeTab === 'aberto' ? 'bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400' : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400'}`}>
+                                {chamados.filter(c => c.status === 'aberto').length}
+                            </span>
+                        </button>
+                        <button
+                            onClick={() => setActiveTab('resolvido')}
+                            className={`px-4 py-2 text-sm font-semibold rounded-md transition-all flex items-center gap-2 ${activeTab === 'resolvido' ? 'bg-white dark:bg-slate-700 shadow-sm text-emerald-600 dark:text-emerald-400' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'}`}
+                        >
+                            Finalizados
+                            <span className={`px-1.5 py-0.5 text-xs rounded-full ${activeTab === 'resolvido' ? 'bg-emerald-100 dark:bg-emerald-900/50 text-emerald-600 dark:text-emerald-400' : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400'}`}>
+                                {chamados.filter(c => c.status === 'resolvido').length}
+                            </span>
+                        </button>
+                    </div>
+                }
             >
                 <div className="space-y-4">
-                    {chamados.length === 0 ? (
+                    {filteredChamados.length === 0 ? (
                         <div className="text-center py-12">
-                            <span className="material-icons text-6xl text-gray-300 dark:text-gray-700">check_circle</span>
-                            <p className="mt-4 text-gray-500 dark:text-gray-400">Nenhum chamado encontrado.</p>
-                            <p className="text-sm text-gray-400 dark:text-gray-500">Tudo certo por aqui! 🎉</p>
+                            <span className="material-icons text-6xl text-gray-300 dark:text-gray-700">{activeTab === 'aberto' ? 'check_circle' : 'search_off'}</span>
+                            <p className="mt-4 text-gray-500 dark:text-gray-400">Nenhum chamado {activeTab === 'aberto' ? 'em aberto' : 'finalizado found'}.</p>
                         </div>
                     ) : (
                         <>

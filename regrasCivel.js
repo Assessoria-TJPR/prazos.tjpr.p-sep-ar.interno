@@ -85,7 +85,7 @@ const calcularPrazoCivel = (dataPublicacaoComDecreto, inicioDoPrazoComDecreto, p
 
     while (dataVarredura <= dataLimiteVarredura) {
         const dStr = dataVarredura.toISOString().split('T')[0];
-        const motivo = getMotivoDiaNaoUtil(dataVarredura, true, 'decreto') || getMotivoDiaNaoUtil(dataVarredura, true, 'instabilidade');
+        const motivo = getMotivoDiaNaoUtil(dataVarredura, true, 'decreto');
         if (motivo) {
             if (!suspensoesRelevantesMap.has(dStr)) {
                 suspensoesRelevantesMap.set(dStr, { data: new Date(dataVarredura.getTime()), ...motivo });

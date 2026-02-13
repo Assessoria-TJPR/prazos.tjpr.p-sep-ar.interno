@@ -701,34 +701,29 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
 
             const prazoNumerico = prazoSelecionado;
 
-            // Lógica de Disponibilização Efetiva:
-            // Se a data informada (inicioDisponibilizacao) for dia não útil, a disponibilização considera-se realizada no primeiro dia útil seguinte.
-            // Para calcular isso corretamente usando a função existente, voltamos um dia e pedimos o próximo útil.
-            const ontemDisp = new Date(inicioDisponibilizacao);
-            ontemDisp.setDate(ontemDisp.getDate() - 1);
+            // FIX: Define variables for trace logic
+            const dataDispEfetiva = inicioDisponibilizacao;
+            const suspensoesDispEfetiva = [];
 
-            // Passamos 'diasComprovados' para garantir que decretos marcados sejam considerados "não úteis" para fins de disponibilização.
-            const { proximoDia: dataDispEfetiva, suspensoesEncontradas: suspensoesDispEfetiva } = getProximoDiaUtilParaPublicacao(ontemDisp, true, diasComprovados);
+            // 1. PASSO: Publicação (Primeiro dia útil após disponibilização)
+            // Regra Crime (User Update): "A publicação pode cair em dia de decreto, não precisa pular".
+            // Para 'crime', passamos 'false' para ignorar decretos na determinação da data de publicação.
+            const considerarDecretosPub = (tipoPrazo === 'crime' || tipoPrazo === 'juizado_crim') ? false : true;
 
-            // Agora calculamos a publicação a partir da Disponibilização Efetiva
-            const { proximoDia: dataPublicacaoComDecreto, suspensoesEncontradas: suspensoesPublicacaoComDecreto } = getProximoDiaUtilParaPublicacao(dataDispEfetiva, true, diasComprovados);
+            // Se for crime, ignoramos decretos para fixar a data de publicação.
+            // Mas ainda passamos 'diasComprovados' caso a função precise (embora com false ela ignore).
+            const { proximoDia: dataPublicacaoComDecreto, suspensoesEncontradas: suspensoesPublicacaoComDecreto } = getProximoDiaUtilParaPublicacao(inicioDisponibilizacao, considerarDecretosPub, diasComprovados);
 
-            // Adiciona as suspensões da fase de disponibilização à lista
-            if (suspensoesDispEfetiva) {
-                suspensoesPublicacaoComDecreto.unshift(...suspensoesDispEfetiva);
-            }
-
-            // CORREÇÃO: Calculamos o início do prazo a partir da publicação
-            // CASCATA: Para o cálculo padrão/inicial, NÃO consideramos decretos/instabilidades automaticamente no início.
-            // O usuário deve marcar a checkbox para comprovar. Portanto, usamos 'false' aqui.
+            // 2. PASSO: Início do Prazo (D+1 Útil)
+            // Regra Crime (User Update): "O início do prazo é no dia 24". (Pub 21 -> Start 24).
+            // Isso é um Salto Duplo simples. Pub -> Start.
+            // Para o início, também ignoramos decretos automaticamente (o usuário deve marcar se quiser pular).
             const { proximoDia: inicioDoPrazoComDecreto, suspensoesEncontradas: suspensoesInicioComDecreto } = getProximoDiaUtilParaPublicacao(dataPublicacaoComDecreto, false);
 
-
-            // REMOVIDO: Lógica manual de adicionar suspensões nas datas exatas de Disponibilização/Publicação
-            // O usuário informou que instabilidades nessas datas não devem contar (não devem suspender o ato).
-            // A função getProximoDiaUtilParaPublicacao já lida com o salto para o próximo dia útil.
-
-            const diasNaoUteisDoInicioComDecreto = [...suspensoesPublicacaoComDecreto, ...suspensoesInicioComDecreto];
+            const diasNaoUteisDoInicioComDecreto = [
+                ...suspensoesPublicacaoComDecreto,
+                ...suspensoesInicioComDecreto
+            ];
 
             // Agrupa as funções auxiliares para passá-las para as funções de regras
             const helpers = {
@@ -741,13 +736,14 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
             };
 
             let res;
-            // Para 'civel', usa a lógica de dias úteis. Para 'crime', usa a lógica de dias corridos com possibilidade de comprovação.
-            if (tipoPrazo === 'civel' || tipoPrazo === 'juizado_civel') {
-                res = calcularPrazoCivel(
+            if (tipoPrazo === 'civel') {
+                res = calcularPrazoCivel(dataPublicacaoComDecreto, inicioDoPrazoComDecreto, prazoNumerico, diasNaoUteisDoInicioComDecreto, inicioDisponibilizacao, helpers, diasComprovados);
+            } else if (tipoPrazo === 'cpp') {
+                res = calcularPrazoCPP(
                     dataPublicacaoComDecreto,
                     inicioDoPrazoComDecreto,
                     prazoNumerico,
-                    suspensoesInicioComDecreto,
+                    diasNaoUteisDoInicioComDecreto,
                     inicioDisponibilizacao, // Recolocando inicioDisponibilizacao
                     helpers,
                     diasComprovados
@@ -757,7 +753,7 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
                     dataPublicacaoComDecreto,
                     inicioDoPrazoComDecreto,
                     prazoNumerico,
-                    suspensoesInicioComDecreto,
+                    diasNaoUteisDoInicioComDecreto,
                     inicioDisponibilizacao, // Correção: Passando o objeto Date, não string
                     helpers,
                     diasComprovados, // Passando dias comprovados
@@ -812,7 +808,7 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
             traceSteps.push({
                 step: 'Data da Publicação',
                 date: dataPublicacaoComDecreto,
-                description: 'Primeiro dia útil após a disponibilização considerada'
+                description: 'Primeiro dia útil após a disponibilização'
             });
 
             // 4. Início do Prazo
@@ -1786,10 +1782,15 @@ const Avatar = ({ user, userData, size = 'h-8 w-8' }) => {
 
 
 
-const AdminPage = ({ setCurrentArea }) => {
+const AdminPage = ({ setCurrentArea, initialSection }) => {
     const { user } = useAuth();
     // Estado para controlar a visão dentro da página de Admin: 'stats', 'calendar', 'users'
     const [adminSection, setAdminSection] = useState('stats'); // 'stats', 'calendar', 'users', 'audit'
+
+    // Atualizado para receber objeto com timestamp
+    useEffect(() => {
+        if (initialSection?.view) setAdminSection(initialSection.view);
+    }, [initialSection]);
 
     const [stats, setStats] = useState({ total: 0, perMateria: {}, perPrazo: {}, byDay: {} });
     const [statsView, setStatsView] = useState('calculadora'); // 'calculadora' ou 'djen_consulta'
@@ -2234,8 +2235,18 @@ const AdminPage = ({ setCurrentArea }) => {
 
         const summary = {
             total: usageData.length,
-            perMateria: usageData.reduce((acc, curr) => { acc[curr.materia] = (acc[curr.materia] || 0) + 1; return acc; }, {}),
-            perPrazo: usageData.reduce((acc, curr) => { acc[curr.prazo] = (acc[curr.prazo] || 0) + 1; return acc; }, {}),
+            perMateria: usageData.reduce((acc, curr) => {
+                let m = (curr.materia || '').toLowerCase();
+                if (m.includes('crime') || m.includes('criminal')) m = 'crime';
+                else if (m.includes('civel') || m.includes('cível')) m = 'civel';
+                if (m === 'crime' || m === 'civel') acc[m] = (acc[m] || 0) + 1;
+                return acc;
+            }, {}),
+            perPrazo: usageData.reduce((acc, curr) => {
+                const p = String(curr.prazo || '');
+                if (p === '5' || p === '15') acc[p] = (acc[p] || 0) + 1;
+                return acc;
+            }, {}),
             perSector: {}
         };
 
@@ -2520,7 +2531,7 @@ const AdminPage = ({ setCurrentArea }) => {
                     {adminUserData.role === 'admin' && <button onClick={() => setAdminSection('calendar')} className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors ${adminSection === 'calendar' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>Gerir Calendário</button>}
                     {adminUserData.role === 'admin' && <button onClick={() => setAdminSection('chamados')} className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors ${adminSection === 'chamados' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>Chamados</button>}
                     {adminUserData.role === 'admin' && <button onClick={() => setAdminSection('broadcast')} className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors ${adminSection === 'broadcast' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>Aviso Global</button>}
-                    {adminUserData.role === 'admin' && <button onClick={() => setAdminSection('audit')} className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors ${adminSection === 'audit' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>Auditoria</button>}
+
                 </div>
             </div>
 
@@ -2971,51 +2982,7 @@ const AdminPage = ({ setCurrentArea }) => {
                     </div>
                 </div>
             )}
-            {
-                adminSection === 'audit' && (
-                    <div className="space-y-6 animate-fade-in-up">
-                        <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-xl p-6 rounded-2xl shadow-sm border border-slate-200/50 dark:border-slate-700/50">
-                            <h2 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 to-purple-600 dark:from-indigo-400 dark:to-purple-400">Log de Auditoria</h2>
-                            <p className="text-slate-500 text-sm mt-1">Acompanhe as principais ações administrativas realizadas.</p>
-                        </div>
 
-                        <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
-                            <div className="overflow-x-auto">
-                                <table className="w-full text-sm text-left">
-                                    <thead className="text-xs text-slate-500 uppercase bg-slate-50 dark:bg-slate-900/60 border-b border-slate-100 dark:border-slate-700">
-                                        <tr>
-                                            <th className="px-6 py-4 font-bold tracking-wider">Usuário</th>
-                                            <th className="px-6 py-4 font-bold tracking-wider">Ação</th>
-                                            <th className="px-6 py-4 font-bold tracking-wider">Detalhes</th>
-                                            <th className="px-6 py-4 font-bold tracking-wider text-right">Data e Hora</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50">
-                                        {(auditLogs || []).length > 0 ? auditLogs.map((log, idx) => (
-                                            <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-900/40 transition-colors">
-                                                <td className="px-6 py-4 font-medium text-slate-700 dark:text-slate-200">{log.userEmail}</td>
-                                                <td className="px-6 py-4">
-                                                    <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 text-xs">
-                                                        {log.action}
-                                                    </span>
-                                                </td>
-                                                <td className="px-6 py-4 text-slate-500 truncate max-w-xs" title={log.details}>{log.details}</td>
-                                                <td className="px-6 py-4 text-right text-slate-400 font-mono text-xs">
-                                                    {log.timestamp?.toDate ? formatarData(log.timestamp.toDate()) : (log.timestamp ? formatarData(new Date(log.timestamp)) : '-')}
-                                                </td>
-                                            </tr>
-                                        )) : (
-                                            <tr>
-                                                <td colSpan="4" className="px-6 py-8 text-center text-slate-400 italic">Nenhum registro de auditoria encontrado.</td>
-                                            </tr>
-                                        )}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    </div>
-                )
-            }
 
             {
                 editingUser && (
@@ -3287,31 +3254,8 @@ const ChangelogModal = ({ onClose }) => {
     );
 };
 
-const NotificationsPanel = ({ notifications, onMarkAllAsRead, onClose }) => {
-    return (
-        <div className="absolute top-full right-0 mt-2 w-80 sm:w-96 bg-white dark:bg-slate-800 rounded-lg shadow-2xl border border-slate-200 dark:border-slate-700 z-20 flex flex-col max-h-[70vh]">
-            <div className="flex justify-between items-center p-4 border-b border-slate-200 dark:border-slate-700">
-                <h3 className="font-semibold text-slate-800 dark:text-slate-100">Notificações</h3>
-                <button onClick={onMarkAllAsRead} className="text-xs font-semibold text-indigo-600 hover:underline">Marcar todas como lidas</button>
-            </div>
-            <div className="overflow-y-auto">
-                {notifications.length === 0 ? (
-                    <p className="p-6 text-center text-sm text-slate-500 dark:text-slate-400">Nenhuma notificação nova.</p>
-                ) : (
-                    <ul className="divide-y divide-slate-200 dark:divide-slate-700">
-                        {notifications.map(notif => (
-                            <li key={notif.id} className={`p-4 ${!notif.read ? 'bg-indigo-50 dark:bg-indigo-900/20' : ''}`}>
-                                <p className="font-semibold text-sm text-slate-800 dark:text-slate-100">{notif.title}</p>
-                                <p className="text-sm text-slate-600 dark:text-slate-300">{notif.message}</p>
-                                <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">{formatarData(new Date(notif.createdAt.toDate()))}</p>
-                            </li>
-                        ))}
-                    </ul>
-                )}
-            </div>
-        </div>
-    );
-};
+// Usar o componente global definido em components.js
+const NotificationsPanel = window.NotificationsPanel;
 
 const SettingsModal = ({ onClose }) => {
     const { settings, updateSettings } = useContext(SettingsContext);
@@ -3619,7 +3563,8 @@ const Sidebar = ({ isOpen, setIsOpen, isCollapsed, toggleCollapse, deferredPromp
                         </button>
                         {deferredPrompt && (
                             <button onClick={onInstallClick} className={`w-full flex items-center ${isCollapsed ? 'justify-center px-2' : 'px-3'} py-2 text-sm font-medium text-tjpr-gold rounded-lg hover:bg-tjpr-navy-800 hover:text-tjpr-gold transition-colors mt-2`} title={isCollapsed ? 'Instalar App' : ''}>
-                                <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 ${isCollapsed ? '' : 'mr-3'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                                {/* Icone do Módulo (App Logo) conforme solicitado */}
+                                <img src="https://cdn-icons-png.flaticon.com/512/2666/2666505.png" className={`h-5 w-5 ${isCollapsed ? '' : 'mr-3'}`} alt="Install Icon" />
                                 {!isCollapsed && 'Instalar App'}
                             </button>
                         )}
@@ -3756,6 +3701,23 @@ const BugReportProvider = ({ children }) => {
                 userAgent: navigator.userAgent,
             });
 
+            // Notificar Administradores
+            const adminsSnapshot = await db.collection('users').where('role', '==', 'admin').get();
+            if (!adminsSnapshot.empty) {
+                const batch = db.batch();
+                adminsSnapshot.forEach(adminDoc => {
+                    const notifRef = db.collection('notifications').doc();
+                    batch.set(notifRef, {
+                        userId: adminDoc.id,
+                        message: `Novo chamado aberto por ${user.displayName || user.email}`,
+                        read: false,
+                        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                        type: 'bug_report_new'
+                    });
+                });
+                await batch.commit();
+            }
+
         } catch (error) {
             console.error("Erro ao enviar relatório:", error);
             alert("Ocorreu uma falha ao enviar seu relatório. Por favor, tente novamente.");
@@ -3778,6 +3740,8 @@ const BugReportProvider = ({ children }) => {
 
 const GlobalAlert = () => {
     const [msg, setMsg] = useState(null);
+    const [animate, setAnimate] = useState(false);
+
     useEffect(() => {
         if (!db) return;
         const unsubscribe = db.collection('configuracoes').doc('aviso_global').onSnapshot(doc => {
@@ -3789,8 +3753,19 @@ const GlobalAlert = () => {
         });
         return () => unsubscribe();
     }, []);
+
+    // Animation every 10 minutes (600,000 ms)
+    useEffect(() => {
+        if (!msg) return;
+        const interval = setInterval(() => {
+            setAnimate(true);
+            setTimeout(() => setAnimate(false), 1000); // Reset after 1s (duration of animation)
+        }, 600000); // 10 minutes
+        return () => clearInterval(interval);
+    }, [msg]);
+
     if (!msg) return null;
-    return <div className="bg-indigo-600 text-white text-center py-2 px-4 font-bold text-sm shadow-md animate-fade-in relative z-30">{msg.mensagem}</div>;
+    return <div className={`bg-indigo-600 text-white text-center py-2 px-4 font-bold text-sm shadow-md relative z-30 transition-all ${animate ? 'animate-attention' : ''}`}>{msg.mensagem}</div>;
 };
 
 const PWAInstallPrompt = ({ deferredPrompt, onInstall, isIOS, onDismiss }) => {
@@ -3836,6 +3811,54 @@ const App = () => {
     const [deferredPrompt, setDeferredPrompt] = useState(null);
     const [showInstallPrompt, setShowInstallPrompt] = useState(false);
     const [isIOS, setIsIOS] = useState(false);
+    const [notifications, setNotifications] = useState([]);
+    const [showNotifications, setShowNotifications] = useState(false);
+    const [adminInitialSection, setAdminInitialSection] = useState(null);
+
+    useEffect(() => {
+        if (user && adminInitialSection) {
+            // Se mudou de área, garante que o adminInitialSection seja limpo depois de um tempo ou
+            // gerenciado de outra forma. Aqui apenas garantimos que o estado existe.
+        }
+    }, [user, adminInitialSection]);
+
+    useEffect(() => {
+        if (!user || !db) return;
+        const unsubscribe = db.collection('notifications')
+            .where('userId', '==', user.uid)
+            .where('read', '==', false)
+            .orderBy('createdAt', 'desc')
+            .limit(50)
+            .onSnapshot(snapshot => {
+                const notifs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                setNotifications(notifs);
+            });
+        return () => unsubscribe();
+    }, [user]);
+
+    const handleMarkAsRead = async () => {
+        if (!db || !user) return;
+        const batch = db.batch();
+        notifications.forEach(n => {
+            const ref = db.collection('notifications').doc(n.id);
+            batch.update(ref, { read: true });
+        });
+        await batch.commit();
+    };
+
+    const handleNotificationClick = async (notif) => {
+        // Marca como lida
+        if (!notif.read) {
+            await db.collection('notifications').doc(notif.id).update({ read: true });
+        }
+
+        // Navegação baseada no tipo
+        if (notif.type === 'bug_report_new') {
+            setAdminInitialSection({ view: 'chamados', ts: Date.now() });
+            setCurrentArea('Admin');
+            setShowNotifications(false);
+        }
+    };
 
     useEffect(() => {
         // Detecta iOS
@@ -3951,6 +3974,19 @@ const App = () => {
                     }}
                     isDarkMode={document.documentElement.classList.contains('dark')}
                     onOpenProfile={() => setShowProfile(true)}
+                    currentArea={currentArea}
+                    onNavigate={(area) => setCurrentArea(area)}
+                    isAdmin={userData?.role === 'admin' || userData?.role === 'setor_admin'}
+                    notifications={notifications}
+                    onToggleNotifications={() => setShowNotifications(!showNotifications)}
+                />
+
+                <NotificationsPanel
+                    notifications={notifications}
+                    onMarkAsRead={handleMarkAsRead}
+                    isOpen={showNotifications}
+                    onClose={() => setShowNotifications(false)}
+                    onNotificationClick={handleNotificationClick}
                 />
 
                 <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">

@@ -1,0 +1,152 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // --- Funções Auxiliares de Permissão ---
+    
+    // Obtém os dados do usuário que está fazendo a requisição
+    function getRequestUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    // Verifica se o usuário está autenticado
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Verifica se o usuário é o dono do documento (para perfil próprio)
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+
+    // Verifica se é Administrador Global
+    function isGlobalAdmin() {
+      return isSignedIn() && getRequestUserData().role == 'admin';
+    }
+
+    // Verifica se é Chefe de Setor
+    function isSetorAdmin() {
+      return isSignedIn() && getRequestUserData().role == 'setor_admin';
+    }
+    
+    // Verifica se o Chefe de Setor tem permissão para gerenciar o usuário alvo
+    function canManageUserInSector(targetUserId) {
+      let adminData = getRequestUserData();
+      let targetUserData = get(/databases/$(database)/documents/users/$(targetUserId)).data;
+      
+      // O admin deve ter um setorId válido
+      let adminHasSector = isSetorAdmin() && adminData.setorId != null;
+      
+      // Cenário 1: O usuário alvo já pertence ao mesmo setor do admin
+      let isSameSector = targetUserData.setorId == adminData.setorId;
+      
+      // Cenário 2: O usuário alvo não tem setor e o admin está tentando trazê-lo para seu setor
+      let targetHasNoSector = targetUserData.setorId == null;
+      let isClaiming = targetHasNoSector && request.resource.data.setorId == adminData.setorId;
+      
+      return adminHasSector && (isSameSector || isClaiming);
+    }
+
+    // --- Regras por Coleção ---
+
+    // NOVA REGRA PARA NOTIFICAÇÕES (Inserida conforme solicitado)
+    match /notifications/{notificationId} {
+      // O dono da notificação pode ler e marcar como lida (write/update)
+      allow read, update: if isSignedIn() && resource.data.userId == request.auth.uid;
+      
+      // Admins ou sistema podem criar notificações (create)
+      // Aqui permitimos que qualquer usuário autenticado crie, pois o gatilho é no front-end
+      allow create: if isSignedIn();
+    }
+
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      // Permite criar se for o próprio usuário (registro)
+      allow create: if isOwner(userId);
+      // Permite atualização se:
+      // 1. For o próprio usuário (perfil)
+      // 2. For Admin Global
+      // 3. For Chefe de Setor gerenciando alguém do seu setor (ou trazendo para ele),
+      //    desde que não tente alterar permissões de admin global.
+      allow update: if isOwner(userId) || isGlobalAdmin() || (
+        canManageUserInSector(userId) &&
+        request.resource.data.role != 'admin' && 
+        resource.data.role != 'admin'
+      );
+      allow delete: if isGlobalAdmin();
+    }
+
+    match /usageStats/{statId} {
+      allow create: if isSignedIn();
+      allow read, list: if isGlobalAdmin() || isSetorAdmin();
+      
+      // Permite exclusão apenas para Administradores Globais (botão "Excluir Registros")
+      allow delete: if isGlobalAdmin();
+      
+      allow update: if false; // Histórico deve ser imutável
+    }
+
+    // Logs de Auditoria
+    match /audit_logs/{logId} {
+      // Permite que administradores (Global ou Setor) criem registros de auditoria ao realizar ações
+      allow create: if isGlobalAdmin() || isSetorAdmin();
+      // Apenas Admin Global pode visualizar o histórico de auditoria no painel
+      allow read: if isGlobalAdmin();
+      // Logs não devem ser editados ou excluídos
+      allow update, delete: if false; 
+    }
+
+    match /configuracoes/{docId} {
+      allow read: if isSignedIn();
+      // ALTERAÇÃO AQUI: Permite que Chefe de Setor edite APENAS o documento 'minutas' (para criar novos tipos)
+      // Admin Global continua podendo editar tudo (calendário, avisos, etc)
+      allow write: if isGlobalAdmin() || (isSetorAdmin() && docId == 'minutas');
+    }
+
+    match /setores/{setorId} {
+      allow read: if true;
+      // Permite criar se logado (necessário para o fluxo de registro de novo setor na tela de login)
+      allow create: if isSignedIn();
+      allow update, delete: if isGlobalAdmin();
+    }
+
+    match /setorNomesUnicos/{nomeNormalizado} {
+      // Garante unicidade do nome do setor na criação
+      allow create: if isSignedIn() && !exists(/databases/$(database)/documents/setorNomesUnicos/$(nomeNormalizado));
+      allow delete: if isGlobalAdmin();
+      allow read, update: if false;
+    }
+    
+    match /bug_reports/{reportId} {
+      // Qualquer usuário logado pode criar um chamado
+      allow create: if isSignedIn();
+      // Apenas Admin Global pode ver a lista, atualizar status ou deletar
+      allow read, update, delete: if isGlobalAdmin();
+    }
+
+    match /changelog/{logId} {
+      allow read: if isSignedIn();
+      allow write: if isGlobalAdmin();
+    }
+
+    match /minutas/{minutaId} {
+      // Qualquer usuário logado pode ler para gerar o documento
+      allow get: if isSignedIn();
+      allow list: if isGlobalAdmin() || isSetorAdmin();
+      
+      // Regra de escrita:
+      // 1. Admin Global pode escrever em qualquer minuta.
+      // 2. Chefe de Setor só pode escrever se o ID do documento começar com o ID do seu setor.
+      allow write: if isGlobalAdmin() || (
+        isSetorAdmin() && 
+        minutaId.matches('^' + getRequestUserData().setorId + '_.*')
+      );
+    }
+
+    // Coleção legada (se ainda existir)
+    match /minutaTipos/{tipoId} {
+      allow read, list: if isGlobalAdmin() || isSetorAdmin();
+      allow write: if isGlobalAdmin();
+    }
+  }
+}
