@@ -207,6 +207,37 @@ const BugReportsPage = () => {
                                         <p className="text-sm text-gray-800 dark:text-gray-100 whitespace-pre-wrap">{chamado.description}</p>
                                     </div>
 
+                                    {/* Detalhes do Contexto */}
+                                    {(chamado.dataDisponibilizacao || chamado.prazo) && (
+                                        <div className="mt-3 p-3 bg-slate-100 dark:bg-slate-900/50 rounded-md border border-slate-200 dark:border-slate-700 text-sm">
+                                            <p className="font-semibold text-xs text-slate-500 dark:text-slate-400 mb-2 uppercase tracking-wider">Dados da Calculadora</p>
+                                            <div className="grid grid-cols-1 md:grid-cols-3 gap-y-2 gap-x-4">
+                                                {chamado.dataDisponibilizacao && (
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="material-icons text-slate-400 text-base">event</span>
+                                                        <span className="text-slate-700 dark:text-slate-300">
+                                                            <span className="font-medium">Disp:</span> {chamado.dataDisponibilizacao.split('-').reverse().join('/')}
+                                                        </span>
+                                                    </div>
+                                                )}
+                                                {chamado.prazo && (
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="material-icons text-slate-400 text-base">timer</span>
+                                                        <span className="text-slate-700 dark:text-slate-300">
+                                                            <span className="font-medium">Prazo:</span> {chamado.prazo} dias
+                                                        </span>
+                                                    </div>
+                                                )}
+                                                <div className="flex items-center gap-2">
+                                                    <span className="material-icons text-slate-400 text-base">gavel</span>
+                                                    <span className={`font-medium ${chamado.isCrime ? 'text-red-600 dark:text-red-400' : 'text-blue-600 dark:text-blue-400'}`}>
+                                                        {chamado.isCrime ? 'Criminal' : 'Cível'}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+
                                     {/* Actions */}
                                     <div className="mt-4 flex flex-wrap gap-3 items-center">
                                         <TJPRButton

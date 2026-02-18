@@ -312,6 +312,7 @@ const ConsultaAssistidaPJE = ({ numeroProcesso, setNumeroProcesso }) => {
 
 const CalculadoraDePrazo = ({ numeroProcesso }) => {
     const { settings, updateSettings } = useContext(SettingsContext);
+    const { setReportData } = useContext(BugReportContext); // Consumir contexto de report
     const [prazoSelecionado, setPrazoSelecionado] = useState(settings.defaultPrazo || 15);
     const [dataDisponibilizacao, setDataDisponibilizacao] = useState('');
     const [tipoPrazo, setTipoPrazo] = useState(settings.defaultMateria || 'civel');
@@ -326,6 +327,17 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
     const [customMinutaTypes, setCustomMinutaTypes] = useState([]);
     const { user, userData } = useAuth();
     const { feriadosMap, decretosMap, instabilidadeMap, recessoForense, calendarLoading } = settings;
+
+    // Atualiza os dados para o reporte de bugs
+    useEffect(() => {
+        if (setReportData) {
+            setReportData({
+                dataDisponibilizacao,
+                isCrime: ['crime', 'cpp', 'juizado_crim'].includes(tipoPrazo),
+                prazo: prazoSelecionado
+            });
+        }
+    }, [dataDisponibilizacao, tipoPrazo, prazoSelecionado, setReportData]);
 
     // Efeito para gerenciar a visibilidade do input manual de prazo
     useEffect(() => {
@@ -3026,8 +3038,24 @@ const AdminPage = ({ setCurrentArea, initialSection }) => {
 };
 
 const BugReportModal = ({ screenshot, onClose, onSubmit }) => {
+    const { reportData } = useContext(BugReportContext);
     const [description, setDescription] = useState('');
+    const [extraData, setExtraData] = useState({
+        dataDisponibilizacao: '',
+        isCrime: false,
+        prazo: ''
+    });
     const [isSubmitting, setIsSubmitting] = useState(false);
+
+    useEffect(() => {
+        if (reportData) {
+            setExtraData({
+                dataDisponibilizacao: reportData.dataDisponibilizacao || '',
+                isCrime: reportData.isCrime || false,
+                prazo: reportData.prazo || ''
+            });
+        }
+    }, [reportData]);
 
     const handleSubmit = async () => {
         if (!description.trim()) {
@@ -3035,11 +3063,16 @@ const BugReportModal = ({ screenshot, onClose, onSubmit }) => {
             return;
         }
         setIsSubmitting(true);
-        const success = await onSubmit(description);
+        // Combine description and extra data
+        const reportPayload = {
+            description,
+            ...extraData
+        };
+        const success = await onSubmit(reportPayload);
         if (success) {
             onClose();
         }
-        setIsSubmitting(false); // Para o loading em caso de sucesso ou falha
+        setIsSubmitting(false);
     };
 
     return (
@@ -3058,6 +3091,38 @@ const BugReportModal = ({ screenshot, onClose, onSubmit }) => {
                             <img src={screenshot} alt="Screenshot da tela atual" className="w-full h-auto rounded-md" />
                         </div>
                     </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Data da Disponibilização</label>
+                            <input
+                                type="date"
+                                value={extraData.dataDisponibilizacao}
+                                onChange={e => setExtraData({ ...extraData, dataDisponibilizacao: e.target.value })}
+                                className="w-full p-2 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition dark:text-gray-100"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Prazo (dias)</label>
+                            <input
+                                type="number"
+                                value={extraData.prazo}
+                                onChange={e => setExtraData({ ...extraData, prazo: e.target.value })}
+                                className="w-full p-2 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition dark:text-gray-100"
+                            />
+                        </div>
+                        <div className="flex items-center mt-6">
+                            <input
+                                type="checkbox"
+                                id="isCrimeCheck"
+                                checked={extraData.isCrime}
+                                onChange={e => setExtraData({ ...extraData, isCrime: e.target.checked })}
+                                className="w-4 h-4 text-indigo-600 bg-gray-100 border-gray-300 rounded focus:ring-indigo-500 dark:focus:ring-indigo-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600"
+                            />
+                            <label htmlFor="isCrimeCheck" className="ml-2 text-sm font-medium text-gray-900 dark:text-gray-300">É processo Criminal?</label>
+                        </div>
+                    </div>
+
                     <div>
                         <label htmlFor="bug-description" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">
                             Descrição do Problema
@@ -3068,7 +3133,7 @@ const BugReportModal = ({ screenshot, onClose, onSubmit }) => {
                             value={description}
                             onChange={e => setDescription(e.target.value)}
                             placeholder="Por favor, detalhe o que aconteceu, o que você esperava que acontecesse e os passos para reproduzir o erro."
-                            className="w-full p-3 bg-white/50 dark:bg-slate-900/50 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition"
+                            className="w-full p-3 bg-white/50 dark:bg-slate-900/50 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition dark:text-gray-100"
                         ></textarea>
                     </div>
                 </div>
@@ -3661,6 +3726,13 @@ const BugReportProvider = ({ children }) => {
     const [screenshot, setScreenshot] = useState(null);
     const [isCapturing, setIsCapturing] = useState(false);
 
+    // Estado para guardar dados da calculadora
+    const [reportData, setReportData] = useState({
+        dataDisponibilizacao: '',
+        isCrime: false,
+        prazo: ''
+    });
+
     const openBugReport = async () => {
         if (isCapturing) return;
         setIsCapturing(true);
@@ -3684,16 +3756,33 @@ const BugReportProvider = ({ children }) => {
         }
     };
 
-    const handleSubmitReport = async (description) => {
+    const handleSubmitReport = async (payload) => {
+        // payload can be a string (description) or an object { description, dataDisponibilizacao, isCrime, prazo }
         if (!db || !user || !screenshot) {
             alert("Erro: Serviços de autenticação ou banco de dados não estão disponíveis.");
             return false;
         }
+
+        let description = '';
+        let extraFields = {};
+
+        if (typeof payload === 'string') {
+            description = payload;
+        } else {
+            description = payload.description;
+            extraFields = {
+                dataDisponibilizacao: payload.dataDisponibilizacao,
+                isCrime: payload.isCrime,
+                prazo: payload.prazo
+            };
+        }
+
         try {
             await db.collection('bug_reports').add({
                 userId: user.uid,
                 userEmail: user.email,
                 description: description,
+                ...extraFields, // Adiciona os campos extras
                 screenshotBase64: screenshot,
                 status: 'aberto',
                 createdAt: firebase.firestore.FieldValue.serverTimestamp(),
@@ -3729,7 +3818,7 @@ const BugReportProvider = ({ children }) => {
     };
 
     return (
-        <BugReportContext.Provider value={{ openBugReport }}>
+        <BugReportContext.Provider value={{ openBugReport, reportData, setReportData }}>
             {children}
             {isReporting && screenshot && (
                 <BugReportModal screenshot={screenshot} onClose={() => setIsReporting(false)} onSubmit={handleSubmitReport} />
