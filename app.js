@@ -395,7 +395,7 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
         const dateString = date.toISOString().split('T')[0];
 
         // PATCH: Dia da Justiça transferido de 08/12 para 18/12 em 2025 (Decreto 808/2024 TJPR)
-        if (dateString === '2025-12-18' && (tipo === 'todos' || tipo === 'decreto')) {
+        if (considerarDecretos && dateString === '2025-12-18' && (tipo === 'todos' || tipo === 'decreto')) {
             return { motivo: 'Dia da Justiça (Feriado Regimental - Transf. p/ Decreto 808/2024)', tipo: 'decreto' };
         }
 
@@ -720,10 +720,9 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
             // 1. PASSO: Publicação (Primeiro dia útil após disponibilização)
             // Regra Crime (User Update): "A publicação pode cair em dia de decreto, não precisa pular".
             // Para 'crime', passamos 'false' para ignorar decretos na determinação da data de publicação.
+            // [ATUALIZAÇÃO]: Isso serve para o Cenário 1 (Sem Decreto). O Cenário 2 será tratado dentro das regras.
             const considerarDecretosPub = (tipoPrazo === 'crime' || tipoPrazo === 'juizado_crim') ? false : true;
 
-            // Se for crime, ignoramos decretos para fixar a data de publicação.
-            // Mas ainda passamos 'diasComprovados' caso a função precise (embora com false ela ignore).
             const { proximoDia: dataPublicacaoComDecreto, suspensoesEncontradas: suspensoesPublicacaoComDecreto } = getProximoDiaUtilParaPublicacao(inicioDisponibilizacao, considerarDecretosPub, diasComprovados);
 
             // 2. PASSO: Início do Prazo (D+1 Útil)
