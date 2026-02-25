@@ -36,14 +36,14 @@ const calcularPrazoCivel = (dataPublicacaoComDecreto, inicioDoPrazoComDecreto, p
     if (instabilidadeNoInicio) instabilidadesComprovaveis.push({ data: new Date(inicioDoPrazoEfetivoComDecreto.getTime()), ...instabilidadeNoInicio });
 
     // 1. Adiciona suspensões comprováveis do INÍCIO
-    // CASCATA: Pega apenas a PRIMEIRA suspensão do início.
-    // Re-calculamos as suspensões do início baseadas no caminho COM decretos (máximo potencial)
-    const { suspensoesEncontradas: suspDispMax } = getProximoDiaUtilParaPublicacao(new Date(inicioDisponibilizacao.getTime() - 86400000), true);
-    const { suspensoesEncontradas: suspPubMax } = getProximoDiaUtilParaPublicacao(dataPubEfetivaComDecreto, true);
-    const todasSuspensoesInicioMax = [...(suspDispMax || []), ...(suspPubMax || [])];
+    // Captura as suspensões que podem prorrogar a publicação (D+1)
+    const { suspensoesEncontradas: suspPubMax } = getProximoDiaUtilParaPublicacao(inicioDisponibilizacao, true);
+    // Captura as suspensões que podem prorrogar o início do prazo (D+2)
+    const { suspensoesEncontradas: suspInicioMax } = getProximoDiaUtilParaPublicacao(suspPubMax.length > 0 ? suspPubMax[suspPubMax.length - 1].data : getProximoDiaUtilParaPublicacao(inicioDisponibilizacao, false).proximoDia, true);
 
-    const primeiraSuspensaoInicio = todasSuspensoesInicioMax.find(filtroComprovavel);
-    const decretosParaUI = primeiraSuspensaoInicio ? [primeiraSuspensaoInicio] : [];
+    const todasSuspensoesInicioMax = [...(suspPubMax || []), ...(suspInicioMax || [])];
+
+    const decretosParaUI = todasSuspensoesInicioMax.filter(filtroComprovavel);
 
     // 2. Procura a PRIMEIRA suspensão comprovável no prazo final (sem decretos)
     const prazoFinalParaVerificar = resultadoSemDecreto.prazoFinal;

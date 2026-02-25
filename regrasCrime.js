@@ -3,7 +3,7 @@
  * Contém a lógica de cálculo de prazo específica para a matéria Crime.
  */
 
-const calcularPrazoCrime = (dataPublicacaoComDecreto, inicioDoPrazoComDecreto, prazoNumerico, diasNaoUteisDoInicioComDecreto = [], inicioDisponibilizacao, helpers, diasComprovados = new Set(), ignorarRecesso = false) => {
+const calcularPrazoCrime = (_dataPubApp, _inicioPrazoApp, prazoNumerico, diasNaoUteisDoInicioComDecreto = [], inicioDisponibilizacao, helpers, diasComprovados = new Set(), ignorarRecesso = false) => {
     const { getProximoDiaUtilParaPublicacao, calcularPrazoFinalDiasCorridos, getMotivoDiaNaoUtil, getProximoDiaUtilComprovado, decretosMap } = helpers;
 
     // Lógica para suspensão de prazos em maio de 2025 (SEI 0072049-32.2025.8.16.6000)
@@ -17,18 +17,20 @@ const calcularPrazoCrime = (dataPublicacaoComDecreto, inicioDoPrazoComDecreto, p
     }
 
     // PASSO 1: A partir da Disponibilização, calcula a Publicação (D+1 Útil)
-    // Regra Crime: Publicação é o primeiro dia útil após disponibilização.
-    // User Update: "A publicação pode cair em dia de decreto, não precisa pular".
-    // Portanto, calculamos a publicação IGNORANDO decretos (passando 'false').
+    // Cenário 1: Sem Decreto -> Ignora decretos (false)
     const { proximoDia: dataPublicacaoSemDecreto, suspensoesEncontradas: suspensoesPubSemDecreto } = getProximoDiaUtilParaPublicacao(inicioDisponibilizacao, false);
 
+    // Cenário 2: Com Decreto -> Considera apenas decretos COMPROVADOS
+    const { proximoDia: dataPublicacaoComDecreto } = getProximoDiaUtilComprovado(inicioDisponibilizacao, diasComprovados);
+
     // PASSO 2: A partir da Publicação, calcula o Início do Prazo (D+1 Útil - Súmula 310 STF)
-    // User Update: "O início do prazo é no dia 24". (Pub 21/11 -> Início 24/11).
-    // Isso confirma a lógica de Salto Duplo (Disponibilização -> Publicação -> Início) para este caso,
-    // onde a Intimação (se existir processualmente) ocorre na própria Publicação ou não adiciona um dia útil extra na contagem padrão.
+    // Cenário 1: Sem Decreto
     const { proximoDia: inicioDoPrazoSemDecreto, suspensoesEncontradas: suspensoesInicioSemDecreto } = getProximoDiaUtilParaPublicacao(dataPublicacaoSemDecreto, false);
 
-    // Combina suspensões encontradas (apenas feriados/recessos que realmente pularam dias)
+    // Cenário 2: Com Decreto (baseado na publicação ajustada pelos decretos comprovados)
+    const { proximoDia: inicioDoPrazoComDecreto } = getProximoDiaUtilComprovado(dataPublicacaoComDecreto, diasComprovados);
+
+    // Combina suspensões encontradas (apenas feriados/recessos que realmente pularam dias no Cenário 1)
     const todasSuspensoes = [
         ...(suspensoesPubSemDecreto || []),
         ...(suspensoesInicioSemDecreto || [])
@@ -50,23 +52,8 @@ const calcularPrazoCrime = (dataPublicacaoComDecreto, inicioDoPrazoComDecreto, p
     const resultadoSemDecreto = calcularPrazoFinalDiasCorridos(inicioDoPrazoSemDecreto, prazoNumerico, new Set(), ignorarRecesso, false);
 
     // Cenário 2: Com Decreto
-    // Como a user disse que "Publicação pode cair em dia de decreto", a Data de Publicação e o Início da Contagem
-    // NÃO mudam baseados na presença do decreto na publicação (21/11).
-    // O decreto apenas conta como suspensão SE afetar o decurso do prazo (após o início).
-    // Mas mantemos a lógica de 'diasComprovados' para o cálculo final do prazo, caso suspenda dias do meio/fim.
-
-    // [IMPORTANTE] Se o decreto cair EXATAMENTE no dia que seria o início do prazo, aí sim ele poderia prorrogar o início?
-    // Pela regra de dias corridos (CPP Art 798), o prazo corre... mas se o início é feriado/suspensão, prorroga?
-    // Súmula 310: "não se computando o dia do começo". Começa no primeiro dia útil.
-    // Se 24/11 fosse decreto, começaria 25/11.
-    // Como estamos usando 'getProximoDiaUtilParaPublicacao(..., false)' para inicioDoPrazoSemDecreto,
-    // precisamos recalcular o inicio efetivo SE houver decretos comprovados NO DIA DO INÍCIO?
-    // User disse: "Inicio no dia 24 e não 25". (24 é segunda, util).
-    // Se houver decreto dia 24, e usuário marcar, aí sim pularia.
-
-    const { proximoDia: inicioDoPrazoEfetivoComDecretoLocal } = getProximoDiaUtilComprovado(dataPublicacaoSemDecreto, diasComprovados);
-
-    const resultadoComDecretoInicial = calcularPrazoFinalDiasCorridos(inicioDoPrazoEfetivoComDecretoLocal, prazoNumerico, diasComprovados || new Set(), ignorarRecesso, true);
+    // Usa o início do prazo recalculado com base nas comprovações
+    const resultadoComDecretoInicial = calcularPrazoFinalDiasCorridos(inicioDoPrazoComDecreto, prazoNumerico, diasComprovados || new Set(), ignorarRecesso, true);
 
     // Identifica suspensões comprováveis
     // REGRA DE OURO (User Feedback): 
@@ -128,8 +115,8 @@ const calcularPrazoCrime = (dataPublicacaoComDecreto, inicioDoPrazoComDecreto, p
     suspensoesParaUI.sort((a, b) => a.data - b.data);
 
     return {
-        dataPublicacao: dataPublicacaoSemDecreto,
-        inicioPrazo: inicioDoPrazoSemDecreto,
+        dataPublicacao: (diasComprovados && diasComprovados.size > 0) ? dataPublicacaoComDecreto : dataPublicacaoSemDecreto,
+        inicioPrazo: (diasComprovados && diasComprovados.size > 0) ? inicioDoPrazoComDecreto : inicioDoPrazoSemDecreto,
         semDecreto: resultadoSemDecreto,
         comDecreto: resultadoComDecretoInicial,
         suspensoesComprovaveis: suspensoesParaUI,
