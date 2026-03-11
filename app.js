@@ -321,6 +321,7 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
     const [resultado, setResultado] = useState(null);
 
     const [diasComprovados, setDiasComprovados] = useState(new Set());
+    const diasComprovadosRef = useRef(new Set());
     const [dataInterposicao, setDataInterposicao] = useState('');
     const [tempestividade, setTempestividade] = useState(null);
     const [error, setError] = useState('');
@@ -381,7 +382,16 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
                 decretosMap
             };
 
-            const resultadoCrime = calcularPrazoCrime(dataPublicacaoComDecreto, inicioDoPrazoComDecreto, prazoNumerico, diasNaoUteisDoInicioComDecreto, inicioDisponibilizacao, helpers);
+            const resultadoCrime = calcularPrazoCrime(
+                dataPublicacaoComDecreto,
+                inicioDoPrazoComDecreto,
+                prazoNumerico,
+                diasNaoUteisDoInicioComDecreto,
+                inicioDisponibilizacao,
+                helpers,
+                diasComprovados,
+                ignorarRecesso
+            );
             setResultado(resultadoCrime);
             // Não chama logUsage() para evitar gerar registros duplicados
         } catch (e) {
@@ -389,52 +399,59 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
         }
     }, [ignorarRecesso]);
 
-    const getMotivoDiaNaoUtil = (date, considerarDecretos, tipo = 'todos', comprovados = new Set()) => {
+    const getMotivoDiaNaoUtil = (date, considerarDecretos, tipo = 'todos', comprovados = new Set(), ignorarRecesso = false) => {
         if (!date || isNaN(date.getTime())) return null;
 
         const dateString = date.toISOString().split('T')[0];
+        const month = date.getUTCMonth() + 1;
+        const day = date.getUTCDate();
 
-        // PATCH: Dia da Justiça transferido de 08/12 para 18/12 em 2025 (Decreto 808/2024 TJPR)
-        if (considerarDecretos && dateString === '2025-12-18' && (tipo === 'todos' || tipo === 'decreto')) {
-            return { motivo: 'Dia da Justiça (Feriado Regimental - Transf. p/ Decreto 808/2024)', tipo: 'decreto' };
+        // Flag interna para saber se o decreto EXISTE, independente de ser considerado para dilação
+        let motivoEncontrado = null;
+
+        if (dateString === '2025-12-18' && (tipo === 'todos' || tipo === 'decreto')) {
+            motivoEncontrado = { motivo: 'Dia da Justiça (Feriado Regimental - Transf. p/ Decreto 808/2024)', tipo: 'decreto' };
         }
 
-        // PATCH: Dia da Consciência Negra (Feriado Nacional a partir de 2024)
-        if (dateString.endsWith('-11-20') && (tipo === 'todos' || tipo === 'feriado')) {
-            const ano = parseInt(dateString.split('-')[0]);
-            if (ano >= 2024) {
-                return { motivo: 'Dia da Consciência Negra (Feriado Nacional)', tipo: 'feriado' };
-            }
+        if (!motivoEncontrado && (tipo === 'todos' || tipo === 'feriado')) {
+            if (feriadosMap && feriadosMap[dateString]) motivoEncontrado = typeof feriadosMap[dateString] === 'object' ? feriadosMap[dateString] : { motivo: feriadosMap[dateString], tipo: 'feriado' };
         }
 
-
-        if (tipo === 'todos' || tipo === 'feriado') {
-            // Agora feriadosMap pode conter objetos com link
-            if (feriadosMap && feriadosMap[dateString]) return typeof feriadosMap[dateString] === 'object' ? feriadosMap[dateString] : { motivo: feriadosMap[dateString], tipo: 'feriado' };
-        }
-        if (considerarDecretos && (tipo === 'todos' || tipo === 'decreto')) {
+        if (!motivoEncontrado && (tipo === 'todos' || tipo === 'decreto')) {
             if (decretosMap && decretosMap[dateString]) {
-                // Se for um objeto (regra especial CNJ), retorna o objeto. Senão, cria um.
-                if (typeof decretosMap[dateString] === 'object') {
-                    return decretosMap[dateString];
-                }
-                return { motivo: decretosMap[dateString], tipo: 'decreto' };
+                motivoEncontrado = typeof decretosMap[dateString] === 'object' ? decretosMap[dateString] : { motivo: decretosMap[dateString], tipo: 'decreto' };
             }
         }
-        // A instabilidade é tratada separadamente, mas pode ser verificada aqui se necessário.
-        if (considerarDecretos && (tipo === 'todos' || tipo === 'instabilidade')) {
-            if (instabilidadeMap && instabilidadeMap[dateString]) return typeof instabilidadeMap[dateString] === 'object' ? instabilidadeMap[dateString] : { motivo: instabilidadeMap[dateString], tipo: 'instabilidade' };
+
+        if (!motivoEncontrado && (tipo === 'todos' || tipo === 'instabilidade')) {
+            if (instabilidadeMap && instabilidadeMap[dateString]) motivoEncontrado = typeof instabilidadeMap[dateString] === 'object' ? instabilidadeMap[dateString] : { motivo: instabilidadeMap[dateString], tipo: 'instabilidade' };
         }
-        const month = date.getMonth() + 1;
-        const day = date.getDate();
 
         // PATCH: Recesso Forense e Suspensão de Prazos (Art. 220 CPC)
-        // No TJPR, os prazos ficam suspensos obrigatoriamente de 20/12 a 20/01.
-        // Esta regra é fixa e deve prevalecer para evitar lacunas (como o dia 01/01).
-        if (!ignorarRecesso && (tipo === 'todos' || tipo === 'recesso' || tipo === 'feriado')) {
+        // Se não houver motivo específico (feriado/decreto), verifica se cai no recesso
+        if (!motivoEncontrado && (tipo === 'todos' || tipo === 'recesso' || tipo === 'feriado')) {
             if ((month === 12 && day >= 20) || (month === 1 && day <= 20)) {
-                return { motivo: 'Recesso Forense / Suspensão de Prazos (Art. 220 CPC)', tipo: 'recesso' };
+                if (ignorarRecesso) {
+                    // No Crime com réu preso, o recesso padrão é ignorado (dia útil).
+                    return null;
+                }
+                return { motivo: 'Recesso Forense / Suspensão de Prazos (Art. 220 CPC)', tipo: 'recesso', ehRecesso: true, ehProrrogavel: true };
             }
+        }
+
+        // Se encontrou algo, decide se retorna baseado em considerarDecretos e se é feriado/recesso
+        if (motivoEncontrado) {
+            const ehFeriadoOuRecesso = motivoEncontrado.tipo === 'feriado' || motivoEncontrado.tipo === 'recesso';
+            
+            // Feriados sempre retornam. 
+            // Decretos só retornam se considerarDecretos for true.
+            if (ehFeriadoOuRecesso || considerarDecretos) {
+                // Se for recesso dentro do período que deve ser ignorado no crime, mas é um decreto específico,
+                // ele DEVE retornar se considerarDecretos for true para permitir comprovação.
+                return motivoEncontrado;
+            }
+            // Se NÃO considerar o decreto, retorna null
+            if (motivoEncontrado.tipo === 'decreto' || motivoEncontrado.tipo === 'instabilidade') return null;
         }
 
         return null;
@@ -444,11 +461,11 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
         const proximoDia = new Date(data.getTime());
         do {
             proximoDia.setDate(proximoDia.getDate() + 1);
-        } while (proximoDia.getDay() === 0 || proximoDia.getDay() === 6 || getMotivoDiaNaoUtil(proximoDia, true, 'todos'));
+        } while (proximoDia.getDay() === 0 || proximoDia.getDay() === 6 || getMotivoDiaNaoUtil(proximoDia, true, 'todos', new Set(), ignorarRecesso));
         return proximoDia;
     };
 
-    const getProximoDiaUtilParaPublicacao = (data, considerarDecretos = true, comprovados = new Set()) => {
+    const getProximoDiaUtilParaPublicacao = (data, considerarDecretos = true, comprovados = new Set(), ignorarRecesso = false) => {
         const suspensoesEncontradas = [];
         const proximoDia = new Date(data.getTime());
         // A publicação deve ser o primeiro dia útil após a disponibilização,
@@ -456,7 +473,7 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
         let motivo;
         do {
             proximoDia.setDate(proximoDia.getDate() + 1);
-            motivo = getMotivoDiaNaoUtil(proximoDia, considerarDecretos, 'todos', comprovados);
+            motivo = getMotivoDiaNaoUtil(proximoDia, considerarDecretos, 'todos', comprovados, ignorarRecesso);
             if (motivo && motivo.tipo !== 'instabilidade') {
                 suspensoesEncontradas.push({ data: new Date(proximoDia.getTime()), ...motivo });
             }
@@ -468,14 +485,14 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
      * Encontra o próximo dia útil, considerando os dias comprovados pelo usuário.
      * Usado para recalcular o início do prazo quando checkboxes são marcadas.
      */
-    const getProximoDiaUtilComprovado = (data, comprovados) => {
+    const getProximoDiaUtilComprovado = (data, comprovados, ignorarRecesso = false) => {
         const suspensoesEncontradas = [];
         const proximoDia = new Date(data.getTime()); // Começa a partir da data fornecida
         let motivo;
         do {
             proximoDia.setDate(proximoDia.getDate() + 1); // Avança para o próximo dia
             const dataStr = proximoDia.toISOString().split('T')[0];
-            motivo = getMotivoDiaNaoUtil(proximoDia, true, 'todos', comprovados);
+            motivo = getMotivoDiaNaoUtil(proximoDia, true, 'todos', comprovados, ignorarRecesso);
 
             const eFimDeSemana = proximoDia.getDay() === 0 || proximoDia.getDay() === 6;
             const eSuspensaoRelevante = motivo && (motivo.tipo === 'feriado' || motivo.tipo === 'recesso' || comprovados.has(dataStr));
@@ -483,7 +500,7 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
             if (eSuspensaoRelevante) {
                 suspensoesEncontradas.push({ data: new Date(proximoDia.getTime()), ...motivo });
             }
-        } while (proximoDia.getDay() === 0 || proximoDia.getDay() === 6 || (motivo && (motivo.tipo === 'feriado' || motivo.tipo === 'recesso' || comprovados.has(proximoDia.toISOString().split('T')[0]))));
+        } while (proximoDia.getDay() === 0 || proximoDia.getDay() === 6 || (motivo && (motivo.tipo === 'feriado' || (motivo.tipo === 'recesso' && !ignorarRecesso) || comprovados.has(proximoDia.toISOString().split('T')[0]))));
         return { proximoDia, suspensoesEncontradas };
     };
 
@@ -506,8 +523,12 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
      * Retorna null se a data não tiver suspensão comprovável ou se já estiver comprovada.
      */
     const getProximaSuspensaoComprovavel = (dataFinal, comprovados) => {
-        const filtroComprovavel = (tipo) => tipo === 'decreto' || tipo === 'instabilidade' ||
-            tipo === 'feriado_cnj' || tipo === 'suspensao_outubro';
+        const isCrime = tipoPrazo === 'crime' || tipoPrazo === 'juizado_crim' || tipoPrazo === 'cpp';
+        
+        const filtroComprovavel = (suspData, tipo) => {
+            if (isCrime && !ignorarRecesso) return false; // Crime sem ignorar recesso não comprova NENHUM decreto
+            return tipo === 'decreto' || tipo === 'instabilidade' || tipo === 'feriado_cnj' || tipo === 'suspensao_outubro';
+        };
 
         const dataStr = dataFinal.toISOString().split('T')[0];
 
@@ -516,7 +537,7 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
 
         // Verificar se a data tem uma suspensão comprovável
         const suspensao = getMotivoDiaNaoUtil(dataFinal, true, 'todos');
-        if (suspensao && filtroComprovavel(suspensao.tipo)) {
+        if (suspensao && filtroComprovavel(dataFinal, suspensao.tipo)) {
             return { data: new Date(dataFinal.getTime()), ...suspensao };
         }
 
@@ -579,95 +600,86 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
     };
 
     const calcularPrazoFinalDiasCorridos = (inicioDoPrazo, prazo, comprovados = new Set(), ignorarRecesso = false, considerarDecretosNaProrrogacao = true) => {
-        /**
-         * Para prazos de 'crime' (dias corridos):
-         * 1. O início do prazo é ajustado para o próximo dia útil (se cair em fim de semana, feriado, etc.).
-         * 2. A data final é calculada somando-se os dias corridos do prazo ao início ajustado.
-         * 3. A data final é prorrogada se cair em um dia não útil (fim de semana, feriado, recesso ou suspensão comprovada).
-         */
-
+        const VERSION = "V4_FIX_CRIME_RULE_UPDATE";
         const diasNaoUteisEncontrados = [];
         const diasPotenciaisComprovaveis = [];
+        const diasNaoUteisDoInicio = [];
         let diasDeSuspensaoComprovadaNoPeriodo = 0;
-        const diasNaoUteisDoInicio = []; // Adicionado para rastrear suspensões no início
 
-        // 1. Ajusta o início do prazo para o próximo dia útil, se necessário.
+        // Função auxiliar para verificar se um dia é considerado "não útil" para o Crime nos limites (Início/Fim)
+        const isDiaNaoUtilBoundary = (d) => {
+            const dataStr = d.toISOString().split('T')[0];
+            const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+            const motivo = getMotivoDiaNaoUtil(d, true, 'todos', comprovados, ignorarRecesso);
+            
+            if (isWeekend) return { ehNaoUtil: true, motivo: { motivo: 'Fim de Semana', tipo: 'fim_de_semana' } };
+            
+            if (motivo) {
+                if (motivo.tipo === 'feriado') return { ehNaoUtil: true, motivo };
+                if (motivo.ehRecesso && !ignorarRecesso) {
+                    return { ehNaoUtil: true, motivo };
+                }
+                // Se for decreto/instabilidade, SÓ conta se estiver nos comprovados
+                if (comprovados.has(dataStr)) return { ehNaoUtil: true, motivo };
+            }
+            return { ehNaoUtil: false };
+        };
+
+        const getInfoDia = (d) => {
+            const motivo = getMotivoDiaNaoUtil(d, false, 'todos', comprovados, ignorarRecesso);
+            let ehNaoUtilParaContagem = false;
+            
+            if (motivo && motivo.ehRecesso) {
+                ehNaoUtilParaContagem = !ignorarRecesso;
+            }
+            // NOTA: Decrees in the middle are now IGNORED for Crime counting, as requested.
+            return { ehNaoUtilParaContagem, motivo };
+        };
+
+        // 1. Ajusta o início do prazo para o próximo dia útil.
         let inicioAjustado = new Date(inicioDoPrazo.getTime());
-        let infoDiaInicioNaoUtil;
-        // O início do prazo só deve ser prorrogado por decretos/instabilidades se eles estiverem no conjunto 'comprovados'
-        // E se a flag `considerarDecretosNaProrrogacao` for verdadeira.
-        // Feriados e recessos sempre prorrogam.
-        // CORREÇÃO: Usar do-while para garantir que a verificação seja feita pelo menos uma vez para a data de início.
-        do {
-            // Lógica para ignorar recesso se a flag estiver ativa
-            const motivoRecesso = getMotivoDiaNaoUtil(inicioAjustado, true, 'recesso');
-            const ehRecessoValido = motivoRecesso && !ignorarRecesso;
-
-            (infoDiaInicioNaoUtil = getMotivoDiaNaoUtil(inicioAjustado, true, 'feriado') ||
-                (ehRecessoValido ? motivoRecesso : null) ||
-                (considerarDecretosNaProrrogacao && comprovados.has(inicioAjustado.toISOString().split('T')[0]) && (getMotivoDiaNaoUtil(inicioAjustado, true, 'decreto') || getMotivoDiaNaoUtil(inicioAjustado, true, 'instabilidade')))
-            ) ||
-                (inicioAjustado.getDay() === 0 || inicioAjustado.getDay() === 6)
-                ? (() => {
-                    if (infoDiaInicioNaoUtil) diasNaoUteisDoInicio.push({ data: new Date(inicioAjustado.getTime()), ...infoDiaInicioNaoUtil });
-                    inicioAjustado.setDate(inicioAjustado.getDate() + 1);
-                })()
-                : false; // Condição para sair do loop se não for dia não útil
-        } while (infoDiaInicioNaoUtil || inicioAjustado.getDay() === 0 || inicioAjustado.getDay() === 6);
-
-        // 2. Calcula a data final "bruta" somando os dias corridos.
-        const dataFinalBruta = new Date(inicioAjustado.getTime());
-        // CORREÇÃO: Usamos 'prazo - 1' pois para dias corridos, se o dia 1 é o início, somamos 14 dias para chegar ao 15º.
-        // Isso alinha com o resultado esperado do usuário (27/10 + 15 dias = 10/11).
-        const diasASomar = (prazo > 0 ? prazo - 1 : 0);
-
-        // Loop para coletar feriados e recessos automáticos DENTRO do período de dias corridos para exibição na UI
-        const dataVigilancia = new Date(inicioAjustado.getTime());
-        const dataLimiteBruta = new Date(inicioAjustado.getTime());
-        dataLimiteBruta.setDate(dataLimiteBruta.getDate() + diasASomar);
-
-        while (dataVigilancia <= dataLimiteBruta) {
-            const motivoAuto = getMotivoDiaNaoUtil(dataVigilancia, true, 'feriado') || getMotivoDiaNaoUtil(dataVigilancia, true, 'recesso');
-            if (motivoAuto && !((motivoAuto.tipo === 'recesso' || motivoAuto.tipo === 'recesso_grouped') && ignorarRecesso)) {
-                diasNaoUteisEncontrados.push({ data: new Date(dataVigilancia.getTime()), ...motivoAuto });
-            }
-            dataVigilancia.setDate(dataVigilancia.getDate() + 1);
-        }
-
-        dataFinalBruta.setDate(dataFinalBruta.getDate() + diasASomar);
-
-        // Após o loop principal, verifica se a data final caiu em um dia não útil e prorroga se necessário.
-        // CORREÇÃO: Criar uma nova instância de Date para evitar modificar dataFinalBruta
-        let prazoFinalAjustado = new Date(dataFinalBruta.getTime());
-        let infoDiaFinalNaoUtil;
-        const diasProrrogados = [];
-
-        // 3. Prorroga o prazo final se ele cair em um dia não útil (fim de semana, feriado, recesso).
-        // A prorrogação por decreto/instabilidade também deve depender da comprovação,
-        // que é o que acontece quando esta função é chamada a partir do `handleComprovacaoChange`.
         while (true) {
-            // Lógica para ignorar recesso se a flag estiver ativa
-            const motivoRecesso = getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'recesso');
-            const ehRecessoValido = motivoRecesso && !ignorarRecesso;
+            const res = isDiaNaoUtilBoundary(inicioAjustado);
+            if (!res.ehNaoUtil) break;
+            if (res.motivo && res.motivo.tipo !== 'fim_de_semana') {
+                diasNaoUteisDoInicio.push({ data: new Date(inicioAjustado.getTime()), ...res.motivo });
+            }
+            inicioAjustado.setDate(inicioAjustado.getDate() + 1);
+        }
 
-            infoDiaFinalNaoUtil = getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'feriado') ||
-                (ehRecessoValido ? motivoRecesso : null) ||
-                (comprovados.has(prazoFinalAjustado.toISOString().split('T')[0]) && (getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'decreto') || getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'instabilidade')));
-
-            const eFimDeSemana = prazoFinalAjustado.getDay() === 0 || prazoFinalAjustado.getDay() === 6;
-
-
-            if (infoDiaFinalNaoUtil || eFimDeSemana) {
-                if (infoDiaFinalNaoUtil) diasProrrogados.push({ data: new Date(prazoFinalAjustado.getTime()), ...infoDiaFinalNaoUtil });
-                prazoFinalAjustado.setDate(prazoFinalAjustado.getDate() + 1);
+        // 2. Calcula a data final iterando dia a dia.
+        let diasCorridosContados = 1;
+        let dataCorrente = new Date(inicioAjustado.getTime());
+        while (diasCorridosContados < prazo) {
+            dataCorrente.setDate(dataCorrente.getDate() + 1);
+            const info = getInfoDia(dataCorrente);
+            if (info.ehNaoUtilParaContagem) {
+                if (info.motivo) diasNaoUteisEncontrados.push({ data: new Date(dataCorrente.getTime()), ...info.motivo });
+                diasDeSuspensaoComprovadaNoPeriodo++;
             } else {
-                break;
+                diasCorridosContados++;
             }
         }
 
+        // 3. Prorroga o prazo final se ele cair em um dia não útil.
+        let prazoFinalAjustado = new Date(dataCorrente.getTime());
+        const diasProrrogados = [];
+        while (true) {
+            const res = isDiaNaoUtilBoundary(prazoFinalAjustado);
+            if (!res.ehNaoUtil) break;
+            
+            if (res.motivo) diasProrrogados.push({ data: new Date(prazoFinalAjustado.getTime()), ...res.motivo });
+            prazoFinalAjustado.setDate(prazoFinalAjustado.getDate() + 1);
+        }
 
-        // Retorna os dias que foram comprovados e causaram a dilação, os dias que causaram a prorrogação final, e os dias potenciais para a UI.
-        return { prazoFinal: dataFinalBruta, prazoFinalProrrogado: prazoFinalAjustado, diasNaoUteis: [...diasNaoUteisEncontrados, ...diasProrrogados], diasProrrogados: diasProrrogados, diasPotenciaisComprovaveis: [...diasPotenciaisComprovaveis, ...diasNaoUteisDoInicio], diasNaoUteisDoInicio: diasNaoUteisDoInicio };
+        return { 
+            prazoFinal: dataCorrente, 
+            prazoFinalProrrogado: prazoFinalAjustado, 
+            diasNaoUteis: [...diasNaoUteisEncontrados, ...diasProrrogados], 
+            diasProrrogados, 
+            diasPotenciaisComprovaveis: diasNaoUteisDoInicio, 
+            diasNaoUteisDoInicio 
+        };
     };
 
     const logUsage = () => {
@@ -691,6 +703,7 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
         setDataInterposicao('');
         setTempestividade(null);
         setDiasComprovados(new Set()); // Reseta os dias comprovados
+        diasComprovadosRef.current = new Set(); // Sincroniza a ref também
         if (!dataDisponibilizacao) {
             setError('Por favor, preencha a Data de Disponibilização.');
             return;
@@ -850,7 +863,10 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
 
     const handleComprovacaoChange = (dataString, dataDisponibilizacaoAtual) => {
         console.log("handleComprovacaoChange chamado para:", dataString);
-        let novosComprovados = new Set(diasComprovados);
+        
+        // 1. Obtém e atualiza o estado atual (síncrono através da Ref) para evitar bugs de clicks rápidos (stale closures)
+        let novosComprovados = new Set(diasComprovadosRef.current);
+        
         // REGRA CNJ: Agrupa a comprovação de Corpus Christi.
         if (dataString === DATA_CORPUS_CHRISTI) {
             novosComprovados = agruparComprovacaoCorpusChristi(novosComprovados);
@@ -858,53 +874,48 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
             // Comportamento padrão para outros decretos
             novosComprovados.has(dataString) ? novosComprovados.delete(dataString) : novosComprovados.add(dataString);
         }
+        
+        diasComprovadosRef.current = novosComprovados; // Mantém a ref sincronizada urgentemente
+        setDiasComprovados(novosComprovados); // Dispara re-render da UI (checkboxes)
+
         console.log("Dias comprovados (após toggle):", Array.from(novosComprovados));
-        setDiasComprovados(novosComprovados);
 
-        // Recalcula o prazo com base nos dias agora comprovados
-        // CORREÇÃO: É mais seguro obter esses valores de dentro da função de atualização do estado
-        // para evitar o uso de um 'resultado' obsoleto (stale closure).
-
+        // 2. Dispara o recálculo passando o estado fresco
         setResultado(prev => {
-            if (!dataDisponibilizacaoAtual) return prev; // Proteção para não recalcular sem data
+            if (!prev || !dataDisponibilizacaoAtual) return prev; 
 
             const { prazo, tipo, semDecreto, inicioPrazo: inicioPrazoOriginal } = prev;
 
-            // Se nenhuma checkbox estiver marcada, o "Cenário 2" deve ser exatamente igual ao "Cenário 1".
             if (novosComprovados.size === 0) {
                 return {
                     ...prev,
-                    comDecreto: { ...semDecreto }, // Restaura o cenário 2
-                    inicioPrazo: inicioPrazoOriginal // Restaura o início do prazo original do cálculo inicial
-                    // CORREÇÃO: Não filtramos suspensoesComprovaveis para manter a visualização de dois cenários
+                    comDecreto: { ...semDecreto },
+                    inicioPrazo: inicioPrazoOriginal
                 };
             }
 
-            // Se houver checkboxes marcadas, recalcula o prazo considerando os dias comprovados.
-            // CORREÇÃO: O recálculo deve partir da data de disponibilização original para ser preciso.
             const inicioDisponibilizacao = new Date(dataDisponibilizacaoAtual + 'T00:00:00');
-            const { proximoDia: novaDataPublicacao } = getProximoDiaUtilComprovado(inicioDisponibilizacao, novosComprovados);
-            const { proximoDia: novoInicioDoPrazo } = getProximoDiaUtilComprovado(novaDataPublicacao, novosComprovados); // Correção aqui
+            // IMPORTANTE: precisamos usar a flag ignorarRecesso do prev para recalcular
+            const dataIgnorarRecesso = prev.ignorarRecesso;
+            
+            const { proximoDia: novaDataPublicacao } = getProximoDiaUtilComprovado(inicioDisponibilizacao, novosComprovados, dataIgnorarRecesso);
+            const { proximoDia: novoInicioDoPrazo } = getProximoDiaUtilComprovado(novaDataPublicacao, novosComprovados, dataIgnorarRecesso);
             let novoResultadoComDecreto;
 
             if (tipo === 'civel') {
                 novoResultadoComDecreto = calcularPrazoFinalDiasUteis(novoInicioDoPrazo, prazo, novosComprovados, true, true, true);
 
-                // CASCATA CÍVEL: Verifica se surgiram novas suspensões
                 const novasSuspensoesComprovaveis = [...prev.suspensoesComprovaveis];
                 let novaSuspensaoEncontrada = null;
 
-                // Checa Início
                 const suspensaoInicio = getProximaSuspensaoComprovavel(novoInicioDoPrazo, novosComprovados);
                 if (suspensaoInicio) novaSuspensaoEncontrada = suspensaoInicio;
 
-                // Checa Final (se não achou no início)
                 if (!novaSuspensaoEncontrada) {
                     const suspensaoFinal = getProximaSuspensaoComprovavel(novoResultadoComDecreto.prazoFinal, novosComprovados);
                     if (suspensaoFinal) novaSuspensaoEncontrada = suspensaoFinal;
                 }
 
-                // Checa Prorrogações do meio
                 if (!novaSuspensaoEncontrada && novoResultadoComDecreto.diasProrrogados) {
                     for (const dia of novoResultadoComDecreto.diasProrrogados) {
                         const suspensaoProrrogacao = getProximaSuspensaoComprovavel(dia.data, novosComprovados);
@@ -927,23 +938,20 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
                     comDecreto: novoResultadoComDecreto,
                     suspensoesComprovaveis: novasSuspensoesComprovaveis.sort((a, b) => a.data - b.data)
                 };
-            } else { // Para 'crime', o recálculo é sempre em dias corridos.
-                novoResultadoComDecreto = calcularPrazoFinalDiasCorridos(novoInicioDoPrazo, prazo, novosComprovados, true);
+            } else {
+                novoResultadoComDecreto = calcularPrazoFinalDiasCorridos(novoInicioDoPrazo, prazo, novosComprovados, ignorarRecesso);
 
                 const novasSuspensoesComprovaveis = [...prev.suspensoesComprovaveis];
                 let novaSuspensaoEncontrada = null;
 
-                // Checa Início
                 const suspensaoInicio = getProximaSuspensaoComprovavel(novoInicioDoPrazo, novosComprovados);
                 if (suspensaoInicio) novaSuspensaoEncontrada = suspensaoInicio;
 
-                // Checa Final
                 if (!novaSuspensaoEncontrada) {
                     const novaSuspensao = getProximaSuspensaoComprovavel(novoResultadoComDecreto.prazoFinalProrrogado, novosComprovados);
                     if (novaSuspensao) novaSuspensaoEncontrada = novaSuspensao;
                 }
 
-                // Checa Prorrogações
                 if (!novaSuspensaoEncontrada && novoResultadoComDecreto.diasProrrogados) {
                     for (const dia of novoResultadoComDecreto.diasProrrogados) {
                         const suspensaoProrrogacao = getProximaSuspensaoComprovavel(dia.data, novosComprovados);
@@ -1366,10 +1374,20 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
                                             <h3 className="text-lg font-bold text-slate-700 dark:text-slate-200 text-center mb-2">Cenário 2: Com Decreto</h3>
                                             <p className="text-center text-slate-600 dark:text-slate-300">O prazo final, <strong>comprovando as suspensões</strong>, é:</p>
                                             <p className="text-center mt-2 text-2xl font-bold text-green-600 dark:text-green-400">{formatarData(resultado.comDecreto.prazoFinalProrrogado || resultado.comDecreto.prazoFinal)}</p>
-                                            {resultado.tipo === 'crime' && resultado.comDecreto.diasNaoUteis.length > 0 && (
-                                                <p className="text-center text-sm text-slate-500 dark:text-slate-400 mt-1">
-                                                    (Prazo estendido em {resultado.comDecreto.diasNaoUteis.length} dia{resultado.comDecreto.diasNaoUteis.length > 1 ? 's' : ''} devido a comprovações)
-                                                </p>
+                                            {resultado.tipo === 'crime' && (
+                                                (() => {
+                                                    const dataCom = resultado.comDecreto.prazoFinalProrrogado || resultado.comDecreto.prazoFinal;
+                                                    const dataSem = resultado.semDecreto.prazoFinalProrrogado || resultado.semDecreto.prazoFinal;
+                                                    const diffDias = Math.round((dataCom.getTime() - dataSem.getTime()) / (1000 * 60 * 60 * 24));
+                                                    if (diffDias > 0) {
+                                                        return (
+                                                            <p className="text-center text-sm text-slate-500 dark:text-slate-400 mt-1">
+                                                                (Prazo estendido em {diffDias} dia{diffDias > 1 ? 's' : ''} devido a comprovações)
+                                                            </p>
+                                                        );
+                                                    }
+                                                    return null;
+                                                })()
                                             )}
 
                                             {/* Mostra a seção de comprovação apenas se houver decretos comprováveis */}

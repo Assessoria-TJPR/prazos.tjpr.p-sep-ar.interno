@@ -28,6 +28,18 @@ const calcularPrazoCivel = (dataPublicacaoComDecreto, inicioDoPrazoComDecreto, p
     // [CORREÇÃO] Filtro robusto para aceitar tanto objetos quanto o campo 'tipo' em string.
     const filtroComprovavel = d => {
         const t = (typeof d === 'string') ? d : (d?.tipo);
+        const data = (typeof d === 'object' && d?.data) ? d.data : null;
+        
+        if (data) {
+            const m = data.getMonth();
+            const day = data.getDate();
+            // console.log(`Checking date: ${m}/${day} for type ${t}`);
+            if (m === 11 && day === 24) {
+                // console.log("FILTERED OUT CHRISTMAS");
+                return false;
+            }
+        }
+
         return t === 'decreto' || t === 'feriado_cnj' || t === 'instabilidade';
     };
 
@@ -60,7 +72,13 @@ const calcularPrazoCivel = (dataPublicacaoComDecreto, inicioDoPrazoComDecreto, p
     const todosDecretosParaUI = [...decretosParaUI, ...instabilidadesParaUI];
     const suspensoesRelevantesMap = new Map();
     todosDecretosParaUI.forEach(suspensao => {
-        suspensoesRelevantesMap.set(suspensao.data.toISOString().split('T')[0], suspensao);
+        const dStr = suspensao.data.toISOString().split('T')[0];
+        const isNatalOuAnoNovo = suspensao.data.getMonth() === 11 && (suspensao.data.getDate() === 24 || suspensao.data.getDate() === 31);
+        if (!isNatalOuAnoNovo) {
+            suspensoesRelevantesMap.set(dStr, suspensao);
+        } else {
+             // console.log("EXCLUDED NATAL/ANO NOVO FROM MAP");
+        }
     });
 
     // VARREDURA DE MEIO DE PRAZO 
@@ -72,10 +90,14 @@ const calcularPrazoCivel = (dataPublicacaoComDecreto, inicioDoPrazoComDecreto, p
     const todasSuspensoesPub = [...(suspensoesDispComDecreto || []), ...(suspensoesPubComDecreto || [])];
 
     todasSuspensoesPub.forEach(suspensao => {
+        const d = (typeof suspensao === 'object' && suspensao?.data) ? suspensao.data : null;
         if (filtroComprovavel(suspensao.tipo)) {
-            const dStr = suspensao.data.toISOString().split('T')[0];
-            if (!suspensoesRelevantesMap.has(dStr)) {
-                suspensoesRelevantesMap.set(dStr, { data: new Date(suspensao.data.getTime()), ...suspensao });
+            const isNatalOuAnoNovo = d && d.getMonth() === 11 && (d.getDate() === 24 || d.getDate() === 31);
+            if (!isNatalOuAnoNovo) {
+                const dStr = d.toISOString().split('T')[0];
+                if (!suspensoesRelevantesMap.has(dStr)) {
+                    suspensoesRelevantesMap.set(dStr, { data: new Date(d.getTime()), ...suspensao });
+                }
             }
         }
     });
@@ -87,7 +109,10 @@ const calcularPrazoCivel = (dataPublicacaoComDecreto, inicioDoPrazoComDecreto, p
         const dStr = dataVarredura.toISOString().split('T')[0];
         const motivo = getMotivoDiaNaoUtil(dataVarredura, true, 'decreto');
         if (motivo) {
-            if (!suspensoesRelevantesMap.has(dStr)) {
+            const m = dataVarredura.getMonth();
+            const day = dataVarredura.getDate();
+            const isNatalOuAnoNovo = m === 11 && (day === 24 || day === 31);
+            if (!suspensoesRelevantesMap.has(dStr) && !isNatalOuAnoNovo) {
                 suspensoesRelevantesMap.set(dStr, { data: new Date(dataVarredura.getTime()), ...motivo });
             }
         }
@@ -106,3 +131,7 @@ const calcularPrazoCivel = (dataPublicacaoComDecreto, inicioDoPrazoComDecreto, p
         diasProrrogados: resultadoSemDecreto.diasProrrogados
     };
 };
+
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { calcularPrazoCivel };
+}
