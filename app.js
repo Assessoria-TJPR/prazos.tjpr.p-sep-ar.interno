@@ -465,7 +465,7 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
         return proximoDia;
     };
 
-    const getProximoDiaUtilParaPublicacao = (data, considerarDecretos = true, comprovados = new Set(), ignorarRecesso = false) => {
+    const getProximoDiaUtilParaPublicacao = (data, considerarDecretos = true, comprovados = new Set(), ignorarRecessoLocal = false) => {
         const suspensoesEncontradas = [];
         const proximoDia = new Date(data.getTime());
         // A publicação deve ser o primeiro dia útil após a disponibilização,
@@ -473,7 +473,7 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
         let motivo;
         do {
             proximoDia.setDate(proximoDia.getDate() + 1);
-            motivo = getMotivoDiaNaoUtil(proximoDia, considerarDecretos, 'todos', comprovados, ignorarRecesso);
+            motivo = getMotivoDiaNaoUtil(proximoDia, considerarDecretos, 'todos', comprovados, ignorarRecessoLocal);
             if (motivo && motivo.tipo !== 'instabilidade') {
                 suspensoesEncontradas.push({ data: new Date(proximoDia.getTime()), ...motivo });
             }
@@ -495,9 +495,10 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
             motivo = getMotivoDiaNaoUtil(proximoDia, true, 'todos', comprovados, ignorarRecesso);
 
             const eFimDeSemana = proximoDia.getDay() === 0 || proximoDia.getDay() === 6;
-            const eSuspensaoRelevante = motivo && (motivo.tipo === 'feriado' || motivo.tipo === 'recesso' || comprovados.has(dataStr));
+            const eRecessoNaoIgnorado = motivo && motivo.tipo === 'recesso' && !ignorarRecesso;
+            const eSuspensaoRelevante = motivo && (motivo.tipo === 'feriado' || eRecessoNaoIgnorado || comprovados.has(dataStr));
 
-            if (eSuspensaoRelevante) {
+            if (eSuspensaoRelevante && !eFimDeSemana) {
                 suspensoesEncontradas.push({ data: new Date(proximoDia.getTime()), ...motivo });
             }
         } while (proximoDia.getDay() === 0 || proximoDia.getDay() === 6 || (motivo && (motivo.tipo === 'feriado' || (motivo.tipo === 'recesso' && !ignorarRecesso) || comprovados.has(proximoDia.toISOString().split('T')[0]))));
@@ -736,13 +737,13 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
             // [ATUALIZAÇÃO]: Isso serve para o Cenário 1 (Sem Decreto). O Cenário 2 será tratado dentro das regras.
             const considerarDecretosPub = (tipoPrazo === 'crime' || tipoPrazo === 'juizado_crim') ? false : true;
 
-            const { proximoDia: dataPublicacaoComDecreto, suspensoesEncontradas: suspensoesPublicacaoComDecreto } = getProximoDiaUtilParaPublicacao(inicioDisponibilizacao, considerarDecretosPub, diasComprovados);
+            const { proximoDia: dataPublicacaoComDecreto, suspensoesEncontradas: suspensoesPublicacaoComDecreto } = getProximoDiaUtilParaPublicacao(inicioDisponibilizacao, considerarDecretosPub, diasComprovados, ignorarRecesso);
 
             // 2. PASSO: Início do Prazo (D+1 Útil)
             // Regra Crime (User Update): "O início do prazo é no dia 24". (Pub 21 -> Start 24).
             // Isso é um Salto Duplo simples. Pub -> Start.
             // Para o início, também ignoramos decretos automaticamente (o usuário deve marcar se quiser pular).
-            const { proximoDia: inicioDoPrazoComDecreto, suspensoesEncontradas: suspensoesInicioComDecreto } = getProximoDiaUtilParaPublicacao(dataPublicacaoComDecreto, false);
+            const { proximoDia: inicioDoPrazoComDecreto, suspensoesEncontradas: suspensoesInicioComDecreto } = getProximoDiaUtilParaPublicacao(dataPublicacaoComDecreto, false, diasComprovados, ignorarRecesso);
 
             const diasNaoUteisDoInicioComDecreto = [
                 ...suspensoesPublicacaoComDecreto,
@@ -851,6 +852,7 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
             });
 
             res.trace = traceSteps;
+            res.ignorarRecesso = ignorarRecesso;
 
             setResultado(res);
 
@@ -884,20 +886,12 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
         setResultado(prev => {
             if (!prev || !dataDisponibilizacaoAtual) return prev; 
 
-            const { prazo, tipo, semDecreto, inicioPrazo: inicioPrazoOriginal } = prev;
-
-            if (novosComprovados.size === 0) {
-                return {
-                    ...prev,
-                    comDecreto: { ...semDecreto },
-                    inicioPrazo: inicioPrazoOriginal
-                };
-            }
+            const { prazo, tipo } = prev;
 
             const inicioDisponibilizacao = new Date(dataDisponibilizacaoAtual + 'T00:00:00');
-            // IMPORTANTE: precisamos usar a flag ignorarRecesso do prev para recalcular
-            const dataIgnorarRecesso = prev.ignorarRecesso;
+            const dataIgnorarRecesso = ignorarRecesso;
             
+            // CORREÇÃO: Passar dataIgnorarRecesso para os helpers para respeitar a regra de réu preso no recálculo
             const { proximoDia: novaDataPublicacao } = getProximoDiaUtilComprovado(inicioDisponibilizacao, novosComprovados, dataIgnorarRecesso);
             const { proximoDia: novoInicioDoPrazo } = getProximoDiaUtilComprovado(novaDataPublicacao, novosComprovados, dataIgnorarRecesso);
             let novoResultadoComDecreto;
@@ -935,44 +929,35 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
 
                 return {
                     ...prev,
+                    dataPublicacao: novaDataPublicacao,
+                    inicioPrazo: novoInicioDoPrazo,
                     comDecreto: novoResultadoComDecreto,
-                    suspensoesComprovaveis: novasSuspensoesComprovaveis.sort((a, b) => a.data - b.data)
+                    suspensoesComprovaveis: novasSuspensoesComprovaveis.sort((a, b) => a.data - b.data),
+                    ignorarRecesso: dataIgnorarRecesso
                 };
             } else {
-                novoResultadoComDecreto = calcularPrazoFinalDiasCorridos(novoInicioDoPrazo, prazo, novosComprovados, ignorarRecesso);
-
-                const novasSuspensoesComprovaveis = [...prev.suspensoesComprovaveis];
-                let novaSuspensaoEncontrada = null;
-
-                const suspensaoInicio = getProximaSuspensaoComprovavel(novoInicioDoPrazo, novosComprovados);
-                if (suspensaoInicio) novaSuspensaoEncontrada = suspensaoInicio;
-
-                if (!novaSuspensaoEncontrada) {
-                    const novaSuspensao = getProximaSuspensaoComprovavel(novoResultadoComDecreto.prazoFinalProrrogado, novosComprovados);
-                    if (novaSuspensao) novaSuspensaoEncontrada = novaSuspensao;
-                }
-
-                if (!novaSuspensaoEncontrada && novoResultadoComDecreto.diasProrrogados) {
-                    for (const dia of novoResultadoComDecreto.diasProrrogados) {
-                        const suspensaoProrrogacao = getProximaSuspensaoComprovavel(dia.data, novosComprovados);
-                        if (suspensaoProrrogacao) {
-                            novaSuspensaoEncontrada = suspensaoProrrogacao;
-                            break;
-                        }
-                    }
-                }
-
-                if (novaSuspensaoEncontrada) {
-                    const dataNovaStr = novaSuspensaoEncontrada.data.toISOString().split('T')[0];
-                    if (!novasSuspensoesComprovaveis.some(s => s.data.toISOString().split('T')[0] === dataNovaStr)) {
-                        novasSuspensoesComprovaveis.push(novaSuspensaoEncontrada);
-                    }
-                }
-
+                const helpers = {
+                    getProximoDiaUtilParaPublicacao,
+                    getProximoDiaUtilComprovado,
+                    calcularPrazoFinalDiasUteis,
+                    calcularPrazoFinalDiasCorridos,
+                    getMotivoDiaNaoUtil,
+                    decretosMap
+                };
+                const resultadoCrimeRecalculado = calcularPrazoCrime(
+                    novaDataPublicacao,
+                    novoInicioDoPrazo,
+                    prazo,
+                    [],
+                    inicioDisponibilizacao,
+                    helpers,
+                    novosComprovados,
+                    dataIgnorarRecesso
+                );
                 return {
                     ...prev,
-                    comDecreto: novoResultadoComDecreto,
-                    suspensoesComprovaveis: novasSuspensoesComprovaveis.sort((a, b) => a.data - b.data)
+                    ...resultadoCrimeRecalculado,
+                    ignorarRecesso: dataIgnorarRecesso
                 };
             }
         });

@@ -130,6 +130,32 @@ const TJPRLoginPage = () => {
         }
     };
 
+    const handleForgotPassword = async () => {
+        if (!username) {
+            setError("Por favor, digite seu usuário para redefinir a senha.");
+            return;
+        }
+
+        const fullEmail = username.includes('@') ? username : `${username}@tjpr.jus.br`;
+        setLoading(true);
+        setError('');
+        setMessage('');
+
+        try {
+            await firebase.auth().sendPasswordResetEmail(fullEmail);
+            setMessage("E-mail de redefinição de senha enviado! Verifique sua caixa de entrada.");
+        } catch (err) {
+            console.error('Erro ao enviar e-mail de redefinição:', err);
+            const errorMessages = {
+                'auth/user-not-found': 'Usuário não encontrado.',
+                'auth/invalid-email': 'E-mail inválido.',
+            };
+            setError(errorMessages[err.code] || 'Erro ao enviar e-mail de redefinição. Tente novamente.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
     return (
         <div className="h-screen overflow-y-auto bg-gradient-to-br from-tjpr-navy-900 via-tjpr-navy-800 to-tjpr-navy-700 flex items-center justify-center p-4 sm:p-8">
             <div className="absolute inset-0 opacity-10 pointer-events-none">
@@ -237,18 +263,25 @@ const TJPRLoginPage = () => {
                                     required
                                     icon="lock"
                                 />
-                                {isLogin && (
-                                    <button
-                                        type="button"
-                                        onClick={() => setShowPassword(!showPassword)}
-                                        className="text-[10px] text-tjpr-navy-700 hover:text-tjpr-navy-600 flex items-center gap-1 transition-colors"
-                                    >
-                                        <span className="material-icons" style={{ fontSize: '12px' }}>
-                                            {showPassword ? 'visibility_off' : 'visibility'}
-                                        </span>
-                                        {showPassword ? 'Ocultar senha' : 'Mostrar senha'}
-                                    </button>
-                                )}
+                                    <div className="flex justify-between items-center">
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowPassword(!showPassword)}
+                                            className="text-[10px] text-tjpr-navy-700 hover:text-tjpr-navy-600 flex items-center gap-1 transition-colors"
+                                        >
+                                            <span className="material-icons" style={{ fontSize: '12px' }}>
+                                                {showPassword ? 'visibility_off' : 'visibility'}
+                                            </span>
+                                            {showPassword ? 'Ocultar senha' : 'Mostrar senha'}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={handleForgotPassword}
+                                            className="text-[10px] text-tjpr-navy-700 hover:text-tjpr-navy-600 font-medium transition-colors"
+                                        >
+                                            Esqueceu a senha?
+                                        </button>
+                                    </div>
                             </div>
 
                             {!isLogin && (

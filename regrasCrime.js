@@ -13,7 +13,16 @@ const calcularPrazoCrime = (_dataPubApp, _inicioPrazoApp, prazoNumerico, diasNao
         const prazoFinalEspecial = new Date('2025-06-25T00:00:00');
         const resultadoEspecial = { prazoFinalProrrogado: prazoFinalEspecial, diasNaoUteis: [], diasProrrogados: [] };
         // Retorna a estrutura correta para que o front-end exiba e permita o recálculo se necessário
-        return { dataPublicacao: dataPublicacaoComDecreto, inicioPrazo: inicioDoPrazoComDecreto, semDecreto: resultadoEspecial, comDecreto: resultadoEspecial, suspensoesComprovaveis: [], prazo: prazoNumerico, tipo: 'crime' };
+        return {
+            dataPublicacao: dataPublicacaoComDecreto,
+            inicioPrazo: inicioDoPrazoComDecreto,
+            semDecreto: resultadoEspecial,
+            comDecreto: resultadoEspecial,
+            suspensoesComprovaveis: [],
+            prazo: prazoNumerico,
+            tipo: 'crime',
+            ignorarRecesso
+        };
     }
 
     // PASSO 1: A partir da Disponibilização, calcula a Publicação (D+1 Útil)
@@ -132,7 +141,8 @@ const calcularPrazoCrime = (_dataPubApp, _inicioPrazoApp, prazoNumerico, diasNao
         comDecreto: resultadoComDecretoInicial,
         suspensoesComprovaveis: suspensoesParaUI,
         prazo: prazoNumerico, tipo: 'crime',
-        diasProrrogados: resultadoComDecretoInicial.diasProrrogados
+        diasProrrogados: resultadoComDecretoInicial.diasProrrogados,
+        ignorarRecesso
     };
 };
 
