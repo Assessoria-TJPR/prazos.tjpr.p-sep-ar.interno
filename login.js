@@ -18,6 +18,8 @@ const TJPRLoginPage = () => {
     const [message, setMessage] = React.useState('');
     const [loading, setLoading] = React.useState(false);
     const [showPassword, setShowPassword] = React.useState(false);
+    const [showForgotPasswordModal, setShowForgotPasswordModal] = React.useState(false);
+    const [resetEmail, setResetEmail] = React.useState('');
 
     // Busca os setores do Firestore quando o modo de registro é ativado
     React.useEffect(() => {
@@ -130,20 +132,36 @@ const TJPRLoginPage = () => {
         }
     };
 
+    const openForgotPasswordModal = () => {
+        const initialEmail = username
+            ? (username.includes('@') ? username : `${username}@tjpr.jus.br`)
+            : '';
+        setResetEmail(initialEmail);
+        setError('');
+        setMessage('');
+        setShowForgotPasswordModal(true);
+    };
+
+    const closeForgotPasswordModal = () => {
+        setShowForgotPasswordModal(false);
+        setResetEmail('');
+    };
+
     const handleForgotPassword = async () => {
-        if (!username) {
-            setError("Por favor, digite seu usuário para redefinir a senha.");
+        if (!resetEmail.trim()) {
+            setError("Por favor, informe o e-mail do usuário para redefinir a senha.");
             return;
         }
 
-        const fullEmail = username.includes('@') ? username : `${username}@tjpr.jus.br`;
+        const fullEmail = resetEmail.includes('@') ? resetEmail.trim() : `${resetEmail.trim()}@tjpr.jus.br`;
         setLoading(true);
         setError('');
         setMessage('');
 
         try {
             await firebase.auth().sendPasswordResetEmail(fullEmail);
-            setMessage("E-mail de redefinição de senha enviado! Verifique sua caixa de entrada.");
+            closeForgotPasswordModal();
+            setMessage(`Se existir conta para ${fullEmail}, o link de redefinição foi enviado. Verifique a caixa de entrada e spam.`);
         } catch (err) {
             console.error('Erro ao enviar e-mail de redefinição:', err);
             const errorMessages = {
@@ -276,7 +294,7 @@ const TJPRLoginPage = () => {
                                         </button>
                                         <button
                                             type="button"
-                                            onClick={handleForgotPassword}
+                                            onClick={openForgotPasswordModal}
                                             className="text-[10px] text-tjpr-navy-700 hover:text-tjpr-navy-600 font-medium transition-colors"
                                         >
                                             Esqueceu a senha?
@@ -333,6 +351,7 @@ const TJPRLoginPage = () => {
                                     setIsLogin(!isLogin);
                                     setError('');
                                     setMessage('');
+                                    closeForgotPasswordModal();
                                 }}
                                 className="text-sm font-medium text-tjpr-navy-800 hover:text-tjpr-navy-700 dark:text-tjpr-navy-500 transition-colors"
                             >
@@ -352,6 +371,58 @@ const TJPRLoginPage = () => {
                     </p>
                 </div>
             </div>
+
+            {showForgotPasswordModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4">
+                    <div className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl dark:bg-gray-800">
+                        <div className="bg-gradient-to-r from-tjpr-navy-800 to-tjpr-navy-700 px-6 py-5 text-white">
+                            <h2 className="text-lg font-bold">Redefinir senha</h2>
+                            <p className="mt-1 text-xs text-white/80">
+                                Informe o e-mail do usuário para receber o link de redefinição.
+                            </p>
+                        </div>
+                        <form
+                            onSubmit={(e) => {
+                                e.preventDefault();
+                                handleForgotPassword();
+                            }}
+                            className="space-y-4 p-6"
+                        >
+                            <TJPRInput
+                                label="E-mail do usuário"
+                                type="email"
+                                value={resetEmail}
+                                onChange={(e) => setResetEmail(e.target.value)}
+                                placeholder="usuario@tjpr.jus.br"
+                                required
+                                icon="mail_outline"
+                            />
+                            <div className="flex justify-end gap-3 pt-2">
+                                <TJPRButton
+                                    type="button"
+                                    variant="secondary"
+                                    onClick={closeForgotPasswordModal}
+                                    disabled={loading}
+                                >
+                                    Cancelar
+                                </TJPRButton>
+                                <TJPRButton
+                                    type="submit"
+                                    variant="primary"
+                                    icon={loading ? null : "send"}
+                                    disabled={loading}
+                                >
+                                    {loading ? (
+                                        <span className="inline-block animate-spin material-icons">refresh</span>
+                                    ) : (
+                                        'Enviar link'
+                                    )}
+                                </TJPRButton>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
 
             {showPrivacy && <PrivacyPolicyModal onClose={() => setShowPrivacy(false)} />}
         </div>
