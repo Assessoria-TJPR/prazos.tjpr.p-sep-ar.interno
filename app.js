@@ -1270,6 +1270,48 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
         );
     };
 
+    const handlePasteDate = (setter) => (e) => {
+        const text = e.clipboardData.getData('Text');
+        if (!text) return;
+        const cleanedText = text.trim();
+
+        // Tenta DD/MM/AAAA ou DD-MM-AAAA ou D/M/AA
+        const ddMMyyyyMatch = cleanedText.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
+        if (ddMMyyyyMatch) {
+            let day = ddMMyyyyMatch[1].padStart(2, '0');
+            let month = ddMMyyyyMatch[2].padStart(2, '0');
+            let year = ddMMyyyyMatch[3];
+            
+            if (year.length === 2) {
+                year = '20' + year;
+            }
+            if (year.length === 4) {
+               e.preventDefault();
+               const formattedDate = `${year}-${month}-${day}`;
+               const testDate = new Date(`${formattedDate}T00:00:00`);
+               if (!isNaN(testDate.getTime())) {
+                   setter(formattedDate);
+               }
+               return;
+            }
+        }
+
+        // Tenta AAAA-MM-DD ou AAAA/MM/DD
+        const yyyyMMddMatch = cleanedText.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+        if (yyyyMMddMatch) {
+            e.preventDefault();
+            let year = yyyyMMddMatch[1];
+            let month = yyyyMMddMatch[2].padStart(2, '0');
+            let day = yyyyMMddMatch[3].padStart(2, '0');
+            
+            const formattedDate = `${year}-${month}-${day}`;
+            const testDate = new Date(`${formattedDate}T00:00:00`);
+            if (!isNaN(testDate.getTime())) {
+                setter(formattedDate);
+            }
+        }
+    };
+
     return (
         <div className="bg-white dark:bg-slate-800 p-6 sm:p-8 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
             <UserIDWatermark overlay={true} />
@@ -1327,6 +1369,7 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
                     id="data-disponibilizacao"
                     value={dataDisponibilizacao}
                     onChange={e => setDataDisponibilizacao(e.target.value)}
+                    onPaste={handlePasteDate(setDataDisponibilizacao)}
                     className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition font-medium text-slate-700 dark:text-slate-200" />
             </div>
             <div className="mt-4">
@@ -1444,7 +1487,7 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
                                     <h3 className="text-lg font-bold text-slate-700 dark:text-slate-200 mb-2">Verificação de Tempestividade</h3>
                                     <div>
                                         <label htmlFor="data-interposicao" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Data de Interposição do Recurso</label>
-                                        <input type="date" id="data-interposicao" value={dataInterposicao} onChange={e => setDataInterposicao(e.target.value)} className="w-full md:w-1/2 px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition" />
+                                        <input type="date" id="data-interposicao" value={dataInterposicao} onChange={e => setDataInterposicao(e.target.value)} onPaste={handlePasteDate(setDataInterposicao)} className="w-full md:w-1/2 px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition" />
                                     </div>
                                     {tempestividade && (
                                         <div className={`mt-4 p-4 rounded-lg flex items-center gap-3 ${tempestividade === 'tempestivo' ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300' : 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300'}`}>
