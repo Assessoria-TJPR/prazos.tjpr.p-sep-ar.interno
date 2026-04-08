@@ -428,22 +428,24 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
         }
 
         // PATCH: Recesso Forense e Suspensão de Prazos (Art. 220 CPC)
-        // Se não houver motivo específico (feriado/decreto), verifica se cai no recesso
-        if (!motivoEncontrado && (tipo === 'todos' || tipo === 'recesso' || tipo === 'feriado')) {
-            if ((month === 12 && day >= 20) || (month === 1 && day <= 20)) {
-                if (ignorarRecesso) {
-                    // No Crime com réu preso, o recesso padrão é ignorado (dia útil).
-                    return null;
-                }
+        const caiNoRecesso = (month === 12 && day >= 20) || (month === 1 && day <= 20);
+
+        if (caiNoRecesso && !ignorarRecesso) {
+            if (motivoEncontrado) {
+                // Se já encontrou um motivo (Natal, Decreto etc), mantém o motivo mas força a flag ehRecesso
+                // Isso garante que a contagem 'Crime' (dias corridos) suspenda nesses dias.
+                // Criamos uma nova referência para evitar mutar o objeto original dos Mapas.
+                motivoEncontrado = { ...motivoEncontrado, ehRecesso: true };
+            } else if (tipo === 'todos' || tipo === 'recesso' || tipo === 'feriado') {
                 return { motivo: 'Recesso Forense / Suspensão de Prazos (Art. 220 CPC)', tipo: 'recesso', ehRecesso: true, ehProrrogavel: true };
             }
         }
 
         // Se encontrou algo, decide se retorna baseado em considerarDecretos e se é feriado/recesso
         if (motivoEncontrado) {
-            const ehFeriadoOuRecesso = motivoEncontrado.tipo === 'feriado' || motivoEncontrado.tipo === 'recesso';
+            const ehFeriadoOuRecesso = motivoEncontrado.tipo === 'feriado' || motivoEncontrado.tipo === 'recesso' || motivoEncontrado.ehRecesso;
             
-            // Feriados sempre retornam. 
+            // Feriados e Recessos sempre retornam. 
             // Decretos só retornam se considerarDecretos for true.
             if (ehFeriadoOuRecesso || considerarDecretos) {
                 // Se for recesso dentro do período que deve ser ignorado no crime, mas é um decreto específico,
