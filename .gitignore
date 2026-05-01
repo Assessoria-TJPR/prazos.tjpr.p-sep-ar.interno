@@ -2,7 +2,8 @@
 migration/serviceAccountKey.json
 supabase-init.js
 
-# Pasta de migração (scripts one-shot, não necessários para o app)
+# Scripts e arquivos SQL (gerados para importação no Supabase)
+*.sql
 migration/
 
 # Scripts de debug e teste
