@@ -1,6 +1,5 @@
-# Credenciais e configs sensíveis
+# Credenciais PRIVADAS (nunca versionar)
 migration/serviceAccountKey.json
-supabase-init.js
 
 # Scripts e arquivos SQL (gerados para importação no Supabase)
 *.sql
