@@ -1,26 +1,40 @@
 // Versão do cache - mude este valor para forçar atualização
-const CACHE_NAME = 'prazos-tjpr-v7';
+const CACHE_NAME = 'prazos-tjpr-v8';
 const urlsToCache = [
   './',
   './index.html',
   './style.css',
-  './firebase-init.js',
+  './supabase-init.js',
   './contexts.js',
   './utils.js',
   './regrasCNJ.js',
   './regrasCrime.js',
   './regrasCivel.js',
   './minutas-default.js',
-  './app.js'
+  './login.js',
+  './components.js',
+  './app.js',
+  './BugReportsPage.js',
+  './CalendarAdminPage.js',
+  './MinutasAdminPage.js',
+  './Logo.png',
+  './manifest.json'
 ];
 
-// Instalação - atualiza cache imediatamente
+// Instalação - cache com tolerância a falhas individuais
 self.addEventListener('install', event => {
-  // Force o SW a ativar imediatamente, substituindo o antigo
   self.skipWaiting();
   event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then(cache => cache.addAll(urlsToCache))
+    caches.open(CACHE_NAME).then(cache => {
+      // Usa Promise.allSettled para não falhar se um arquivo der 404
+      return Promise.allSettled(
+        urlsToCache.map(url =>
+          cache.add(url).catch(err => {
+            console.warn('[SW] Não foi possível cachear:', url, err);
+          })
+        )
+      );
+    })
   );
 });
 
@@ -31,15 +45,12 @@ self.addEventListener('activate', event => {
       return Promise.all(
         cacheNames.map(cacheName => {
           if (cacheName !== CACHE_NAME) {
-            console.log('Limpando cache antigo:', cacheName);
+            console.log('[SW] Limpando cache antigo:', cacheName);
             return caches.delete(cacheName);
           }
         })
       );
-    }).then(() => {
-      // Toma controle de todas as páginas imediatamente
-      return self.clients.claim();
-    })
+    }).then(() => self.clients.claim())
   );
 });
 
