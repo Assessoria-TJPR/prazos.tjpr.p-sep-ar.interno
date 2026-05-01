@@ -1,19 +1,35 @@
 const { useState, useEffect, useCallback, createContext, useContext, useRef, useMemo } = React;
 const { Bar, HorizontalBar, Pie } = window.ReactChartjs2;
+const { 
+    TJPRCard, TJPRButton, TJPRInput, TJPRHeader, TJPRBadge, 
+    TJPRModal, NotificationsPanel, CookieConsent, TJPRFormGroup,
+    MinutasAdminPage, CalendarAdminPage, BugReportsPage,
+    TJPRLoginPage
+} = window;
 const usePagination = (data, itemsPerPage) => {
     const [currentPage, setCurrentPage] = useState(1);
-    const totalPages = Math.ceil(data.length / itemsPerPage);
-    const paginatedData = data.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+    const totalPages = Math.max(1, Math.ceil(data.length / itemsPerPage));
 
-    const PaginationControls = () => totalPages > 1 && (
+    useEffect(() => {
+        if (currentPage > totalPages) {
+            setCurrentPage(totalPages);
+        }
+    }, [totalPages, currentPage]);
+
+    const paginatedData = useMemo(() => {
+        const start = (currentPage - 1) * itemsPerPage;
+        return data.slice(start, start + itemsPerPage);
+    }, [data, currentPage, itemsPerPage]);
+
+    const paginationControls = totalPages > 1 ? (
         <div className="flex justify-between items-center mt-4 text-sm p-4">
-            <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="px-3 py-1 rounded-md bg-slate-200 dark:bg-slate-700 disabled:opacity-50">Anterior</button>
+            <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage <= 1} className="px-3 py-1 rounded-md bg-slate-200 dark:bg-slate-700 disabled:opacity-50">Anterior</button>
             <span>Página {currentPage} de {totalPages}</span>
-            <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="px-3 py-1 rounded-md bg-slate-200 dark:bg-slate-700 disabled:opacity-50">Próxima</button>
+            <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage >= totalPages} className="px-3 py-1 rounded-md bg-slate-200 dark:bg-slate-700 disabled:opacity-50">Próxima</button>
         </div>
-    );
+    ) : null;
 
-    return { paginatedData, PaginationControls, currentPage };
+    return { paginatedData, paginationControls, currentPage };
 };
 
 const UserUsageCharts = ({ userData }) => {
@@ -27,7 +43,7 @@ const UserUsageCharts = ({ userData }) => {
         const stats = { current: { calculadora: 0, djen_consulta: 0 }, last: { calculadora: 0, djen_consulta: 0 } };
 
         (userData || []).forEach(item => {
-            const itemDate = item.timestamp.toDate();
+            const itemDate = new Date(item.timestamp);
             const type = item.type || 'calculadora';
             if (itemDate.getMonth() === currentMonth && itemDate.getFullYear() === currentYear) stats.current[type]++;
             if (itemDate.getMonth() === lastMonth && itemDate.getFullYear() === lastMonthYear) stats.last[type]++;
@@ -86,19 +102,23 @@ const SettingsProvider = ({ children }) => {
     }, []);
 
     const fetchCalendarData = useCallback(async () => {
-        if (db) {
+        if (window._supabaseClient) {
             setSettings(s => ({ ...s, calendarLoading: true }));
             try {
-                const docRef = db.collection('configuracoes').doc('calendario');
-                const doc = await docRef.get();
+                const { data, error } = await window._supabaseClient
+                    .from('configuracoes')
+                    .select('data')
+                    .eq('id', 'calendario')
+                    .maybeSingle();
 
-                if (!doc.exists) {
-                    console.warn("Documento 'calendario' não encontrado na coleção 'configuracoes'.");
+                if (error) throw error;
+                if (!data) {
+                    console.warn("Documento 'calendario' não encontrado.");
                     updateSettings({ feriadosMap: {}, decretosMap: {}, instabilidadeMap: {}, calendarLoading: false });
                     return;
                 }
 
-                const calendarConfig = doc.data();
+                const calendarConfig = data.data;
                 const feriados = {};
                 const decretos = {};
                 const instabilidades = {};
@@ -147,7 +167,7 @@ const SettingsProvider = ({ children }) => {
 
             } catch (error) { console.error("Erro ao carregar calendário da coleção:", error); updateSettings({ calendarLoading: false }); }
         }
-    }, [db, user]); // CORREÇÃO: Adicionado 'user' como dependência para rejeitar a busca após login
+    }, [user]); // CORREÇÃO: Usar apenas 'user' como dependência
 
     const updateSettings = (newSettings) => {
         const updated = { ...settings, ...newSettings };
@@ -156,11 +176,10 @@ const SettingsProvider = ({ children }) => {
     };
 
     useEffect(() => {
-        // Carrega os dados do calendário do Firestore assim que `db` estiver disponível E o usuário estiver logado.
-        if (db && user) {
+        if (window._supabaseClient && user) {
             fetchCalendarData();
         }
-    }, [db, user, fetchCalendarData]);
+    }, [user, fetchCalendarData]);
 
     useEffect(() => {
         // Aplica o tema
@@ -179,45 +198,61 @@ const AuthProvider = ({ children }) => {
     const [loading, setLoading] = useState(true);
     const [currentArea, setCurrentArea] = useState('Calculadora');
 
-    const updateUserAndAdminStatus = async (firebaseUser) => {
-        if (firebaseUser) {
-            setUser(firebaseUser);
+    const updateUserAndAdminStatus = async (supabaseUser) => {
+        if (supabaseUser) {
+            setUser(supabaseUser);
             try {
-                const userDoc = await db.collection('users').doc(firebaseUser.uid).get();
-                if (userDoc.exists) {
-                    setUserData(userDoc.data());
-                } else {
-                    // Se o documento não existe, desloga por segurança.
-                    console.warn("Documento do usuário não encontrado no Firestore. Deslogando.");
-                    auth.signOut();
+                const { data: userData, error } = await window._supabaseClient
+                    .from('profiles')
+                    .select('*')
+                    .eq('id', supabaseUser.id)
+                    .maybeSingle();
+
+                if (error) {
+                    console.warn("Perfil não encontrado ou erro:", error);
+                    // Não desloga automaticamente se for erro temporário
                     setUserData(null);
+                } else {
+                    // Mapeamento de compatibilidade: mantém snake_case do banco mas expõe camelCase para o frontend legado
+                    setUserData({
+                        ...userData,
+                        setorId: userData.setor_id,
+                        displayName: userData.display_name,
+                        emailVerified: userData.email_verified,
+                        avatarColor: userData.avatar_color,
+                        photoURL: userData.photo_url || null
+                    });
                 }
             } catch (error) {
                 console.error("Erro ao buscar dados do usuário:", error);
-                auth.signOut();
                 setUserData(null);
             }
         } else {
             setUser(null);
             setUserData(null);
         }
-        setLoading(false); // Garante que o loading termine em todos os casos.
+        setLoading(false);
     };
 
     useEffect(() => {
-        if (!auth) {
-            setLoading(false);
-            return;
-        }
-        const unsubscribe = auth.onAuthStateChanged(updateUserAndAdminStatus);
-        return () => unsubscribe();
+        const checkUser = async () => {
+            const { data: { session } } = await window._supabaseClient.auth.getSession();
+            updateUserAndAdminStatus(session?.user || null);
+        };
+        checkUser();
+
+        const { data: { subscription } } = window._supabaseClient.auth.onAuthStateChange((_event, session) => {
+            updateUserAndAdminStatus(session?.user || null);
+        });
+
+        return () => subscription.unsubscribe();
     }, []);
 
     useEffect(() => {
-        const handleVisibilityChange = () => {
-            if (document.visibilityState === 'visible' && auth.currentUser) {
+        const handleVisibilityChange = async () => {
+            if (document.visibilityState === 'visible' && user) {
                 // Força a atualização dos dados do usuário quando a aba se torna visível
-                updateUserAndAdminStatus(auth.currentUser);
+                updateUserAndAdminStatus(user);
             }
         };
 
@@ -231,10 +266,15 @@ const AuthProvider = ({ children }) => {
 
     // A função de atualização é exposta para que componentes filhos possam forçar a atualização do usuário.
     const refreshUser = async () => {
-        if (auth.currentUser) {
-            await auth.currentUser.reload();
-            // O onAuthStateChanged listener já deve pegar a mudança, mas chamamos para garantir.
-            updateUserAndAdminStatus(auth.currentUser);
+        if (window._supabaseClient) {
+            const { data: { user: freshUser }, error } = await window._supabaseClient.auth.getUser();
+            if (error) {
+                console.error("Erro ao atualizar usuário:", error);
+                return;
+            }
+            if (freshUser) {
+                await updateUserAndAdminStatus(freshUser);
+            }
         }
     };
     const value = {
@@ -256,18 +296,22 @@ const AuthProvider = ({ children }) => {
 // --- Componentes ---
 
 const ConsultaAssistidaPJE = ({ numeroProcesso, setNumeroProcesso }) => {
-    const { user } = useAuth();
+    const { user, userData } = useAuth();
     const [alerta, setAlerta] = useState('');
 
     const logDjenUsage = () => {
-        if (db && user) {
-            db.collection('usageStats').add({
-                userId: user.uid,
-                userEmail: user.email,
+        if (window._supabaseClient && user) {
+            window._supabaseClient.from('usage_stats').insert({
+                user_id: user.id,
+                user_name: userData?.display_name || user.email,
+                setor_id: userData?.setor_id,
+                setor_nome: userData?.setor_nome,
                 type: 'djen_consulta',
-                numeroProcesso: numeroProcesso || 'Não informado',
-                timestamp: firebase.firestore.FieldValue.serverTimestamp()
-            }).catch(err => console.error("Erro ao registrar uso da consulta DJEN:", err));
+                numero_processo: numeroProcesso || 'Não informado',
+                timestamp: new Date().toISOString()
+            }).then(({ error }) => {
+                if (error) console.error("Erro ao registrar uso da consulta DJEN:", error);
+            });
         }
     };
 
@@ -293,19 +337,50 @@ const ConsultaAssistidaPJE = ({ numeroProcesso, setNumeroProcesso }) => {
     };
 
     return (
-        <div className="relative bg-white dark:bg-slate-800 p-6 sm:p-8 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 mb-6">
-            <UserIDWatermark overlay={true} />
-            <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100 mb-1">Consulta de Processo</h2>
-            <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">Insira o número para consultar o processo no Diário de Justiça Eletrônico Nacional.</p>
-            {alerta && <div className="p-4 mb-4 text-sm text-yellow-800 rounded-lg bg-yellow-50 dark:bg-gray-800 dark:text-yellow-300" role="alert"><span className="font-medium">Atenção!</span> {alerta}</div>}
-            <div className="flex items-center gap-2">
-                <input type="text" value={numeroProcesso} onChange={(e) => { setNumeroProcesso(e.target.value); setAlerta(''); }} placeholder="Número do Processo" className="flex-grow w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition" />
-                <button onClick={handleConsulta} disabled={!numeroProcesso} className="bg-blue-600 text-white font-bold py-3 px-6 rounded-xl hover:bg-blue-700 transition-all duration-300 shadow-lg shadow-blue-500/30 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 inline-block mr-2" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" /></svg>
-                    Consultar
-                </button>
+        <div className="tjpr-card p-8 sm:p-10 mb-8 relative overflow-hidden group">
+            <div className="flex items-start gap-4 mb-8 border-b border-white/5 pb-8 relative z-10">
+                <div className="w-12 h-12 rounded-2xl bg-indigo-600/10 flex items-center justify-center border border-indigo-600/20 shadow-inner">
+                    <span className="material-icons text-indigo-400">search</span>
+                </div>
+                <div className="text-left">
+                    <h2 className="text-2xl font-black text-white mb-1 tracking-tight">Consulta de Processo</h2>
+                    <p className="text-slate-500 font-medium text-sm">Localize a intimação no Diário de Justiça Eletrônico Nacional.</p>
+                </div>
             </div>
-            <p className="mt-4 text-xs text-slate-500 dark:text-slate-400 text-center">Após a consulta, localize a "Data de Disponibilização" para usar na calculadora de prazos abaixo.</p>
+
+            {alerta && (
+                <div className="p-4 mb-6 text-sm text-amber-400 rounded-2xl bg-amber-400/5 border border-amber-400/10 flex items-center gap-3 animate-in fade-in zoom-in duration-300">
+                    <span className="material-icons text-lg">warning</span>
+                    <span className="font-medium">{alerta}</span>
+                </div>
+            )}
+
+            <div className="flex flex-col sm:flex-row items-center gap-4">
+                <div className="relative flex-grow w-full">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 material-icons text-slate-600">numbers</span>
+                    <input 
+                        type="text" 
+                        value={numeroProcesso} 
+                        onChange={(e) => { setNumeroProcesso(e.target.value); setAlerta(''); }} 
+                        placeholder="Número do Processo (Ex: 0001234-56.2024.8.16.0000)" 
+                        className="tjpr-input pl-12"
+                    />
+                </div>
+                <TJPRButton 
+                    onClick={handleConsulta} 
+                    disabled={!numeroProcesso} 
+                    icon="search"
+                    iconPosition="right"
+                    className="w-full sm:w-auto min-w-[180px] h-[52px] shadow-lg shadow-indigo-600/20"
+                >
+                    CONSULTAR NO DJEN
+                </TJPRButton>
+            </div>
+            
+            <div className="mt-6 flex items-center gap-2 px-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-slate-700"></span>
+                <p className="text-[10px] font-bold text-slate-600 uppercase tracking-widest">Dica: Utilize a "Data de Disponibilização" para a calculadora abaixo.</p>
+            </div>
         </div>
     );
 };
@@ -321,10 +396,14 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
     const [resultado, setResultado] = useState(null);
 
     const [diasComprovados, setDiasComprovados] = useState(new Set());
+    const diasComprovadosRef = useRef(new Set());
     const [dataInterposicao, setDataInterposicao] = useState('');
     const [tempestividade, setTempestividade] = useState(null);
     const [error, setError] = useState('');
     const [customMinutaTypes, setCustomMinutaTypes] = useState([]);
+    const [isArModalOpen, setIsArModalOpen] = useState(false);
+    const [arCodeValue, setArCodeValue] = useState('');
+    const [arModalAction, setArModalAction] = useState(null); // 'civel' ou 'crime'
     const { user, userData } = useAuth();
     const { feriadosMap, decretosMap, instabilidadeMap, recessoForense, calendarLoading } = settings;
 
@@ -333,7 +412,7 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
         if (setReportData) {
             setReportData({
                 dataDisponibilizacao,
-                isCrime: ['crime', 'cpp', 'juizado_crim'].includes(tipoPrazo),
+                isCrime: ['crime', 'juizado_crim'].includes(tipoPrazo),
                 prazo: prazoSelecionado
             });
         }
@@ -345,7 +424,7 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
         // e reseta o prazo selecionado para o padrão, caso um valor manual estivesse em uso.
         if (tipoPrazo === 'civel') {
             setShowManualPrazoInput(false);
-            if (![5, 15, 30].includes(prazoSelecionado)) {
+            if (![5, 15].includes(prazoSelecionado)) {
                 setPrazoSelecionado(settings.defaultPrazo || 15);
             }
         }
@@ -381,7 +460,16 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
                 decretosMap
             };
 
-            const resultadoCrime = calcularPrazoCrime(dataPublicacaoComDecreto, inicioDoPrazoComDecreto, prazoNumerico, diasNaoUteisDoInicioComDecreto, inicioDisponibilizacao, helpers);
+            const resultadoCrime = calcularPrazoCrime(
+                dataPublicacaoComDecreto,
+                inicioDoPrazoComDecreto,
+                prazoNumerico,
+                diasNaoUteisDoInicioComDecreto,
+                inicioDisponibilizacao,
+                helpers,
+                diasComprovados,
+                ignorarRecesso
+            );
             setResultado(resultadoCrime);
             // Não chama logUsage() para evitar gerar registros duplicados
         } catch (e) {
@@ -389,52 +477,61 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
         }
     }, [ignorarRecesso]);
 
-    const getMotivoDiaNaoUtil = (date, considerarDecretos, tipo = 'todos', comprovados = new Set()) => {
+    const getMotivoDiaNaoUtil = (date, considerarDecretos, tipo = 'todos', comprovados = new Set(), ignorarRecesso = false) => {
         if (!date || isNaN(date.getTime())) return null;
 
         const dateString = date.toISOString().split('T')[0];
+        const month = date.getUTCMonth() + 1;
+        const day = date.getUTCDate();
 
-        // PATCH: Dia da Justiça transferido de 08/12 para 18/12 em 2025 (Decreto 808/2024 TJPR)
-        if (considerarDecretos && dateString === '2025-12-18' && (tipo === 'todos' || tipo === 'decreto')) {
-            return { motivo: 'Dia da Justiça (Feriado Regimental - Transf. p/ Decreto 808/2024)', tipo: 'decreto' };
+        // Flag interna para saber se o decreto EXISTE, independente de ser considerado para dilação
+        let motivoEncontrado = null;
+
+        if (dateString === '2025-12-18' && (tipo === 'todos' || tipo === 'decreto')) {
+            motivoEncontrado = { motivo: 'Dia da Justiça (Feriado Regimental - Transf. p/ Decreto 808/2024)', tipo: 'decreto' };
         }
 
-        // PATCH: Dia da Consciência Negra (Feriado Nacional a partir de 2024)
-        if (dateString.endsWith('-11-20') && (tipo === 'todos' || tipo === 'feriado')) {
-            const ano = parseInt(dateString.split('-')[0]);
-            if (ano >= 2024) {
-                return { motivo: 'Dia da Consciência Negra (Feriado Nacional)', tipo: 'feriado' };
-            }
+        if (!motivoEncontrado && (tipo === 'todos' || tipo === 'feriado')) {
+            if (feriadosMap && feriadosMap[dateString]) motivoEncontrado = typeof feriadosMap[dateString] === 'object' ? feriadosMap[dateString] : { motivo: feriadosMap[dateString], tipo: 'feriado' };
         }
 
-
-        if (tipo === 'todos' || tipo === 'feriado') {
-            // Agora feriadosMap pode conter objetos com link
-            if (feriadosMap && feriadosMap[dateString]) return typeof feriadosMap[dateString] === 'object' ? feriadosMap[dateString] : { motivo: feriadosMap[dateString], tipo: 'feriado' };
-        }
-        if (considerarDecretos && (tipo === 'todos' || tipo === 'decreto')) {
+        if (!motivoEncontrado && (tipo === 'todos' || tipo === 'decreto')) {
             if (decretosMap && decretosMap[dateString]) {
-                // Se for um objeto (regra especial CNJ), retorna o objeto. Senão, cria um.
-                if (typeof decretosMap[dateString] === 'object') {
-                    return decretosMap[dateString];
-                }
-                return { motivo: decretosMap[dateString], tipo: 'decreto' };
+                motivoEncontrado = typeof decretosMap[dateString] === 'object' ? decretosMap[dateString] : { motivo: decretosMap[dateString], tipo: 'decreto' };
             }
         }
-        // A instabilidade é tratada separadamente, mas pode ser verificada aqui se necessário.
-        if (considerarDecretos && (tipo === 'todos' || tipo === 'instabilidade')) {
-            if (instabilidadeMap && instabilidadeMap[dateString]) return typeof instabilidadeMap[dateString] === 'object' ? instabilidadeMap[dateString] : { motivo: instabilidadeMap[dateString], tipo: 'instabilidade' };
-        }
-        const month = date.getMonth() + 1;
-        const day = date.getDate();
 
-        // PATCH: Recesso Forense e Suspensão de Prazos (Art. 220 CPC)
-        // No TJPR, os prazos ficam suspensos obrigatoriamente de 20/12 a 20/01.
-        // Esta regra é fixa e deve prevalecer para evitar lacunas (como o dia 01/01).
-        if (!ignorarRecesso && (tipo === 'todos' || tipo === 'recesso' || tipo === 'feriado')) {
-            if ((month === 12 && day >= 20) || (month === 1 && day <= 20)) {
-                return { motivo: 'Recesso Forense / Suspensão de Prazos (Art. 220 CPC)', tipo: 'recesso' };
+        if (!motivoEncontrado && (tipo === 'todos' || tipo === 'instabilidade')) {
+            if (instabilidadeMap && instabilidadeMap[dateString]) motivoEncontrado = typeof instabilidadeMap[dateString] === 'object' ? instabilidadeMap[dateString] : { motivo: instabilidadeMap[dateString], tipo: 'instabilidade' };
+        }
+
+        // PATCH: Recesso Forense e Suspensão de Prazos (Art. 220 do Código de Processo Civil)
+        const caiNoRecesso = (month === 12 && day >= 20) || (month === 1 && day <= 20);
+
+        if (caiNoRecesso && !ignorarRecesso) {
+            if (motivoEncontrado) {
+                // Se já encontrou um motivo (Natal, Decreto etc), mantém o motivo mas força a flag ehRecesso
+                // Isso garante que a contagem 'Crime' (dias corridos) suspenda nesses dias.
+                // Criamos uma nova referência para evitar mutar o objeto original dos Mapas.
+                motivoEncontrado = { ...motivoEncontrado, ehRecesso: true };
+            } else if (tipo === 'todos' || tipo === 'recesso' || tipo === 'feriado') {
+                return { motivo: 'Recesso Forense / Suspensão de Prazos (Art. 220 do Código de Processo Civil)', tipo: 'recesso', ehRecesso: true, ehProrrogavel: true };
             }
+        }
+
+        // Se encontrou algo, decide se retorna baseado em considerarDecretos e se é feriado/recesso
+        if (motivoEncontrado) {
+            const ehFeriadoOuRecesso = motivoEncontrado.tipo === 'feriado' || motivoEncontrado.tipo === 'recesso' || motivoEncontrado.ehRecesso;
+            
+            // Feriados e Recessos sempre retornam. 
+            // Decretos só retornam se considerarDecretos for true.
+            if (ehFeriadoOuRecesso || considerarDecretos) {
+                // Se for recesso dentro do período que deve ser ignorado no crime, mas é um decreto específico,
+                // ele DEVE retornar se considerarDecretos for true para permitir comprovação.
+                return motivoEncontrado;
+            }
+            // Se NÃO considerar o decreto, retorna null
+            if (motivoEncontrado.tipo === 'decreto' || motivoEncontrado.tipo === 'instabilidade') return null;
         }
 
         return null;
@@ -444,11 +541,11 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
         const proximoDia = new Date(data.getTime());
         do {
             proximoDia.setDate(proximoDia.getDate() + 1);
-        } while (proximoDia.getDay() === 0 || proximoDia.getDay() === 6 || getMotivoDiaNaoUtil(proximoDia, true, 'todos'));
+        } while (proximoDia.getDay() === 0 || proximoDia.getDay() === 6 || getMotivoDiaNaoUtil(proximoDia, true, 'todos', new Set(), ignorarRecesso));
         return proximoDia;
     };
 
-    const getProximoDiaUtilParaPublicacao = (data, considerarDecretos = true, comprovados = new Set()) => {
+    const getProximoDiaUtilParaPublicacao = (data, considerarDecretos = true, comprovados = new Set(), ignorarRecessoLocal = false) => {
         const suspensoesEncontradas = [];
         const proximoDia = new Date(data.getTime());
         // A publicação deve ser o primeiro dia útil após a disponibilização,
@@ -456,7 +553,7 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
         let motivo;
         do {
             proximoDia.setDate(proximoDia.getDate() + 1);
-            motivo = getMotivoDiaNaoUtil(proximoDia, considerarDecretos, 'todos', comprovados);
+            motivo = getMotivoDiaNaoUtil(proximoDia, considerarDecretos, 'todos', comprovados, ignorarRecessoLocal);
             if (motivo && motivo.tipo !== 'instabilidade') {
                 suspensoesEncontradas.push({ data: new Date(proximoDia.getTime()), ...motivo });
             }
@@ -468,22 +565,23 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
      * Encontra o próximo dia útil, considerando os dias comprovados pelo usuário.
      * Usado para recalcular o início do prazo quando checkboxes são marcadas.
      */
-    const getProximoDiaUtilComprovado = (data, comprovados) => {
+    const getProximoDiaUtilComprovado = (data, comprovados, ignorarRecesso = false) => {
         const suspensoesEncontradas = [];
         const proximoDia = new Date(data.getTime()); // Começa a partir da data fornecida
         let motivo;
         do {
             proximoDia.setDate(proximoDia.getDate() + 1); // Avança para o próximo dia
             const dataStr = proximoDia.toISOString().split('T')[0];
-            motivo = getMotivoDiaNaoUtil(proximoDia, true, 'todos', comprovados);
+            motivo = getMotivoDiaNaoUtil(proximoDia, true, 'todos', comprovados, ignorarRecesso);
 
             const eFimDeSemana = proximoDia.getDay() === 0 || proximoDia.getDay() === 6;
-            const eSuspensaoRelevante = motivo && (motivo.tipo === 'feriado' || motivo.tipo === 'recesso' || comprovados.has(dataStr));
+            const eRecessoNaoIgnorado = motivo && motivo.tipo === 'recesso' && !ignorarRecesso;
+            const eSuspensaoRelevante = motivo && (motivo.tipo === 'feriado' || eRecessoNaoIgnorado || comprovados.has(dataStr));
 
-            if (eSuspensaoRelevante) {
+            if (eSuspensaoRelevante && !eFimDeSemana) {
                 suspensoesEncontradas.push({ data: new Date(proximoDia.getTime()), ...motivo });
             }
-        } while (proximoDia.getDay() === 0 || proximoDia.getDay() === 6 || (motivo && (motivo.tipo === 'feriado' || motivo.tipo === 'recesso' || comprovados.has(proximoDia.toISOString().split('T')[0]))));
+        } while (proximoDia.getDay() === 0 || proximoDia.getDay() === 6 || (motivo && (motivo.tipo === 'feriado' || (motivo.tipo === 'recesso' && !ignorarRecesso) || comprovados.has(proximoDia.toISOString().split('T')[0]))));
         return { proximoDia, suspensoesEncontradas };
     };
 
@@ -506,8 +604,12 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
      * Retorna null se a data não tiver suspensão comprovável ou se já estiver comprovada.
      */
     const getProximaSuspensaoComprovavel = (dataFinal, comprovados) => {
-        const filtroComprovavel = (tipo) => tipo === 'decreto' || tipo === 'instabilidade' ||
-            tipo === 'feriado_cnj' || tipo === 'suspensao_outubro';
+        const isCrime = tipoPrazo === 'crime' || tipoPrazo === 'juizado_crim';
+        
+        const filtroComprovavel = (suspData, tipo) => {
+            if (isCrime && !ignorarRecesso) return false; // Crime sem ignorar recesso não comprova NENHUM decreto
+            return tipo === 'decreto' || tipo === 'instabilidade' || tipo === 'feriado_cnj' || tipo === 'suspensao_outubro';
+        };
 
         const dataStr = dataFinal.toISOString().split('T')[0];
 
@@ -516,7 +618,7 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
 
         // Verificar se a data tem uma suspensão comprovável
         const suspensao = getMotivoDiaNaoUtil(dataFinal, true, 'todos');
-        if (suspensao && filtroComprovavel(suspensao.tipo)) {
+        if (suspensao && filtroComprovavel(dataFinal, suspensao.tipo)) {
             return { data: new Date(dataFinal.getTime()), ...suspensao };
         }
 
@@ -568,7 +670,7 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
                 getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'recesso') ||
                 (considerarDecretosNaProrrogacao && getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'decreto')?.tipo === 'feriado_cnj') ||
                 (considerarDecretosNaProrrogacao && comprovados.has(prazoFinalAjustado.toISOString().split('T')[0]) && getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'decreto')) ||
-                (considerarDecretosNaProrrogacao && getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'instabilidade')) // CORREÇÃO: Instabilidades devem prorrogar o cível também.
+                (considerarDecretosNaProrrogacao && comprovados.has(prazoFinalAjustado.toISOString().split('T')[0]) && getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'instabilidade')) // CORREÇÃO: Instabilidades devem prorrogar o cível também.
             ) ||
             prazoFinalAjustado.getDay() === 0 || prazoFinalAjustado.getDay() === 6
         ) {
@@ -579,110 +681,118 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
     };
 
     const calcularPrazoFinalDiasCorridos = (inicioDoPrazo, prazo, comprovados = new Set(), ignorarRecesso = false, considerarDecretosNaProrrogacao = true) => {
-        /**
-         * Para prazos de 'crime' (dias corridos):
-         * 1. O início do prazo é ajustado para o próximo dia útil (se cair em fim de semana, feriado, etc.).
-         * 2. A data final é calculada somando-se os dias corridos do prazo ao início ajustado.
-         * 3. A data final é prorrogada se cair em um dia não útil (fim de semana, feriado, recesso ou suspensão comprovada).
-         */
-
+        const VERSION = "V4_FIX_CRIME_RULE_UPDATE";
         const diasNaoUteisEncontrados = [];
         const diasPotenciaisComprovaveis = [];
+        const diasNaoUteisDoInicio = [];
         let diasDeSuspensaoComprovadaNoPeriodo = 0;
-        const diasNaoUteisDoInicio = []; // Adicionado para rastrear suspensões no início
 
-        // 1. Ajusta o início do prazo para o próximo dia útil, se necessário.
+        // Função auxiliar para verificar se um dia é considerado "não útil" para o Crime nos limites (Início/Fim)
+        const isDiaNaoUtilBoundary = (d) => {
+            const dataStr = d.toISOString().split('T')[0];
+            const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+            const motivo = getMotivoDiaNaoUtil(d, true, 'todos', comprovados, ignorarRecesso);
+            
+            if (isWeekend) return { ehNaoUtil: true, motivo: { motivo: 'Fim de Semana', tipo: 'fim_de_semana' } };
+            
+            if (motivo) {
+                if (motivo.tipo === 'feriado') return { ehNaoUtil: true, motivo };
+                if (motivo.ehRecesso && !ignorarRecesso) {
+                    return { ehNaoUtil: true, motivo };
+                }
+                // Se for decreto/instabilidade, SÓ conta se estiver nos comprovados
+                if (comprovados.has(dataStr)) return { ehNaoUtil: true, motivo };
+            }
+            return { ehNaoUtil: false };
+        };
+
+        const getInfoDia = (d) => {
+            const motivo = getMotivoDiaNaoUtil(d, false, 'todos', comprovados, ignorarRecesso);
+            let ehNaoUtilParaContagem = false;
+            
+            if (motivo && motivo.ehRecesso) {
+                ehNaoUtilParaContagem = !ignorarRecesso;
+            }
+            // NOTA: Decrees in the middle are now IGNORED for Crime counting, as requested.
+            return { ehNaoUtilParaContagem, motivo };
+        };
+
+        // 1. Ajusta o início do prazo para o próximo dia útil.
         let inicioAjustado = new Date(inicioDoPrazo.getTime());
-        let infoDiaInicioNaoUtil;
-        // O início do prazo só deve ser prorrogado por decretos/instabilidades se eles estiverem no conjunto 'comprovados'
-        // E se a flag `considerarDecretosNaProrrogacao` for verdadeira.
-        // Feriados e recessos sempre prorrogam.
-        // CORREÇÃO: Usar do-while para garantir que a verificação seja feita pelo menos uma vez para a data de início.
-        do {
-            // Lógica para ignorar recesso se a flag estiver ativa
-            const motivoRecesso = getMotivoDiaNaoUtil(inicioAjustado, true, 'recesso');
-            const ehRecessoValido = motivoRecesso && !ignorarRecesso;
-
-            (infoDiaInicioNaoUtil = getMotivoDiaNaoUtil(inicioAjustado, true, 'feriado') ||
-                (ehRecessoValido ? motivoRecesso : null) ||
-                (considerarDecretosNaProrrogacao && comprovados.has(inicioAjustado.toISOString().split('T')[0]) && (getMotivoDiaNaoUtil(inicioAjustado, true, 'decreto') || getMotivoDiaNaoUtil(inicioAjustado, true, 'instabilidade')))
-            ) ||
-                (inicioAjustado.getDay() === 0 || inicioAjustado.getDay() === 6)
-                ? (() => {
-                    if (infoDiaInicioNaoUtil) diasNaoUteisDoInicio.push({ data: new Date(inicioAjustado.getTime()), ...infoDiaInicioNaoUtil });
-                    inicioAjustado.setDate(inicioAjustado.getDate() + 1);
-                })()
-                : false; // Condição para sair do loop se não for dia não útil
-        } while (infoDiaInicioNaoUtil || inicioAjustado.getDay() === 0 || inicioAjustado.getDay() === 6);
-
-        // 2. Calcula a data final "bruta" somando os dias corridos.
-        const dataFinalBruta = new Date(inicioAjustado.getTime());
-        // CORREÇÃO: Usamos 'prazo - 1' pois para dias corridos, se o dia 1 é o início, somamos 14 dias para chegar ao 15º.
-        // Isso alinha com o resultado esperado do usuário (27/10 + 15 dias = 10/11).
-        const diasASomar = (prazo > 0 ? prazo - 1 : 0);
-
-        // Loop para coletar feriados e recessos automáticos DENTRO do período de dias corridos para exibição na UI
-        const dataVigilancia = new Date(inicioAjustado.getTime());
-        const dataLimiteBruta = new Date(inicioAjustado.getTime());
-        dataLimiteBruta.setDate(dataLimiteBruta.getDate() + diasASomar);
-
-        while (dataVigilancia <= dataLimiteBruta) {
-            const motivoAuto = getMotivoDiaNaoUtil(dataVigilancia, true, 'feriado') || getMotivoDiaNaoUtil(dataVigilancia, true, 'recesso');
-            if (motivoAuto && !((motivoAuto.tipo === 'recesso' || motivoAuto.tipo === 'recesso_grouped') && ignorarRecesso)) {
-                diasNaoUteisEncontrados.push({ data: new Date(dataVigilancia.getTime()), ...motivoAuto });
-            }
-            dataVigilancia.setDate(dataVigilancia.getDate() + 1);
-        }
-
-        dataFinalBruta.setDate(dataFinalBruta.getDate() + diasASomar);
-
-        // Após o loop principal, verifica se a data final caiu em um dia não útil e prorroga se necessário.
-        // CORREÇÃO: Criar uma nova instância de Date para evitar modificar dataFinalBruta
-        let prazoFinalAjustado = new Date(dataFinalBruta.getTime());
-        let infoDiaFinalNaoUtil;
-        const diasProrrogados = [];
-
-        // 3. Prorroga o prazo final se ele cair em um dia não útil (fim de semana, feriado, recesso).
-        // A prorrogação por decreto/instabilidade também deve depender da comprovação,
-        // que é o que acontece quando esta função é chamada a partir do `handleComprovacaoChange`.
         while (true) {
-            // Lógica para ignorar recesso se a flag estiver ativa
-            const motivoRecesso = getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'recesso');
-            const ehRecessoValido = motivoRecesso && !ignorarRecesso;
+            const res = isDiaNaoUtilBoundary(inicioAjustado);
+            if (!res.ehNaoUtil) break;
+            if (res.motivo && res.motivo.tipo !== 'fim_de_semana') {
+                diasNaoUteisDoInicio.push({ data: new Date(inicioAjustado.getTime()), ...res.motivo });
+            }
+            inicioAjustado.setDate(inicioAjustado.getDate() + 1);
+        }
 
-            infoDiaFinalNaoUtil = getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'feriado') ||
-                (ehRecessoValido ? motivoRecesso : null) ||
-                (comprovados.has(prazoFinalAjustado.toISOString().split('T')[0]) && (getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'decreto') || getMotivoDiaNaoUtil(prazoFinalAjustado, true, 'instabilidade')));
-
-            const eFimDeSemana = prazoFinalAjustado.getDay() === 0 || prazoFinalAjustado.getDay() === 6;
-
-
-            if (infoDiaFinalNaoUtil || eFimDeSemana) {
-                if (infoDiaFinalNaoUtil) diasProrrogados.push({ data: new Date(prazoFinalAjustado.getTime()), ...infoDiaFinalNaoUtil });
-                prazoFinalAjustado.setDate(prazoFinalAjustado.getDate() + 1);
+        // 2. Calcula a data final iterando dia a dia.
+        let diasCorridosContados = 1;
+        let dataCorrente = new Date(inicioAjustado.getTime());
+        while (diasCorridosContados < prazo) {
+            dataCorrente.setDate(dataCorrente.getDate() + 1);
+            const info = getInfoDia(dataCorrente);
+            if (info.ehNaoUtilParaContagem) {
+                if (info.motivo) diasNaoUteisEncontrados.push({ data: new Date(dataCorrente.getTime()), ...info.motivo });
+                diasDeSuspensaoComprovadaNoPeriodo++;
             } else {
-                break;
+                diasCorridosContados++;
             }
         }
 
+        // 3. Prorroga o prazo final se ele cair em um dia não útil.
+        let prazoFinalAjustado = new Date(dataCorrente.getTime());
+        const diasProrrogados = [];
+        while (true) {
+            const res = isDiaNaoUtilBoundary(prazoFinalAjustado);
+            if (!res.ehNaoUtil) break;
+            
+            if (res.motivo) diasProrrogados.push({ data: new Date(prazoFinalAjustado.getTime()), ...res.motivo });
+            prazoFinalAjustado.setDate(prazoFinalAjustado.getDate() + 1);
+        }
 
-        // Retorna os dias que foram comprovados e causaram a dilação, os dias que causaram a prorrogação final, e os dias potenciais para a UI.
-        return { prazoFinal: dataFinalBruta, prazoFinalProrrogado: prazoFinalAjustado, diasNaoUteis: [...diasNaoUteisEncontrados, ...diasProrrogados], diasProrrogados: diasProrrogados, diasPotenciaisComprovaveis: [...diasPotenciaisComprovaveis, ...diasNaoUteisDoInicio], diasNaoUteisDoInicio: diasNaoUteisDoInicio };
+        return { 
+            prazoFinal: dataCorrente, 
+            prazoFinalProrrogado: prazoFinalAjustado, 
+            diasNaoUteis: [...diasNaoUteisEncontrados, ...diasProrrogados], 
+            diasProrrogados, 
+            diasPotenciaisComprovaveis: diasNaoUteisDoInicio, 
+            diasNaoUteisDoInicio 
+        };
     };
 
+    const resultRef = React.useRef(null);
+
     const logUsage = () => {
-        if (db && user) {
-            db.collection('usageStats').add({
-                userId: user.uid,
-                userEmail: user.email,
-                materia: tipoPrazo,
+        if (window._supabaseClient && user) {
+            window._supabaseClient.from('usage_stats').insert({
+                user_id: user.id,
+                user_name: userData?.display_name || user.email,
+                setor_id: userData?.setor_id,
+                setor_nome: userData?.setor_nome,
                 type: 'calculadora',
-                prazo: prazoSelecionado,
-                numeroProcesso: numeroProcesso || 'Não informado',
-                timestamp: firebase.firestore.FieldValue.serverTimestamp()
-            }).catch(err => console.error("Erro ao registrar uso:", err));
+                details: { 
+                    materia: tipoPrazo, 
+                    prazo: prazoSelecionado, 
+                    numero_processo: numeroProcesso || 'Não informado'
+                },
+                timestamp: new Date().toISOString()
+            }).then(({ error }) => {
+                if (error) console.error("Erro ao registrar uso:", error);
+            });
         }
     }
+
+    // Scroll suave para o resultado quando ele aparecer
+    React.useEffect(() => {
+        if (resultado && resultRef.current) {
+            setTimeout(() => {
+                resultRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }, 100);
+        }
+    }, [resultado]);
 
     const handleCalcular = () => {
         console.log("--- Início do Cálculo ---");
@@ -691,6 +801,7 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
         setDataInterposicao('');
         setTempestividade(null);
         setDiasComprovados(new Set()); // Reseta os dias comprovados
+        diasComprovadosRef.current = new Set(); // Sincroniza a ref também
         if (!dataDisponibilizacao) {
             setError('Por favor, preencha a Data de Disponibilização.');
             return;
@@ -723,13 +834,13 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
             // [ATUALIZAÇÃO]: Isso serve para o Cenário 1 (Sem Decreto). O Cenário 2 será tratado dentro das regras.
             const considerarDecretosPub = (tipoPrazo === 'crime' || tipoPrazo === 'juizado_crim') ? false : true;
 
-            const { proximoDia: dataPublicacaoComDecreto, suspensoesEncontradas: suspensoesPublicacaoComDecreto } = getProximoDiaUtilParaPublicacao(inicioDisponibilizacao, considerarDecretosPub, diasComprovados);
+            const { proximoDia: dataPublicacaoComDecreto, suspensoesEncontradas: suspensoesPublicacaoComDecreto } = getProximoDiaUtilParaPublicacao(inicioDisponibilizacao, considerarDecretosPub, diasComprovados, ignorarRecesso);
 
             // 2. PASSO: Início do Prazo (D+1 Útil)
             // Regra Crime (User Update): "O início do prazo é no dia 24". (Pub 21 -> Start 24).
             // Isso é um Salto Duplo simples. Pub -> Start.
             // Para o início, também ignoramos decretos automaticamente (o usuário deve marcar se quiser pular).
-            const { proximoDia: inicioDoPrazoComDecreto, suspensoesEncontradas: suspensoesInicioComDecreto } = getProximoDiaUtilParaPublicacao(dataPublicacaoComDecreto, false);
+            const { proximoDia: inicioDoPrazoComDecreto, suspensoesEncontradas: suspensoesInicioComDecreto } = getProximoDiaUtilParaPublicacao(dataPublicacaoComDecreto, false, diasComprovados, ignorarRecesso);
 
             const diasNaoUteisDoInicioComDecreto = [
                 ...suspensoesPublicacaoComDecreto,
@@ -749,16 +860,6 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
             let res;
             if (tipoPrazo === 'civel') {
                 res = calcularPrazoCivel(dataPublicacaoComDecreto, inicioDoPrazoComDecreto, prazoNumerico, diasNaoUteisDoInicioComDecreto, inicioDisponibilizacao, helpers, diasComprovados);
-            } else if (tipoPrazo === 'cpp') {
-                res = calcularPrazoCPP(
-                    dataPublicacaoComDecreto,
-                    inicioDoPrazoComDecreto,
-                    prazoNumerico,
-                    diasNaoUteisDoInicioComDecreto,
-                    inicioDisponibilizacao, // Recolocando inicioDisponibilizacao
-                    helpers,
-                    diasComprovados
-                );
             } else if (tipoPrazo === 'crime' || tipoPrazo === 'juizado_crim') {
                 res = calcularPrazoCrime(
                     dataPublicacaoComDecreto,
@@ -838,6 +939,7 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
             });
 
             res.trace = traceSteps;
+            res.ignorarRecesso = ignorarRecesso;
 
             setResultado(res);
 
@@ -850,7 +952,10 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
 
     const handleComprovacaoChange = (dataString, dataDisponibilizacaoAtual) => {
         console.log("handleComprovacaoChange chamado para:", dataString);
-        let novosComprovados = new Set(diasComprovados);
+        
+        // 1. Obtém e atualiza o estado atual (síncrono através da Ref) para evitar bugs de clicks rápidos (stale closures)
+        let novosComprovados = new Set(diasComprovadosRef.current);
+        
         // REGRA CNJ: Agrupa a comprovação de Corpus Christi.
         if (dataString === DATA_CORPUS_CHRISTI) {
             novosComprovados = agruparComprovacaoCorpusChristi(novosComprovados);
@@ -858,53 +963,40 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
             // Comportamento padrão para outros decretos
             novosComprovados.has(dataString) ? novosComprovados.delete(dataString) : novosComprovados.add(dataString);
         }
+        
+        diasComprovadosRef.current = novosComprovados; // Mantém a ref sincronizada urgentemente
+        setDiasComprovados(novosComprovados); // Dispara re-render da UI (checkboxes)
+
         console.log("Dias comprovados (após toggle):", Array.from(novosComprovados));
-        setDiasComprovados(novosComprovados);
 
-        // Recalcula o prazo com base nos dias agora comprovados
-        // CORREÇÃO: É mais seguro obter esses valores de dentro da função de atualização do estado
-        // para evitar o uso de um 'resultado' obsoleto (stale closure).
-
+        // 2. Dispara o recálculo passando o estado fresco
         setResultado(prev => {
-            if (!dataDisponibilizacaoAtual) return prev; // Proteção para não recalcular sem data
+            if (!prev || !dataDisponibilizacaoAtual) return prev; 
 
-            const { prazo, tipo, semDecreto, inicioPrazo: inicioPrazoOriginal } = prev;
+            const { prazo, tipo } = prev;
 
-            // Se nenhuma checkbox estiver marcada, o "Cenário 2" deve ser exatamente igual ao "Cenário 1".
-            if (novosComprovados.size === 0) {
-                return {
-                    ...prev,
-                    comDecreto: { ...semDecreto }, // Restaura o cenário 2
-                    inicioPrazo: inicioPrazoOriginal // Restaura o início do prazo original do cálculo inicial
-                    // CORREÇÃO: Não filtramos suspensoesComprovaveis para manter a visualização de dois cenários
-                };
-            }
-
-            // Se houver checkboxes marcadas, recalcula o prazo considerando os dias comprovados.
-            // CORREÇÃO: O recálculo deve partir da data de disponibilização original para ser preciso.
             const inicioDisponibilizacao = new Date(dataDisponibilizacaoAtual + 'T00:00:00');
-            const { proximoDia: novaDataPublicacao } = getProximoDiaUtilComprovado(inicioDisponibilizacao, novosComprovados);
-            const { proximoDia: novoInicioDoPrazo } = getProximoDiaUtilComprovado(novaDataPublicacao, novosComprovados); // Correção aqui
+            const dataIgnorarRecesso = ignorarRecesso;
+            
+            // CORREÇÃO: Passar dataIgnorarRecesso para os helpers para respeitar a regra de réu preso no recálculo
+            const { proximoDia: novaDataPublicacao } = getProximoDiaUtilComprovado(inicioDisponibilizacao, novosComprovados, dataIgnorarRecesso);
+            const { proximoDia: novoInicioDoPrazo } = getProximoDiaUtilComprovado(novaDataPublicacao, novosComprovados, dataIgnorarRecesso);
             let novoResultadoComDecreto;
 
             if (tipo === 'civel') {
                 novoResultadoComDecreto = calcularPrazoFinalDiasUteis(novoInicioDoPrazo, prazo, novosComprovados, true, true, true);
 
-                // CASCATA CÍVEL: Verifica se surgiram novas suspensões
                 const novasSuspensoesComprovaveis = [...prev.suspensoesComprovaveis];
                 let novaSuspensaoEncontrada = null;
 
-                // Checa Início
                 const suspensaoInicio = getProximaSuspensaoComprovavel(novoInicioDoPrazo, novosComprovados);
                 if (suspensaoInicio) novaSuspensaoEncontrada = suspensaoInicio;
 
-                // Checa Final (se não achou no início)
                 if (!novaSuspensaoEncontrada) {
                     const suspensaoFinal = getProximaSuspensaoComprovavel(novoResultadoComDecreto.prazoFinal, novosComprovados);
                     if (suspensaoFinal) novaSuspensaoEncontrada = suspensaoFinal;
                 }
 
-                // Checa Prorrogações do meio
                 if (!novaSuspensaoEncontrada && novoResultadoComDecreto.diasProrrogados) {
                     for (const dia of novoResultadoComDecreto.diasProrrogados) {
                         const suspensaoProrrogacao = getProximaSuspensaoComprovavel(dia.data, novosComprovados);
@@ -924,47 +1016,35 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
 
                 return {
                     ...prev,
+                    dataPublicacao: novaDataPublicacao,
+                    inicioPrazo: novoInicioDoPrazo,
                     comDecreto: novoResultadoComDecreto,
-                    suspensoesComprovaveis: novasSuspensoesComprovaveis.sort((a, b) => a.data - b.data)
+                    suspensoesComprovaveis: novasSuspensoesComprovaveis.sort((a, b) => a.data - b.data),
+                    ignorarRecesso: dataIgnorarRecesso
                 };
-            } else { // Para 'crime', o recálculo é sempre em dias corridos.
-                novoResultadoComDecreto = calcularPrazoFinalDiasCorridos(novoInicioDoPrazo, prazo, novosComprovados, true);
-
-                const novasSuspensoesComprovaveis = [...prev.suspensoesComprovaveis];
-                let novaSuspensaoEncontrada = null;
-
-                // Checa Início
-                const suspensaoInicio = getProximaSuspensaoComprovavel(novoInicioDoPrazo, novosComprovados);
-                if (suspensaoInicio) novaSuspensaoEncontrada = suspensaoInicio;
-
-                // Checa Final
-                if (!novaSuspensaoEncontrada) {
-                    const novaSuspensao = getProximaSuspensaoComprovavel(novoResultadoComDecreto.prazoFinalProrrogado, novosComprovados);
-                    if (novaSuspensao) novaSuspensaoEncontrada = novaSuspensao;
-                }
-
-                // Checa Prorrogações
-                if (!novaSuspensaoEncontrada && novoResultadoComDecreto.diasProrrogados) {
-                    for (const dia of novoResultadoComDecreto.diasProrrogados) {
-                        const suspensaoProrrogacao = getProximaSuspensaoComprovavel(dia.data, novosComprovados);
-                        if (suspensaoProrrogacao) {
-                            novaSuspensaoEncontrada = suspensaoProrrogacao;
-                            break;
-                        }
-                    }
-                }
-
-                if (novaSuspensaoEncontrada) {
-                    const dataNovaStr = novaSuspensaoEncontrada.data.toISOString().split('T')[0];
-                    if (!novasSuspensoesComprovaveis.some(s => s.data.toISOString().split('T')[0] === dataNovaStr)) {
-                        novasSuspensoesComprovaveis.push(novaSuspensaoEncontrada);
-                    }
-                }
-
+            } else {
+                const helpers = {
+                    getProximoDiaUtilParaPublicacao,
+                    getProximoDiaUtilComprovado,
+                    calcularPrazoFinalDiasUteis,
+                    calcularPrazoFinalDiasCorridos,
+                    getMotivoDiaNaoUtil,
+                    decretosMap
+                };
+                const resultadoCrimeRecalculado = calcularPrazoCrime(
+                    novaDataPublicacao,
+                    novoInicioDoPrazo,
+                    prazo,
+                    [],
+                    inicioDisponibilizacao,
+                    helpers,
+                    novosComprovados,
+                    dataIgnorarRecesso
+                );
                 return {
                     ...prev,
-                    comDecreto: novoResultadoComDecreto,
-                    suspensoesComprovaveis: novasSuspensoesComprovaveis.sort((a, b) => a.data - b.data)
+                    ...resultadoCrimeRecalculado,
+                    ignorarRecesso: dataIgnorarRecesso
                 };
             }
         });
@@ -1047,24 +1127,40 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
     }, [resultado, tempestividade, numeroProcesso, tipoPrazo, prazoSelecionado, dataDisponibilizacao, dataInterposicao]);
 
     useEffect(() => {
-        if (db) {
-            const unsubscribe = db.collection('configuracoes').doc('minutas').onSnapshot(doc => {
-                if (doc.exists && doc.data().tipos) {
-                    setCustomMinutaTypes(doc.data().tipos.filter(t => t.id !== 'exemplo_didatico'));
+        if (window._supabaseClient) {
+            const fetchTypes = async () => {
+                const { data } = await window._supabaseClient
+                    .from('configuracoes')
+                    .select('data')
+                    .eq('id', 'minutas')
+                    .maybeSingle();
+                if (data && data.data && data.data.tipos) {
+                    setCustomMinutaTypes(data.data.tipos.filter(t => t.id !== 'exemplo_didatico'));
                 }
-            });
-            return () => unsubscribe();
+            };
+            fetchTypes();
+
+            const channel = window._supabaseClient
+                .channel('minuta_types_changes')
+                .on('postgres_changes', { event: '*', schema: 'public', table: 'configuracoes', filter: 'id=eq.minutas' }, (payload) => {
+                    if (payload.new && payload.new.data && payload.new.data.tipos) {
+                        setCustomMinutaTypes(payload.new.data.tipos.filter(t => t.id !== 'exemplo_didatico'));
+                    }
+                })
+                .subscribe();
+            
+            return () => window._supabaseClient.removeChannel(channel);
         }
     }, []);
 
     // --- Funções de Geração de Minutas (conforme o código fornecido) ---
 
     // Template para o documento Word
-    const getDocTemplate = (bodyHtml, pStyle, pCenterStyle) => `
+    const getDocTemplate = (bodyHtml, pStyle, pCenterStyle, fontFamily, fontSize) => `
       <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
       <head><meta charset='utf-8'><title>Minuta Despacho</title></head>
       <body>
-          <div style="font-family: Arial, sans-serif; font-size: 16pt; line-height: 1.5;">
+          <div style="font-family: ${fontFamily || 'Arial'}, sans-serif; font-size: ${fontSize || '16pt'}; line-height: 1.5;">
               ${bodyHtml}
               <p style="${pStyle}">Intime-se. Diligências necessárias.</p>
               <br>
@@ -1078,10 +1174,13 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
   `;
 
     // Função para gerar um arquivo .doc a partir de um conteúdo HTML
-    const generateDocFromHtml = (bodyHtml, minutaType, placeholders, outputFileName, arUsuario = null) => {
+    const generateDocFromHtml = (bodyHtml, minutaType, placeholders, outputFileName, arUsuario = null, fontStyles = {}) => {
         try {
-            const pStyle = "text-align: justify; text-indent: 50px; margin-bottom: 1em; font-family: Arial, sans-serif; font-size: 16pt;";
-            const pCenterStyle = "text-align: center; margin: 0; font-family: Arial, sans-serif; font-size: 16pt;";
+            const fontFamily = fontStyles.font_family || 'Arial';
+            const fontSize = fontStyles.font_size || '16pt';
+
+            const pStyle = `text-align: justify; text-indent: 50px; margin-bottom: 1em; font-family: ${fontFamily}, sans-serif; font-size: ${fontSize};`;
+            const pCenterStyle = `text-align: center; margin: 0; font-family: ${fontFamily}, sans-serif; font-size: ${fontSize};`;
 
             // Adiciona o rodapé padrão
             const finalHtml = `
@@ -1093,7 +1192,7 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
             <p style="${pCenterStyle}">1º Vice-Presidente do Tribunal de Justiça do Estado do Paraná</p>
             ${arUsuario ? `
                 <br>
-                <p style="font-family: Arial, sans-serif; font-size: 10pt; text-align: left; margin: 0;">${arUsuario.trim()}</p>
+                <p style="font-family: ${fontFamily}, sans-serif; font-size: 10pt; text-align: left; margin: 0;">${arUsuario.trim()}</p>
             ` : ''}
         `;
 
@@ -1101,11 +1200,11 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
             <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
             <head><meta charset='utf-8'><title>Minuta Despacho</title>
             <style>
-                p { font-family: Arial, sans-serif; font-size: 16pt; line-height: 1.5; }
+                p { font-family: ${fontFamily}, sans-serif; font-size: ${fontSize}; line-height: 1.5; }
             </style>
             </head>
             <body>
-                <div>
+                <div style="font-family: ${fontFamily}, sans-serif; font-size: ${fontSize};">
                     ${finalHtml}
                 </div>
             </body>
@@ -1120,23 +1219,34 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
         }
     };
 
-    // Função para buscar a minuta do Firestore ou usar o padrão
+    // Função para buscar a minuta do Supabase ou usar o padrão
     const getMinutaContent = async (minutaType) => {
-        // Se o usuário for de um setor específico, tenta buscar a minuta personalizada
         if (userData?.setorId) {
             const docId = `${userData.setorId}_${minutaType}`;
             try {
-                const docRef = db.collection('minutas').doc(docId);
-                const doc = await docRef.get();
-                if (doc.exists) {
-                    return doc.data().conteudo;
+                const { data, error } = await window._supabaseClient
+                    .from('minutas')
+                    .select('*')
+                    .eq('id', docId)
+                    .maybeSingle();
+
+                if (error) throw error;
+                if (data) {
+                    return {
+                        conteudo: data.conteudo,
+                        font_family: data.font_family,
+                        font_size: data.font_size
+                    };
                 }
             } catch (err) {
                 console.error(`Erro ao buscar minuta personalizada '${docId}'. Usando padrão.`, err);
             }
         }
-        // Se não houver setor, ou se a busca falhar, ou se o documento não existir, usa o padrão.
-        return MINUTAS_PADRAO[minutaType];
+        return {
+            conteudo: MINUTAS_PADRAO[minutaType],
+            font_family: 'Arial',
+            font_size: '16pt'
+        };
     };
 
     const replacePlaceholders = (template, placeholders) => {
@@ -1175,40 +1285,49 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
     };
 
     const gerarMinutaIntimacaoDecreto = async () => {
-        const arUsuario = window.prompt("Por favor, insira o código AR do usuário (ex: AR1234):", "");
-        if (arUsuario === null || arUsuario.trim() === "") {
-            // Usuário cancelou ou não inseriu nada
-            return;
-        }
+        setArCodeValue('');
+        setArModalAction('civel');
+        setIsArModalOpen(true);
+    };
 
+    const handleConfirmArCivel = async () => {
+        const arUsuario = arCodeValue;
+        if (!arUsuario || arUsuario.trim() === "") return;
+
+        setIsArModalOpen(false);
         const template = await getMinutaContent('intimacao_decreto');
-        // Esta minuta não tem placeholders, então o corpo é o próprio template.
-        const corpoMinuta = template;
+        const corpoMinuta = template.conteudo;
 
         generateDocFromHtml(
             corpoMinuta,
             'intimacao_decreto',
             {},
             `Minuta_Intimacao_Decreto_${numeroProcesso.replace(/\D/g, '') || 'processo'}.doc`,
-            arUsuario
+            arUsuario,
+            { font_family: template.font_family, font_size: template.font_size }
         );
     };
 
     const gerarMinutaIntimacaoDecretoCrime = async () => {
-        const arUsuario = window.prompt("Por favor, insira o código AR do usuário (ex: AR1234):", "");
-        if (arUsuario === null || arUsuario.trim() === "") {
-            // Usuário cancelou ou não inseriu nada
-            return;
-        }
+        setArCodeValue('');
+        setArModalAction('crime');
+        setIsArModalOpen(true);
+    };
 
+    const handleConfirmArCrime = async () => {
+        const arUsuario = arCodeValue;
+        if (!arUsuario || arUsuario.trim() === "") return;
+
+        setIsArModalOpen(false);
         const template = await getMinutaContent('intimacao_decreto_crime');
 
         generateDocFromHtml(
-            template,
+            template.conteudo,
             'intimacao_decreto_crime',
             {},
             `Minuta_Intimacao_Decreto_Crime_${numeroProcesso.replace(/\D/g, '') || 'processo'}.doc`,
-            arUsuario
+            arUsuario,
+            { font_family: template.font_family, font_size: template.font_size }
         );
     };
 
@@ -1277,226 +1396,396 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
         );
     };
 
+    const handlePasteDate = (setter) => (e) => {
+        const text = e.clipboardData.getData('Text');
+        if (!text) return;
+        const cleanedText = text.trim();
+
+        // Tenta DD/MM/AAAA ou DD-MM-AAAA ou D/M/AA
+        const ddMMyyyyMatch = cleanedText.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
+        if (ddMMyyyyMatch) {
+            let day = ddMMyyyyMatch[1].padStart(2, '0');
+            let month = ddMMyyyyMatch[2].padStart(2, '0');
+            let year = ddMMyyyyMatch[3];
+            
+            if (year.length === 2) {
+                year = '20' + year;
+            }
+            if (year.length === 4) {
+               e.preventDefault();
+               const formattedDate = `${year}-${month}-${day}`;
+               const testDate = new Date(`${formattedDate}T00:00:00`);
+               if (!isNaN(testDate.getTime())) {
+                   setter(formattedDate);
+               }
+               return;
+            }
+        }
+
+        // Tenta AAAA-MM-DD ou AAAA/MM/DD
+        const yyyyMMddMatch = cleanedText.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+        if (yyyyMMddMatch) {
+            e.preventDefault();
+            let year = yyyyMMddMatch[1];
+            let month = yyyyMMddMatch[2].padStart(2, '0');
+            let day = yyyyMMddMatch[3].padStart(2, '0');
+            
+            const formattedDate = `${year}-${month}-${day}`;
+            const testDate = new Date(`${formattedDate}T00:00:00`);
+            if (!isNaN(testDate.getTime())) {
+                setter(formattedDate);
+            }
+        }
+    };
+
     return (
-        <div className="bg-white dark:bg-slate-800 p-6 sm:p-8 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
-            <UserIDWatermark overlay={true} />
-            <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100 mb-1">Calculadora de Prazo Final</h2>
-            <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">Calcule o prazo final considerando as regras de contagem para cada matéria.</p>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                <div>
-                    <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">Matéria</label>
-                    <div className="flex rounded-xl shadow-sm bg-slate-100 dark:bg-slate-800 p-1">
-                        <button onClick={() => setTipoPrazo('civel')} className={`w-full px-4 py-2 text-sm font-bold transition-all duration-200 rounded-lg ${tipoPrazo === 'civel' ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700'}`}>Cível</button>
-                        <button onClick={() => setTipoPrazo('crime')} className={`w-full px-4 py-2 text-sm font-bold transition-all duration-200 rounded-lg ${tipoPrazo === 'crime' ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700'}`}>Crime</button>
-                    </div>
+        <div className="tjpr-card p-8 sm:p-10 mb-8 relative overflow-hidden group">
+            <div className="flex items-start gap-4 mb-8 border-b border-white/5 pb-8 relative z-10">
+                <div className="w-12 h-12 rounded-2xl bg-indigo-600/10 flex items-center justify-center border border-indigo-600/20 shadow-inner">
+                    <span className="material-icons text-indigo-400 text-3xl">calculate</span>
                 </div>
-                <div>
-                    <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">Prazo</label>
-                    <div className="flex rounded-xl shadow-sm bg-slate-100 dark:bg-slate-800 p-1">
-                        <button onClick={() => setPrazoSelecionado(5)} className={`w-full px-4 py-2 text-sm font-bold transition-all duration-200 rounded-lg ${prazoSelecionado == 5 ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700'}`}>5 Dias</button>
-                        <button onClick={() => setPrazoSelecionado(15)} className={`w-full px-4 py-2 text-sm font-bold transition-all duration-200 rounded-lg ${prazoSelecionado == 15 ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700'}`}>15 Dias</button>
-                        <button onClick={() => setPrazoSelecionado(30)} className={`w-full px-4 py-2 text-sm font-bold transition-all duration-200 rounded-lg ${prazoSelecionado == 30 ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700'}`}>30 Dias</button>
+                <div className="text-left">
+                    <h2 className="text-2xl font-black text-white mb-1 tracking-tight">Calculadora de Prazos</h2>
+                    <p className="text-slate-500 font-medium text-sm">Contagem automática de prazos processuais.</p>
+                </div>
+            </div>
+
+            <div className="space-y-8 relative z-10">
+                <TJPRFormGroup cols={1}>
+                    {/* Configurações de Matéria */}
+                    <div className="space-y-3">
+                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] ml-1">Matéria Processual</label>
+                        <div className="flex flex-wrap gap-3">
+                            <button 
+                                onClick={() => setTipoPrazo('civel')} 
+                                className={`flex-1 py-3 px-4 rounded-xl text-xs font-black uppercase tracking-widest transition-all duration-300 border ${tipoPrazo === 'civel' ? 'bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-600/20' : 'bg-white/5 border-white/5 text-slate-500 hover:text-slate-300 hover:bg-white/10'}`}
+                            >
+                                Matéria Cível
+                            </button>
+                            <button 
+                                onClick={() => setTipoPrazo('crime')} 
+                                className={`flex-1 py-3 px-4 rounded-xl text-xs font-black uppercase tracking-widest transition-all duration-300 border ${tipoPrazo === 'crime' ? 'bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-600/20' : 'bg-white/5 border-white/5 text-slate-500 hover:text-slate-300 hover:bg-white/10'}`}
+                            >
+                                Matéria Criminal
+                            </button>
+                        </div>
                     </div>
-                    {/* O botão para inserir prazo manualmente só aparece para a matéria de Crime */}
-                    {tipoPrazo === 'crime' && (
-                        <div className="mt-2 text-center">
-                            {!showManualPrazoInput ? (
-                                <button onClick={() => setShowManualPrazoInput(true)} className="text-xs font-medium text-blue-600 hover:text-blue-500 dark:text-blue-400 dark:hover:text-blue-300">
-                                    Inserir prazo manualmente
+
+                    {/* Tempo do Prazo */}
+                    <div className="space-y-3">
+                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] ml-1">Tempo do Prazo (Dias)</label>
+                        <div className="flex flex-wrap gap-3">
+                            {(tipoPrazo === 'civel' ? [5, 15] : [5, 15, 30]).map(p => (
+                                <button 
+                                    key={p}
+                                    onClick={() => { setPrazoSelecionado(p); setShowManualPrazoInput(false); }} 
+                                    className={`w-16 h-12 rounded-xl text-xs font-black transition-all duration-300 border ${prazoSelecionado == p && !showManualPrazoInput ? 'bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-600/20' : 'bg-white/5 border-white/5 text-slate-500 hover:text-slate-300 hover:bg-white/10 hover:border-white/10'}`}
+                                >
+                                    {p} DIAS
                                 </button>
-                            ) : (
-                                <input type="number" placeholder="Digite o prazo em dias" value={![5, 15, 30].includes(prazoSelecionado) ? prazoSelecionado : ''} onChange={(e) => setPrazoSelecionado(e.target.value ? parseInt(e.target.value, 10) : '')} className="w-full md:w-1/2 mt-1 p-2 text-sm rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 animate-fade-in focus:ring-2 focus:ring-blue-500 outline-none" />
+                            ))}
+                            {tipoPrazo === 'crime' && (
+                                <button 
+                                    onClick={() => setShowManualPrazoInput(!showManualPrazoInput)}
+                                    className={`flex-1 h-12 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all duration-300 border ${showManualPrazoInput ? 'bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-600/20' : 'bg-white/5 border-white/5 text-slate-500 hover:text-slate-300 hover:bg-white/10'}`}
+                                >
+                                    {showManualPrazoInput ? 'Fechar' : 'Personalizado'}
+                                </button>
                             )}
                         </div>
-                    )}
-                </div>
-                {/* Opção para ignorar recesso (Réu Preso / Maria da Penha) - Exclusivo Crime */}
-                {tipoPrazo === 'crime' && (
-                    <div className="md:col-span-2 mt-2 flex justify-center">
-                        <label className="flex items-center gap-2 cursor-pointer p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
-                            <input
-                                type="checkbox"
-                                checked={ignorarRecesso}
-                                onChange={(e) => setIgnorarRecesso(e.target.checked)}
-                                className="w-5 h-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                            />
-                            <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                                Réu preso, Lei Maria da Penha ou Infância e Juventude (ignorar recesso)
-                            </span>
-                        </label>
+
+                        {showManualPrazoInput && (
+                            <div className="animate-in zoom-in-95 duration-300 pt-2">
+                                <TJPRInput 
+                                    type="number"
+                                    placeholder="Digite o número de dias..."
+                                    value={prazoSelecionado}
+                                    onChange={(e) => setPrazoSelecionado(e.target.value)}
+                                    icon="edit"
+                                    className="h-[52px]"
+                                />
+                            </div>
+                        )}
                     </div>
-                )}
+
+                    {/* Data de Disponibilização */}
+                    <div className="space-y-3">
+                        <TJPRInput 
+                            label="Data de Disponibilização (DJEN/DJS)"
+                            type="date"
+                            value={dataDisponibilizacao}
+                            onChange={(e) => setDataDisponibilizacao(e.target.value)}
+                            icon="calendar_today"
+                            className="h-[52px]"
+                        />
+                    </div>
+
+                    <div className="pt-6">
+                        <TJPRButton 
+                            onClick={handleCalcular} 
+                            icon="shutter_speed"
+                            className="w-full h-[64px] rounded-2xl shadow-xl shadow-indigo-600/30"
+                        >
+                            CALCULAR PRAZO FINAL
+                        </TJPRButton>
+                        
+                        <p className="text-[9px] text-slate-600 font-bold uppercase tracking-widest text-center mt-6">
+                            Sincronizado com calendário oficial 2025/2026
+                        </p>
+                    </div>
+                </TJPRFormGroup>
             </div>
-            <div>
-                <label htmlFor="data-disponibilizacao" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Data de Disponibilização</label>
-                <input
-                    type="date"
-                    id="data-disponibilizacao"
-                    value={dataDisponibilizacao}
-                    onChange={e => setDataDisponibilizacao(e.target.value)}
-                    className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition font-medium text-slate-700 dark:text-slate-200" />
-            </div>
-            <div className="mt-4">
-                <button onClick={handleCalcular} className="w-full flex justify-center items-center bg-blue-600 text-white font-bold py-4 px-6 rounded-xl hover:bg-blue-700 transition-all duration-300 shadow-lg shadow-blue-500/30 transform hover:scale-[1.01]">Calcular Prazo Final</button>
-            </div>
-            <p className="text-xs text-slate-400 dark:text-slate-500 mt-3 text-center">* O cálculo considera o calendário de feriados e recessos do TJPR para 2025.</p>
+
+
             {error && (
-                <div className="mt-4 flex items-start gap-3 text-amber-800 dark:text-amber-300 bg-amber-100/50 dark:bg-amber-900/30 p-4 rounded-lg">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 3.001-1.742 3.001H4.42c-1.53 0-2.493-1.667-1.743-3.001l5.58-9.92zM10 13a1 1 0 110-2 1 1 0 010 2zm-1-8a1 1 0 00-1 1v3a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
-                    <p className="text-sm">{error}</p>
+                <div className="mt-8 flex items-start gap-4 text-rose-400 bg-rose-400/5 border border-rose-400/10 p-6 rounded-2xl animate-in zoom-in duration-300">
+                    <span className="material-icons text-2xl">error_outline</span>
+                    <div className="flex flex-col gap-1">
+                        <span className="font-black uppercase tracking-widest text-xs">Erro de Validação</span>
+                        <p className="text-sm font-medium">{error}</p>
+                    </div>
                 </div>
             )}
+
             {resultado && (
-                <div className="relative mt-6 p-4 border-t border-slate-200 dark:border-slate-700/50 animate-fade-in">
-                    {(resultado.tipo === 'civel' || resultado.tipo === 'crime') && (
-                        <>
-                            {resultado.suspensoesComprovaveis.length > 0 ? (
-                                <>
-                                    <div className="p-4 mb-4 text-sm text-orange-800 rounded-lg bg-orange-50 dark:bg-gray-800 dark:text-orange-400" role="alert">
-                                        <span className="font-medium">Atenção!</span> Foram identificadas suspensões de prazo no período. Marque abaixo as que foram comprovadas nos autos para recalcular o prazo.
-                                    </div>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                        <div className="border-r md:pr-4">
-                                            <h3 className="text-lg font-bold text-slate-700 dark:text-slate-200 text-center mb-2">Cenário 1: Sem Decreto</h3>
-                                            <p className="text-center text-slate-600 dark:text-slate-300">O prazo final de {resultado.prazo} dias {resultado.tipo === 'crime' ? 'corridos' : 'úteis'} é:</p>
-                                            <p className="text-center mt-2 text-2xl font-bold text-blue-600 dark:text-blue-400">{formatarData(resultado.semDecreto.prazoFinalProrrogado || resultado.semDecreto.prazoFinal)}</p>
-                                            {resultado.semDecreto.diasNaoUteis.length > 0 && <div className="mt-4 text-left"><p className="text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">Dias não úteis:</p><ul className="text-xs space-y-1"><GroupedDiasNaoUteis dias={resultado.semDecreto.diasNaoUteis} /></ul></div>}
-                                        </div>
-                                        <div className="border-t md:border-t-0 md:border-l border-slate-200 dark:border-slate-700 md:pl-4 pt-4 md:pt-0">
-                                            <h3 className="text-lg font-bold text-slate-700 dark:text-slate-200 text-center mb-2">Cenário 2: Com Decreto</h3>
-                                            <p className="text-center text-slate-600 dark:text-slate-300">O prazo final, <strong>comprovando as suspensões</strong>, é:</p>
-                                            <p className="text-center mt-2 text-2xl font-bold text-green-600 dark:text-green-400">{formatarData(resultado.comDecreto.prazoFinalProrrogado || resultado.comDecreto.prazoFinal)}</p>
-                                            {resultado.tipo === 'crime' && resultado.comDecreto.diasNaoUteis.length > 0 && (
-                                                <p className="text-center text-sm text-slate-500 dark:text-slate-400 mt-1">
-                                                    (Prazo estendido em {resultado.comDecreto.diasNaoUteis.length} dia{resultado.comDecreto.diasNaoUteis.length > 1 ? 's' : ''} devido a comprovações)
-                                                </p>
-                                            )}
+                <div ref={resultRef} className="mt-12 border-t border-white/5 pt-12 animate-in fade-in slide-in-from-bottom-8 duration-1000 scroll-mt-8">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
+                        <div className="bg-white/5 border border-white/10 p-8 rounded-[2rem] backdrop-blur-xl relative overflow-hidden group shadow-2xl">
+                            <div className="absolute top-0 left-0 w-2 h-full bg-slate-700"></div>
+                            <span className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] block mb-3">Publicação (D1)</span>
+                            <p className="text-3xl font-black text-white group-hover:text-indigo-400 transition-colors">{formatarData(resultado.dataPublicacao)}</p>
+                        </div>
+                        <div className="bg-white/5 border border-white/10 p-8 rounded-[2rem] backdrop-blur-xl relative overflow-hidden group shadow-2xl">
+                            <div className="absolute top-0 left-0 w-2 h-full bg-indigo-500"></div>
+                            <span className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] block mb-3">Início do Prazo</span>
+                            <p className="text-3xl font-black text-white group-hover:text-indigo-400 transition-colors">{formatarData(resultado.inicioPrazo)}</p>
+                        </div>
+                        <div className="bg-indigo-600/10 border border-indigo-600/30 p-8 rounded-[2rem] backdrop-blur-xl relative overflow-hidden group shadow-[0_20px_50px_-10px_rgba(79,70,229,0.3)]">
+                            <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-600/20 blur-3xl rounded-full -mr-16 -mt-16 group-hover:scale-150 transition-transform duration-1000"></div>
+                            <span className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.2em] block mb-3">Total de Dias</span>
+                            <div className="flex items-baseline gap-2">
+                                <p className="text-3xl font-black text-white">{resultado.prazo}</p>
+                                <span className="text-[10px] font-black text-indigo-300/60 uppercase tracking-widest">{resultado.tipo === 'crime' ? 'Dias Corridos' : 'Dias Úteis'}</span>
+                            </div>
+                        </div>
+                    </div>
 
-                                            {/* Mostra a seção de comprovação apenas se houver decretos comprováveis */}
-                                            {resultado.suspensoesComprovaveis.length > 0 && (
-                                                <div className="mt-4 text-left border-t border-slate-300 dark:border-slate-600 pt-2">
-                                                    <h4 className="text-xs font-semibold text-orange-600 dark:text-orange-400 mb-2">Suspensões que influenciaram na dilação do prazo:</h4>
-                                                    <div className="space-y-1">
-                                                        {/* Lógica para agrupar o Feriado CNJ em uma única checkbox */}
-                                                        {resultado.suspensoesComprovaveis.some(d => d.tipo === 'feriado_cnj') && (
-                                                            <label className="flex items-center p-2 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg cursor-pointer hover:bg-slate-200/70 dark:hover:bg-slate-700/50 transition-colors">
-                                                                <input
-                                                                    type="checkbox"
-                                                                    // A checkbox é marcada se QUALQUER um dos dias do feriado CNJ estiver comprovado
-                                                                    checked={diasComprovados.has(DATA_CORPUS_CHRISTI) || diasComprovados.has(DATA_POS_CORPUS_CHRISTI)}
-                                                                    onChange={() => handleComprovacaoChange(DATA_CORPUS_CHRISTI, dataDisponibilizacao)}
-                                                                    className="h-4 w-4 rounded border-slate-400 text-blue-600 focus:ring-blue-500"
-                                                                />
-                                                                <span className="ml-2 text-xs text-slate-700 dark:text-slate-200">
-                                                                    <strong className="font-semibold">{formatarData(new Date(DATA_CORPUS_CHRISTI + 'T00:00:00'))} e {formatarData(new Date(DATA_POS_CORPUS_CHRISTI + 'T00:00:00'))}:</strong> Corpus Christi e Suspensão
-                                                                </span>
-                                                            </label>
-                                                        )}
-                                                        {/* Renderiza as outras suspensões normalmente */}
-                                                        {resultado.suspensoesComprovaveis.filter(d => d.tipo !== 'feriado_cnj').map(dia => {
-                                                            const dataString = dia.data.toISOString().split('T')[0];
-                                                            return ( // O key agora é o dataString para garantir unicidade
-                                                                <label key={dataString} className="flex items-center p-2 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg cursor-pointer hover:bg-slate-200/70 dark:hover:bg-slate-700/50 transition-colors">
-                                                                    <input type="checkbox" checked={diasComprovados.has(dataString)} onChange={() => handleComprovacaoChange(dataString, dataDisponibilizacao)} className="h-4 w-4 rounded border-slate-400 text-blue-600 focus:ring-blue-500" />
-                                                                    <span className="ml-2 text-xs text-slate-700 dark:text-slate-200"><strong className="font-semibold">{formatarData(dia.data)}:</strong> {dia.motivo} ({dia.tipo})</span>
-                                                                </label>
-                                                            ); // Adicionado o tipo para clareza
-                                                        })}
-                                                    </div>
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-                                </>
-                            ) : (
-                                <div className="text-center">
-                                    <h3 className="text-lg font-bold text-slate-700 dark:text-slate-200 mb-2">Resultado do Cálculo</h3>
-                                    <p className="text-slate-600 dark:text-slate-300">O prazo final de {resultado.prazo} dias {resultado.tipo === 'crime' ? 'corridos' : 'úteis'} é:</p>
-                                    <p className="mt-2 text-3xl font-bold text-blue-600 dark:text-blue-400">{formatarData(resultado.semDecreto.prazoFinalProrrogado || resultado.semDecreto.prazoFinal)}</p>
-                                    {resultado.diasProrrogados && resultado.diasProrrogados.length > 0 && (
-                                        <div className="mt-4 p-3 text-xs text-blue-800 rounded-lg bg-blue-50 dark:bg-gray-800 dark:text-blue-400" role="alert"><span className="font-medium">Nota:</span> O prazo foi prorrogado pois o vencimento original ({formatarData(resultado.diasProrrogados[0].data)}) caiu em um dia de suspensão ({resultado.diasProrrogados[0].motivo}).</div>
-                                    )}
-                                    {resultado.semDecreto.diasNaoUteis.length > 0 && <div className="mt-6 text-left border-t border-slate-300 dark:border-slate-600 pt-4"><p className="text-sm font-semibold text-slate-600 dark:text-slate-300 mb-2">Dias não úteis considerados no cálculo:</p><ul className="text-xs space-y-1"><GroupedDiasNaoUteis dias={resultado.semDecreto.diasNaoUteis} /></ul></div>}
-                                </div>
-
-                            )}
-
-                            {/* EXIBIÇÃO EXPLÍCITA DE PUBLICAÇÃO E INÍCIO (SOLICITADO PELO USUÁRIO) */}
-                            <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4 border-t border-slate-200 dark:border-slate-700 pt-4">
-                                <div className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-lg border border-slate-100 dark:border-slate-700">
-                                    <p className="text-xs text-slate-500 dark:text-slate-400 font-semibold uppercase mb-1">Dia da Publicação</p>
-                                    <p className="text-lg font-bold text-slate-800 dark:text-slate-100">{formatarData(resultado.dataPublicacao)}</p>
-                                </div>
-                                <div className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-lg border border-slate-100 dark:border-slate-700">
-                                    <p className="text-xs text-slate-500 dark:text-slate-400 font-semibold uppercase mb-1">Início do Prazo</p>
-                                    <p className="text-lg font-bold text-slate-800 dark:text-slate-100">{formatarData(resultado.inicioPrazo)}</p>
-                                </div>
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                        {/* Cenário 1: Base */}
+                        <div className="bg-slate-900/50 border border-white/5 rounded-3xl p-8 relative group">
+                            <div className="flex items-center justify-between mb-8">
+                                <h3 className="text-sm font-black text-slate-400 uppercase tracking-[0.2em]">Cenário Padrão</h3>
+                                <div className="px-3 py-1 rounded-full bg-slate-800 border border-slate-700 text-[10px] font-black text-slate-500 uppercase tracking-widest">Sem Decretos</div>
+                            </div>
+                            
+                            <div className="text-center py-6">
+                                <p className="text-[10px] font-black text-slate-600 uppercase tracking-widest mb-2">Data Vencimento</p>
+                                <p className="text-5xl font-black text-white tracking-tighter drop-shadow-2xl">
+                                    {formatarData(resultado.semDecreto.prazoFinalProrrogado || resultado.semDecreto.prazoFinal)}
+                                </p>
                             </div>
 
-
-
-                            {/* Seção de Tempestividade movida para dentro do bloco 'civel' */}
-                            {(userData?.role === 'intermediate' || userData?.role === 'admin') && (
-                                <div className="mt-6 border-t border-slate-300 dark:border-slate-600 pt-4 animate-fade-in">
-                                    <h3 className="text-lg font-bold text-slate-700 dark:text-slate-200 mb-2">Verificação de Tempestividade</h3>
-                                    <div>
-                                        <label htmlFor="data-interposicao" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Data de Interposição do Recurso</label>
-                                        <input type="date" id="data-interposicao" value={dataInterposicao} onChange={e => setDataInterposicao(e.target.value)} className="w-full md:w-1/2 px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition" />
+                            {resultado.semDecreto.diasNaoUteis.length > 0 && (
+                                <div className="mt-8 space-y-3">
+                                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] border-b border-white/5 pb-2">Suspensões Automáticas</p>
+                                    <div className="space-y-1.5 max-h-[400px] overflow-y-auto custom-scrollbar pr-2 overscroll-contain">
+                                        <GroupedDiasNaoUteis dias={resultado.semDecreto.diasNaoUteis} />
                                     </div>
-                                    {tempestividade && (
-                                        <div className={`mt-4 p-4 rounded-lg flex items-center gap-3 ${tempestividade === 'tempestivo' ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300' : 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300'}`}>
-                                            {tempestividade === 'tempestivo' ? <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg> : <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
-                                            <div>
-                                                <p className="font-bold">{tempestividade === 'tempestivo' ? 'RECURSO TEMPESTIVO' : 'RECURSO INTEMPESTIVO'}</p>
-                                                <p className="text-sm">O recurso foi interposto {tempestividade === 'tempestivo' ? 'dentro do' : 'fora do'} prazo legal. O prazo final, considerando as suspensões selecionadas, é {formatarData(resultado.comDecreto.prazoFinalProrrogado || resultado.comDecreto.prazoFinal)}.</p>
-                                            </div>
-                                        </div>
-                                    )}
-                                    {tempestividade === 'puramente_intempestivo' && (
-                                        <div className="mt-4"><button onClick={gerarMinutaIntempestividade} className="w-full md:w-auto flex justify-center items-center bg-gradient-to-br from-red-500 to-red-600 text-white font-semibold py-2 px-5 rounded-lg hover:from-red-600 hover:to-red-700 transition-all duration-300 shadow-md animate-pulse ring-4 ring-red-300 border-red-500">Baixar Minuta (Intempestivo)</button></div>
-                                    )}
-                                    {tempestividade === 'intempestivo_falta_decreto' && (
-                                        <div className="mt-4 space-y-4">
-                                            <div className="p-3 text-sm text-amber-800 rounded-lg bg-amber-50 dark:bg-gray-800 dark:text-amber-400" role="alert">
-                                                <span className="font-medium">Atenção:</span> O recurso está intempestivo, a menos que as suspensões de prazo sejam comprovadas.
-                                            </div>
-                                            <div className="flex items-center gap-4 flex-wrap">
-                                                <p className="text-sm text-slate-600 dark:text-slate-300 font-medium">Gerar outras minutas:</p>
-                                                <div className="flex gap-3">
-                                                    {resultado.tipo === 'civel' ? (
-                                                        <>
-                                                            <button onClick={gerarMinutaIntimacaoDecreto} className="flex-1 md:flex-auto justify-center flex items-center bg-gradient-to-br from-sky-500 to-sky-600 text-white font-semibold py-2 px-4 rounded-lg hover:from-sky-600 hover:to-sky-700 transition-all duration-300 shadow-md text-sm animate-pulse ring-4 ring-sky-300">Intimação Decreto</button>
-                                                            <button onClick={gerarMinutaFaltaDecreto} className="flex-1 md:flex-auto justify-center flex items-center bg-gradient-to-br from-orange-500 to-orange-600 text-white font-semibold py-2 px-4 rounded-lg hover:from-orange-600 hover:to-orange-700 transition-all duration-300 shadow-md text-sm">Intempestivo Falta Decreto</button>
-                                                        </>
-                                                    ) : (
-                                                        <button onClick={gerarMinutaIntimacaoDecretoCrime} className="flex-1 md:flex-auto justify-center flex items-center bg-gradient-to-br from-sky-500 to-sky-600 text-white font-semibold py-2 px-4 rounded-lg hover:from-sky-600 hover:to-sky-700 transition-all duration-300 shadow-md text-sm animate-pulse ring-4 ring-sky-300">Intimação Decreto (Crime)</button>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        </div>
-                                    )}
                                 </div>
                             )}
+                        </div>
 
-                            {/* Seção de Minutas Personalizadas */}
-                            {customMinutaTypes.length > 0 && (
-                                <div className="mt-6 border-t border-slate-300 dark:border-slate-600 pt-4 animate-fade-in">
-                                    <h3 className="text-lg font-bold text-slate-700 dark:text-slate-200 mb-3">Outras Minutas Disponíveis</h3>
-                                    <div className="flex flex-wrap gap-3">
+                        {/* Cenário 2: Comprovado */}
+                        <div className={`rounded-3xl p-8 relative overflow-hidden transition-all duration-700 border ${resultado.suspensoesComprovaveis.length > 0 ? 'bg-gradient-to-br from-indigo-950/40 to-slate-900/40 border-indigo-500/30 shadow-2xl shadow-indigo-500/10' : 'bg-slate-900/50 border-white/5 opacity-50 grayscale hover:grayscale-0 transition-all cursor-not-allowed'}`}>
+                            <div className="absolute top-0 right-0 p-4">
+                                <span className="material-icons text-indigo-400 animate-pulse">verified</span>
+                            </div>
+
+                            <div className="flex items-center justify-between mb-8">
+                                <h3 className="text-sm font-black text-indigo-400 uppercase tracking-[0.2em]">Cenário Comprovado</h3>
+                                <div className="px-3 py-1 rounded-full bg-indigo-600/20 border border-indigo-600/30 text-[10px] font-black text-indigo-300 uppercase tracking-widest">Com Decretos</div>
+                            </div>
+
+                            <div className="text-center py-6">
+                                <p className="text-[10px] font-black text-indigo-400/60 uppercase tracking-widest mb-2">Data Vencimento (Recalculada)</p>
+                                <p className="text-5xl font-black text-white tracking-tighter drop-shadow-2xl">
+                                    {formatarData(resultado.comDecreto.prazoFinalProrrogado || resultado.comDecreto.prazoFinal)}
+                                </p>
+                            </div>
+
+                            {resultado.suspensoesComprovaveis.length > 0 ? (
+                                <div className="mt-8 space-y-4">
+                                    <div className="p-4 bg-indigo-500/5 border border-indigo-500/10 rounded-2xl">
+                                        <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-3">Selecione para Comprovar</p>
+                                        <div className="space-y-2 max-h-[400px] overflow-y-auto custom-scrollbar pr-2 overscroll-contain">
+                                            {/* Feriado CNJ Especial */}
+                                            {resultado.suspensoesComprovaveis.some(d => d.tipo === 'feriado_cnj') && (
+                                                <label className={`flex items-center gap-4 p-3 rounded-xl cursor-pointer transition-all ${diasComprovados.has(DATA_CORPUS_CHRISTI) ? 'bg-indigo-600 border border-indigo-500 shadow-lg' : 'bg-slate-900/50 border border-white/5 hover:bg-white/5'}`}>
+                                                    <div className={`w-5 h-5 rounded-md border flex items-center justify-center transition-all ${diasComprovados.has(DATA_CORPUS_CHRISTI) ? 'bg-indigo-400 border-indigo-400' : 'border-slate-700'}`}>
+                                                        {diasComprovados.has(DATA_CORPUS_CHRISTI) && <span className="material-icons text-white text-xs font-black">check</span>}
+                                                    </div>
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={diasComprovados.has(DATA_CORPUS_CHRISTI)}
+                                                        onChange={() => handleComprovacaoChange(DATA_CORPUS_CHRISTI, dataDisponibilizacao)}
+                                                        className="hidden"
+                                                    />
+                                                    <div className="flex flex-col">
+                                                        <span className={`text-[11px] font-bold ${diasComprovados.has(DATA_CORPUS_CHRISTI) ? 'text-white' : 'text-slate-300'}`}>Corpus Christi e Suspensão</span>
+                                                        <span className={`text-[9px] font-black uppercase tracking-widest ${diasComprovados.has(DATA_CORPUS_CHRISTI) ? 'text-indigo-200' : 'text-slate-500'}`}>Feriado CNJ</span>
+                                                    </div>
+                                                </label>
+                                            )}
+
+                                            {/* Outras Suspensões */}
+                                            {resultado.suspensoesComprovaveis.filter(d => d.tipo !== 'feriado_cnj').map(dia => {
+                                                const dataStr = dia.data.toISOString().split('T')[0];
+                                                const isSelected = diasComprovados.has(dataStr);
+                                                return (
+                                                    <label key={dataStr} className={`flex items-center gap-4 p-3 rounded-xl cursor-pointer transition-all ${isSelected ? 'bg-indigo-600 border border-indigo-500 shadow-lg' : 'bg-slate-900/50 border border-white/5 hover:bg-white/5'}`}>
+                                                        <div className={`w-5 h-5 rounded-md border flex items-center justify-center transition-all ${isSelected ? 'bg-indigo-400 border-indigo-400' : 'border-slate-700'}`}>
+                                                            {isSelected && <span className="material-icons text-white text-xs font-black">check</span>}
+                                                        </div>
+                                                        <input 
+                                                            type="checkbox" 
+                                                            checked={isSelected} 
+                                                            onChange={() => handleComprovacaoChange(dataStr, dataDisponibilizacao)} 
+                                                            className="hidden"
+                                                        />
+                                                        <div className="flex flex-col">
+                                                            <span className={`text-[11px] font-bold ${isSelected ? 'text-white' : 'text-slate-300'}`}>{formatarData(dia.data)}: {dia.motivo}</span>
+                                                            <span className={`text-[9px] font-black uppercase tracking-widest ${isSelected ? 'text-indigo-200' : 'text-slate-500'}`}>{dia.tipo}</span>
+                                                        </div>
+                                                    </label>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="flex flex-col items-center justify-center py-12 text-center">
+                                    <span className="material-icons text-slate-700 text-4xl mb-4">task_alt</span>
+                                    <p className="text-slate-600 font-bold text-xs uppercase tracking-widest">Nenhuma suspensão comprovável no período</p>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Verificação de Tempestividade (Intermediate/Admin) */}
+                    {(userData?.role === 'intermediate' || userData?.role === 'admin') && (
+                        <div className="mt-12 bg-white/5 border border-white/5 rounded-3xl p-8 backdrop-blur-xl relative z-10 overflow-hidden">
+                            <div className="absolute bottom-0 right-0 w-64 h-64 bg-indigo-600/5 blur-[100px] rounded-full -mr-32 -mb-32 pointer-events-none"></div>
+                            
+                            <div className="flex items-center gap-4 mb-8">
+                                <span className="material-icons text-indigo-400">gavel</span>
+                                <h3 className="text-lg font-black text-white uppercase tracking-[0.2em]">Exame de Tempestividade</h3>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-end">
+                                <div className="space-y-3">
+                                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] ml-1">Data de Interposição</label>
+                                    <div className="relative">
+                                        <span className="absolute left-4 top-1/2 -translate-y-1/2 material-icons text-indigo-400">event_available</span>
+                                        <input 
+                                            type="date" 
+                                            value={dataInterposicao} 
+                                            onChange={e => setDataInterposicao(e.target.value)} 
+                                            onPaste={handlePasteDate(setDataInterposicao)} 
+                                            className="tjpr-input pl-12 h-[60px] font-bold" 
+                                        />
+                                    </div>
+                                </div>
+
+                                {tempestividade && (
+                                    <div className={`h-[60px] flex items-center px-6 rounded-2xl border animate-in slide-in-from-right-4 duration-500 ${tempestividade === 'tempestivo' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 shadow-lg shadow-emerald-500/10' : 'bg-rose-500/10 border-rose-500/30 text-rose-400 shadow-lg shadow-rose-500/10'}`}>
+                                        <span className="material-icons mr-3">{tempestividade === 'tempestivo' ? 'check_circle' : 'cancel'}</span>
+                                        <span className="font-black uppercase tracking-widest">{tempestividade === 'tempestivo' ? 'Recurso Tempestivo' : 'Recurso Intempestivo'}</span>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Ações de Minuta */}
+                            <div className="mt-8 flex flex-wrap gap-4">
+                                {tempestividade === 'puramente_intempestivo' && (
+                                    <button onClick={gerarMinutaIntempestividade} className="px-6 py-3 bg-rose-600 text-white rounded-xl font-black uppercase tracking-widest text-[10px] flex items-center gap-2 hover:bg-rose-700 transition-all animate-pulse shadow-lg shadow-rose-600/20">
+                                        <span className="material-icons text-sm">description</span>
+                                        Baixar Minuta Intempestividade
+                                    </button>
+                                )}
+                                
+                                {tempestividade === 'intempestivo_falta_decreto' && (
+                                    <div className="flex gap-4 w-full sm:w-auto">
+                                        <button onClick={gerarMinutaIntimacaoDecreto} className="flex-1 sm:flex-none px-6 py-3 bg-indigo-600 text-white rounded-xl font-black uppercase tracking-widest text-[10px] flex items-center gap-2 hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-600/20">
+                                            <span className="material-icons text-sm">notifications_active</span>
+                                            Intimar para Comprovar
+                                        </button>
+                                        <button onClick={gerarMinutaFaltaDecreto} className="flex-1 sm:flex-none px-6 py-3 bg-slate-800 text-white border border-white/10 rounded-xl font-black uppercase tracking-widest text-[10px] flex items-center gap-2 hover:bg-slate-700 transition-all">
+                                            <span className="material-icons text-sm">history_edu</span>
+                                            Minuta Falta Decreto
+                                        </button>
+                                    </div>
+                                )}
+
+                                {customMinutaTypes.length > 0 && (
+                                    <div className="flex flex-wrap gap-3 w-full border-t border-white/5 pt-8 mt-4">
                                         {customMinutaTypes.map(tipo => (
-                                            <button key={tipo.id} onClick={() => gerarMinutaGenerica(tipo)} className="px-4 py-2 text-sm font-semibold bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-200 dark:hover:bg-slate-600 transition-colors shadow-sm flex items-center gap-2">
-                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clipRule="evenodd" /></svg>
+                                            <button key={tipo.id} onClick={() => gerarMinutaGenerica(tipo)} className="px-5 py-2.5 bg-white/5 text-slate-300 border border-white/10 rounded-xl font-bold text-[10px] uppercase tracking-widest flex items-center gap-2 hover:bg-white/10 transition-all">
+                                                <span className="material-icons text-sm text-indigo-400">article</span>
                                                 {tipo.nome}
                                             </button>
                                         ))}
                                     </div>
-                                </div>
-                            )}
-                        </>
+                                )}
+                            </div>
+                        </div>
                     )}
-
                 </div>
             )}
+
+            {/* Modal AR Elite */}
+            <TJPRModal 
+                isOpen={isArModalOpen} 
+                onClose={() => setIsArModalOpen(false)}
+                title="Identificação de AR"
+                icon="qr_code_2"
+                maxWidth="md"
+            >
+                <div className="space-y-8 py-4">
+                    <div className="p-8 bg-slate-950/40 rounded-[2rem] border border-white/5 relative overflow-hidden group">
+                        <div className="absolute -right-4 -top-4 w-24 h-24 bg-indigo-500/10 blur-3xl rounded-full transition-all group-hover:scale-150"></div>
+                        <div className="relative z-10">
+                            <label className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mb-4 block">Código AR do Usuário</label>
+                            <TJPRInput 
+                                placeholder="Ex: AR1234..."
+                                value={arCodeValue}
+                                onChange={(e) => setArCodeValue(e.target.value)}
+                                autoFocus
+                            />
+                            <p className="text-[10px] font-bold text-slate-600 uppercase tracking-widest mt-4 flex items-center gap-2">
+                                <span className="material-icons text-sm">info</span>
+                                Identificação necessária para o rodapé da minuta.
+                            </p>
+                        </div>
+                    </div>
+                    <div className="flex gap-4">
+                        <TJPRButton 
+                            variant="ghost" 
+                            onClick={() => setIsArModalOpen(false)}
+                            className="flex-1 h-[52px]"
+                        >
+                            CANCELAR
+                        </TJPRButton>
+                        <TJPRButton 
+                            variant="primary" 
+                            onClick={arModalAction === 'civel' ? handleConfirmArCivel : handleConfirmArCrime}
+                            className="flex-1 h-[52px] shadow-lg shadow-indigo-600/20"
+                            disabled={!arCodeValue || arCodeValue.trim() === ""}
+                        >
+                            GERAR MINUTA
+                        </TJPRButton>
+                    </div>
+                </div>
+            </TJPRModal>
         </div>
     );
 };
@@ -1516,27 +1805,27 @@ const DiaNaoUtilItem = ({ dia, as = 'li' }) => {
     switch (dia.tipo) {
         case 'decreto':
             labelText = 'Decreto TJPR';
-            labelClasses = 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300';
+            labelClasses = 'bg-rose-500/10 text-rose-400 border-rose-500/20';
             break;
         case 'feriado_cnj':
             labelText = 'Feriado CNJ';
-            labelClasses = 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-300';
+            labelClasses = 'bg-purple-500/10 text-purple-400 border-purple-500/20';
             break;
         case 'instabilidade':
             labelText = 'Instabilidade';
-            labelClasses = 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300';
+            labelClasses = 'bg-amber-500/10 text-amber-400 border-amber-500/20';
             break;
         case 'feriado':
             labelText = 'Feriado Nacional';
-            labelClasses = 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300';
+            labelClasses = 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20';
             break;
         case 'recesso':
             labelText = 'Recesso';
-            labelClasses = 'bg-slate-200 text-slate-800 dark:bg-slate-700 dark:text-slate-300';
+            labelClasses = 'bg-slate-500/10 text-slate-400 border-slate-500/20';
             break;
         case 'recesso_grouped':
             labelText = 'Recesso';
-            labelClasses = 'bg-slate-200 text-slate-800 dark:bg-slate-700 dark:text-slate-300';
+            labelClasses = 'bg-slate-500/10 text-slate-400 border-slate-500/20';
             break;
     }
 
@@ -1544,12 +1833,12 @@ const DiaNaoUtilItem = ({ dia, as = 'li' }) => {
 
     if (Tag === 'tr') {
         return (
-            <tr className="border-b last:border-b-0 border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
-                <td className="px-5 py-3 font-medium text-slate-900 dark:text-white whitespace-nowrap">{formatarData(dia.data)}</td>
-                <td className="px-5 py-3 text-slate-600 dark:text-slate-200">{dia.motivo}</td>
-                <td className="px-5 py-3">
+            <tr className="border-b last:border-b-0 border-white/5 bg-transparent hover:bg-white/5 transition-all duration-300">
+                <td className="px-5 py-4 font-bold text-white whitespace-nowrap text-xs uppercase tracking-widest">{formatarData(dia.data)}</td>
+                <td className="px-5 py-4 text-slate-400 font-medium text-sm">{dia.motivo}</td>
+                <td className="px-5 py-4">
                     <div className="flex justify-end">
-                        {labelText && <span className={`text-xs font-semibold px-2.5 py-1 rounded-full whitespace-nowrap ${labelClasses}`}>{labelText}</span>}
+                        {labelText && <span className={`text-[9px] font-black px-2.5 py-1 rounded-full border uppercase tracking-widest ${labelClasses}`}>{labelText}</span>}
                     </div>
                 </td>
             </tr>
@@ -1557,16 +1846,18 @@ const DiaNaoUtilItem = ({ dia, as = 'li' }) => {
     }
 
     return (
-        <Tag className="flex items-center justify-between p-2 bg-slate-100/70 dark:bg-slate-900/50 rounded-md text-slate-700 dark:text-slate-200">
+        <Tag className="flex items-center justify-between p-4 bg-white/[0.03] border border-white/5 rounded-2xl text-slate-400 group hover:bg-white/[0.06] transition-all duration-300 shadow-sm">
             <div className="flex-grow">
                 {dia.tipo === 'recesso_grouped'
-                    ? <span className="text-sm">{dia.motivo}</span>
-                    : <span className="text-sm">
-                        <strong className="font-semibold text-slate-900 dark:text-white">{formatarData(dia.data)}:</strong> {dia.motivo}
-                        {dia.link && <a href={dia.link} target="_blank" rel="noopener noreferrer" className="ml-2 text-blue-600 hover:underline text-xs font-semibold">(Ver Decreto)</a>}
+                    ? <span className="text-sm font-black text-slate-200 tracking-tight">{dia.motivo}</span>
+                    : <span className="text-xs font-medium flex items-center flex-wrap gap-y-1">
+                        <strong className="font-black text-white mr-3 py-1 px-2.5 bg-white/5 rounded-lg border border-white/5">{formatarData(dia.data)}</strong> 
+                        <span className="text-slate-600 mr-3 hidden sm:inline">—</span> 
+                        <span className="text-slate-300 font-bold">{dia.motivo}</span>
+                        {dia.link && <a href={dia.link} target="_blank" rel="noopener noreferrer" className="ml-4 text-indigo-400 hover:text-indigo-300 text-[10px] font-black uppercase tracking-widest border-b border-indigo-400/30 hover:border-indigo-300 transition-all">Decreto</a>}
                     </span>}
             </div>
-            {labelText && <span className={`ml-3 flex-shrink-0 text-xs font-semibold px-2.5 py-0.5 rounded-full ${labelClasses}`}>{labelText}</span>}
+            {labelText && <span className={`ml-4 flex-shrink-0 text-[9px] font-black px-3 py-1 rounded-full border uppercase tracking-widest ${labelClasses}`}>{labelText}</span>}
         </Tag>
     );
 };
@@ -1604,15 +1895,21 @@ const VerifyEmailPage = () => {
             return;
         }
         try {
-            await user.sendEmailVerification();
+            const { error: resendError } = await window._supabaseClient.auth.resend({
+                type: 'signup',
+                email: user.email,
+                options: {
+                    emailRedirectTo: window.location.origin
+                }
+            });
+            
+            if (resendError) throw resendError;
+            
             setMessage('Um novo e-mail de verificação foi enviado.');
             setCooldown(30); // Inicia um cooldown de 30 segundos
         } catch (err) {
-            if (err.code === 'auth/too-many-requests') {
-                setError('Muitas tentativas. Por favor, aguarde um pouco antes de tentar novamente.');
-            } else {
-                setError('Ocorreu um erro ao reenviar o e-mail.');
-            }
+            console.error('Erro ao reenviar e-mail:', err);
+            setError('Erro ao reenviar o e-mail: ' + (err.message || 'Tente novamente.'));
         } finally {
             setIsResending(false);
         }
@@ -1621,34 +1918,57 @@ const VerifyEmailPage = () => {
     const handleCheckVerification = async () => {
         setMessage('Verificando status...');
         await refreshUser();
-        // O listener onAuthStateChanged vai redirecionar se o email estiver verificado.
-        // Se não, mostramos uma mensagem.
+        // O App component vai redirecionar automaticamente se o email estiver verificado
+        // pois o estado 'user' será atualizado e isVerified será true.
         setTimeout(() => {
-            if (!auth.currentUser?.emailVerified) {
-                setMessage('A sua conta ainda não foi verificada. Por favor, clique no link enviado para o seu e-mail.');
-            }
+            setMessage('');
         }, 2000);
     };
 
     return (
-        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-200 dark:from-slate-800 dark:to-slate-900 relative">
-            <div className="w-full max-w-md p-8 space-y-6 bg-white/60 dark:bg-slate-800/60 backdrop-blur-xl rounded-2xl shadow-lg text-center">
-                <h2 className="text-3xl font-bold text-slate-800 dark:text-slate-100">Verifique o seu E-mail</h2>
-                <p className="text-slate-600 dark:text-slate-300">
-                    Enviamos um link de verificação para <strong>{user?.email}</strong>. Por favor, clique no link para ativar a sua conta.
-                </p>
-                <p className="text-sm text-slate-500 dark:text-slate-400 p-3 bg-amber-100/50 dark:bg-amber-900/30 rounded-lg">Se não encontrar na sua caixa de entrada, <strong>verifique a pasta de Lixo Eletrônico/Spam</strong>. O e-mail pode demorar alguns minutos para chegar.</p>
-                <div className="space-y-4">
-                    <button onClick={handleCheckVerification} className="w-full bg-gradient-to-br from-green-500 to-green-600 text-white font-semibold py-3 rounded-lg hover:from-green-600 hover:to-green-700 transition-all duration-300 shadow-md">Já verifiquei, atualizar status</button>
-                    <button onClick={handleResend} disabled={isResending || cooldown > 0 || initialCooldown > 0} className="w-full bg-slate-500 text-white font-semibold py-3 rounded-lg hover:bg-slate-600 transition-all duration-300 shadow-md disabled:opacity-50 disabled:cursor-not-allowed">{isResending ? 'A enviar...' : initialCooldown > 0 ? `Aguarde ${initialCooldown}s para reenviar` : (cooldown > 0 ? `Aguarde ${cooldown}s` : 'Reenviar E-mail de Verificação')}</button>
-                    <button onClick={() => auth.signOut()} className="w-full bg-slate-200 text-slate-700 font-semibold py-3 rounded-lg hover:bg-slate-300 transition-all duration-300">
-                        Voltar para o Login
-                    </button>
+        <div className="min-h-screen flex items-center justify-center bg-slate-950 relative overflow-hidden">
+            {/* Background Glows */}
+            <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-indigo-600/10 blur-[120px] rounded-full"></div>
+            <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-violet-600/10 blur-[120px] rounded-full"></div>
+            
+            <div className="w-full max-w-md p-10 space-y-8 bg-slate-900/40 backdrop-blur-2xl rounded-[2.5rem] border border-white/10 shadow-2xl text-center relative z-10">
+                <div className="w-20 h-20 bg-indigo-500/10 rounded-3xl flex items-center justify-center mx-auto mb-6">
+                    <span className="material-icons text-indigo-400 text-4xl">mark_email_unread</span>
                 </div>
-                {message && <p className="text-sm text-center text-green-500">{message}</p>}
-                {error && <p className="text-sm text-center text-red-500">{error}</p>}
+                
+                <div className="space-y-2">
+                    <h2 className="text-3xl font-black text-white tracking-tight">Verifique seu E-mail</h2>
+                    <p className="text-sm font-medium text-slate-400">
+                        Enviamos um link de ativação para <strong className="text-indigo-400">{user?.email}</strong>
+                    </p>
+                </div>
+
+                <div className="text-xs text-slate-500 font-bold uppercase tracking-widest leading-relaxed p-4 bg-white/5 rounded-2xl border border-white/5">
+                    Se não encontrar na sua caixa de entrada, verifique a pasta de <strong className="text-amber-400">Spam</strong>.
+                </div>
+
+                <div className="space-y-4 pt-4">
+                    <TJPRButton onClick={handleCheckVerification} className="w-full h-14 shadow-lg shadow-indigo-600/20">
+                        JÁ VERIFIQUEI, ATUALIZAR STATUS
+                    </TJPRButton>
+                    
+                    <button 
+                        onClick={handleResend} 
+                        disabled={isResending || cooldown > 0 || initialCooldown > 0} 
+                        className="w-full py-4 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 hover:text-white transition-all disabled:opacity-30"
+                    >
+                        {isResending ? 'A ENVIAR...' : initialCooldown > 0 ? `AGUARDE ${initialCooldown}S PARA REENVIAR` : (cooldown > 0 ? `AGUARDE ${cooldown}S` : 'REENVIAR E-MAIL')}
+                    </button>
+                    
+                    <div className="pt-4 border-t border-white/5">
+                        <button onClick={() => window._supabaseClient.auth.signOut()} className="text-[10px] font-black uppercase tracking-widest text-slate-500 hover:text-rose-400 transition-colors">
+                            Voltar para o Login
+                        </button>
+                    </div>
+                </div>
+                {message && <p className="text-xs font-bold text-emerald-400 uppercase tracking-widest animate-pulse">{message}</p>}
+                {error && <p className="text-xs font-bold text-rose-400 uppercase tracking-widest">{error}</p>}
             </div>
-            <CreditsWatermark />
         </div>
     )
 };
@@ -1702,25 +2022,27 @@ const CalendarioModal = ({ onClose }) => {
     }, {}), [diasDoAnoSelecionado]);
 
     return (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
-            <div className="bg-white dark:bg-slate-800 w-full max-w-3xl max-h-[90vh] rounded-2xl shadow-2xl flex flex-col" onClick={e => e.stopPropagation()}>
-                <div className="flex flex-col border-b border-slate-200 dark:border-slate-700 flex-shrink-0 bg-white dark:bg-slate-800 rounded-t-2xl z-10">
-                    <div className="flex justify-between items-center p-6 pb-2">
-                        <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Calendário de Suspensões</h2>
-                        <button onClick={onClose} className="text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 transition">
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                        </button>
-                    </div>
-
-                    <div className="flex space-x-1 px-6 pb-0 overflow-x-auto scrollbar-hide">
+        <TJPRModal 
+            isOpen={true} 
+            onClose={onClose} 
+            title="Calendário Oficial" 
+            icon="calendar_today" 
+            maxWidth="4xl"
+        >
+            <div className="space-y-8">
+                {/* Seleção de Ano Elite */}
+                <div className="flex flex-col items-center gap-4 border-b border-white/5 pb-8">
+                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Selecione o Ano</p>
+                    <div className="flex flex-wrap justify-center gap-2">
                         {availableYears.map(year => (
                             <button
                                 key={year}
                                 onClick={() => setSelectedYear(year)}
-                                className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${selectedYear === year
-                                    ? 'border-indigo-600 text-indigo-600 dark:border-indigo-400 dark:text-indigo-400'
-                                    : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
-                                    }`}
+                                className={`px-6 py-2.5 rounded-xl text-sm font-bold transition-all duration-300 ${
+                                    selectedYear === year
+                                        ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20'
+                                        : 'bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white'
+                                }`}
                             >
                                 {year}
                             </button>
@@ -1728,43 +2050,55 @@ const CalendarioModal = ({ onClose }) => {
                     </div>
                 </div>
 
-                <div className="overflow-y-auto px-6 py-6 custom-scrollbar">
-                    <div className="bg-slate-100 dark:bg-slate-900/50 p-4 rounded-lg mb-6">
-                        <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100 mb-2">Recesso Forense {selectedYear}</h3>
-                        <ul className="space-y-2">
-                            <DiaNaoUtilItem dia={{ tipo: 'recesso_grouped', motivo: `Suspensão/Recesso de 01/01/${selectedYear} até 20/01/${selectedYear}` }} />
-                            <DiaNaoUtilItem dia={{ tipo: 'recesso_grouped', motivo: `Recesso Forense de 20/12/${selectedYear} até 06/01/${selectedYear + 1}` }} />
-                        </ul>
+                {/* Recesso Forense Elite Box */}
+                <div className="bg-slate-900/40 border border-white/5 rounded-2xl p-6 backdrop-blur-md">
+                    <div className="flex items-center gap-3 mb-4">
+                        <div className="w-8 h-8 rounded-lg bg-indigo-500/10 flex items-center justify-center">
+                            <span className="material-icons text-indigo-400 text-sm">ac_unit</span>
+                        </div>
+                        <h3 className="text-lg font-black text-white tracking-tight">Recesso Forense {selectedYear}</h3>
                     </div>
+                    <ul className="space-y-3">
+                        <DiaNaoUtilItem dia={{ tipo: 'recesso_grouped', motivo: `Suspensão/Recesso de 01/01/${selectedYear} até 20/01/${selectedYear}` }} />
+                        <DiaNaoUtilItem dia={{ tipo: 'recesso_grouped', motivo: `Recesso Forense de 20/12/${selectedYear} até 06/01/${selectedYear + 1}` }} />
+                    </ul>
+                </div>
 
-                    {calendarLoading ? (
-                        <p className="text-center text-slate-500 dark:text-slate-400">Carregando calendário...</p>
-                    ) : Object.keys(diasAgrupadosPorMes).length === 0 ? (
-                        <p className="text-center text-slate-500 dark:text-slate-400">Nenhuma suspensão cadastrada para {selectedYear} além do recesso padrão.</p>
-                    ) : (
-                        Object.entries(diasAgrupadosPorMes).map(([mes, dias]) => (
-                            <div key={mes} className="mb-6 animate-fade-in">
-                                <h3 className="text-xl font-bold text-slate-800 dark:text-slate-100 mb-3 sticky top-0 bg-white/95 dark:bg-slate-800/95 py-2 backdrop-blur-sm z-0">{mes}</h3>
-                                <div className="overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm">
-                                    <table className="w-full text-sm text-left table-fixed">
-                                        <thead className="text-xs text-slate-700 dark:text-slate-200 uppercase bg-slate-50 dark:bg-slate-700/50">
-                                            <tr>
-                                                <th className="px-5 py-3 w-[15%]">Data</th>
-                                                <th className="px-5 py-3 w-[60%]">Motivo</th>
-                                                <th className="px-5 py-3 w-[25%] text-right">Tipo</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
-                                            {dias.map(dia => <DiaNaoUtilItem key={dia.data} dia={{ ...dia, data: new Date(dia.data + 'T00:00:00') }} as="tr" />)}
-                                        </tbody>
-                                    </table>
+                {/* Listagem Mensal */}
+                {calendarLoading ? (
+                    <div className="flex flex-col items-center py-12">
+                        <div className="w-12 h-12 border-4 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin mb-4"></div>
+                        <p className="text-sm font-bold text-slate-500 uppercase tracking-widest">Sincronizando Dados...</p>
+                    </div>
+                ) : Object.keys(diasAgrupadosPorMes).length === 0 ? (
+                    <div className="py-12 text-center bg-white/5 rounded-2xl border border-dashed border-white/10">
+                        <span className="material-icons text-slate-600 text-4xl mb-3">event_busy</span>
+                        <p className="text-sm font-bold text-slate-500 uppercase tracking-widest">Nenhuma suspensão em {selectedYear}</p>
+                    </div>
+                ) : (
+                    <div className="space-y-10">
+                        {Object.entries(diasAgrupadosPorMes).map(([mes, dias]) => (
+                            <div key={mes} className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+                                <div className="sticky top-0 z-10 py-3 bg-slate-900/90 backdrop-blur-md -mx-6 px-6 mb-4 border-y border-white/5">
+                                    <h3 className="text-lg font-black text-white uppercase tracking-tight flex items-center gap-3">
+                                        <span className="w-1.5 h-6 bg-indigo-500 rounded-full"></span>
+                                        {mes}
+                                    </h3>
+                                </div>
+                                <div className="space-y-2">
+                                    {dias.map(dia => (
+                                        <DiaNaoUtilItem 
+                                            key={dia.data} 
+                                            dia={{ ...dia, data: new Date(dia.data + 'T00:00:00') }} 
+                                        />
+                                    ))}
                                 </div>
                             </div>
-                        ))
-                    )}
-                </div>
+                        ))}
+                    </div>
+                )}
             </div>
-        </div>
+        </TJPRModal>
     );
 };
 
@@ -1828,6 +2162,7 @@ const AdminPage = ({ setCurrentArea, initialSection }) => {
     const [broadcastMessage, setBroadcastMessage] = useState({ mensagem: '', ativo: false, tipo: 'info' });
     const [isSavingBroadcast, setIsSavingBroadcast] = useState(false);
     const [collapsedSections, setCollapsedSections] = useState({ kpis: false, charts: false, table: false });
+    const [sectorToDelete, setSectorToDelete] = useState(null); // Para o modal de confirmação de setor
 
     const handleDeleteClick = () => {
         setShowDeleteModal(true);
@@ -1847,7 +2182,7 @@ const AdminPage = ({ setCurrentArea, initialSection }) => {
 
         const toDelete = sourceData.filter(item => {
             if (!item.timestamp) return false;
-            const d = item.timestamp.toDate();
+            const d = new Date(item.timestamp);
             return d >= start && d <= end;
         });
 
@@ -1859,23 +2194,21 @@ const AdminPage = ({ setCurrentArea, initialSection }) => {
         if (window.confirm(`ATENÇÃO: Você está prestes a excluir ${toDelete.length} registros permanentemente.\nPeríodo: ${deleteRange.start || 'Início'} até ${deleteRange.end || 'Hoje'}.\n\nDeseja continuar?`)) {
             setLoading(true);
             try {
-                const batchSize = 500;
-                const chunks = [];
-                for (let i = 0; i < toDelete.length; i += batchSize) chunks.push(toDelete.slice(i, i + batchSize));
+                const idsToDelete = toDelete.map(d => d.id);
+                const { error } = await window._supabaseClient
+                    .from('usage_stats')
+                    .delete()
+                    .in('id', idsToDelete);
 
-                for (const chunk of chunks) {
-                    const batch = db.batch();
-                    chunk.forEach(doc => batch.delete(db.collection('usageStats').doc(doc.id)));
-                    await batch.commit();
-                }
+                if (error) throw error;
 
-                const deletedIds = new Set(toDelete.map(d => d.id));
+                const deletedIds = new Set(idsToDelete);
                 setAllData(prev => prev.filter(d => !deletedIds.has(d.id)));
                 setFilteredData(prev => prev.filter(d => !deletedIds.has(d.id)));
 
-                alert("Registros excluídos com sucesso.");
+                window.showToast("Registros excluídos com sucesso.", "success");
                 setShowDeleteModal(false);
-                await logAudit(db, user, 'EXCLUIR_REGISTROS_USO', `De ${deleteRange.start} até ${deleteRange.end}. Qtd: ${toDelete.length}`);
+                await window.logAudit(window._supabaseClient, user, 'EXCLUIR_REGISTROS_USO', `De ${deleteRange.start} até ${deleteRange.end}. Qtd: ${toDelete.length}`);
                 setDeleteRange({ start: '', end: '' });
             } catch (err) {
                 console.error("Erro ao excluir:", err);
@@ -1888,41 +2221,46 @@ const AdminPage = ({ setCurrentArea, initialSection }) => {
 
     useEffect(() => {
         let isMounted = true;
-        if (!db) { setLoading(false); return; }
+        if (!window._supabaseClient) { setLoading(false); return; }
         setLoading(true);
 
         const loadAdminData = async () => {
             try {
                 // 1. Busca usuários e setores em paralelo
-                const [usersList, _, broadcastDoc] = await Promise.all([
+                const [usersList, _, { data: broadcastDoc }] = await Promise.all([
                     fetchAllUsersForManagement(),
                     fetchSetores(),
-                    db.collection('configuracoes').doc('aviso_global').get()
+                    window._supabaseClient.from('configuracoes').select('data').eq('id', 'aviso_global').maybeSingle()
                 ]);
                 if (!isMounted) return;
 
                 // 2. Busca todas as estatísticas de uso
-                const usageSnapshot = await db.collection('usageStats').orderBy('timestamp', 'desc').get();
+                const { data: usageData, error: usageError } = await window._supabaseClient
+                    .from('usage_stats')
+                    .select('*')
+                    .order('timestamp', { ascending: false });
+
+                if (usageError) throw usageError;
                 if (!isMounted) return;
 
-                let usageData = usageSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                const usersMap = usersList.reduce((acc, user) => { acc[user.id] = user; return acc; }, {});
+                let finalUsageData = usageData || [];
+                const usersMap = (usersList || []).reduce((acc, user) => { acc[user.id] = user; return acc; }, {});
 
                 // 3. Filtra estatísticas para Chefe de Setor
                 if (adminUserData.role === 'setor_admin' && adminUserData.setorId) {
-                    const userIdsInSector = new Set(usersList.filter(u => u.setorId === adminUserData.setorId).map(u => u.id));
-                    usageData = usageData.filter(d => userIdsInSector.has(d.userId));
+                    const userIdsInSector = new Set((usersList || []).filter(u => u.setorId === adminUserData.setorId).map(u => u.id));
+                    finalUsageData = finalUsageData.filter(d => userIdsInSector.has(d.user_id));
                 }
 
-                const enrichedData = usageData.map(d => ({ ...d, userName: usersMap[d.userId]?.displayName || usersMap[d.userId]?.email || d.userEmail }));
+                const enrichedData = finalUsageData.map(d => ({ ...d, userName: usersMap[d.user_id]?.displayName || usersMap[d.user_id]?.email || d.user_email }));
 
                 setAllData(enrichedData);
 
-                if (broadcastDoc.exists) {
-                    setBroadcastMessage(broadcastDoc.data());
+                if (broadcastDoc && broadcastDoc.data) {
+                    setBroadcastMessage(broadcastDoc.data);
                 }
 
-            } catch (err) { console.error("Firebase query error:", err); }
+            } catch (err) { console.error("Supabase query error:", err); }
             finally { if (isMounted) setLoading(false); }
         };
 
@@ -1933,83 +2271,135 @@ const AdminPage = ({ setCurrentArea, initialSection }) => {
     const fetchAllUsersForManagement = async () => {
         setUserManagementLoading(true);
         try {
-            // Se o usuário for um 'setor_admin', ele só pode ver usuários do seu setor OU usuários sem setor.
-            // O Firestore não suporta queries com 'OU' lógicos em campos diferentes ('setorId' == X OU 'setorId' == null).
-            // A abordagem é buscar as duas listas e uni-las no cliente.
             if (adminUserData.role === 'setor_admin' && adminUserData.setorId) {
-                const usersInSectorQuery = db.collection('users').where('setorId', '==', adminUserData.setorId).get();
-                // A query para usuários sem setor pode ser desnecessária se o chefe de setor só gerencia seu próprio setor.
-                // Vamos mantê-la por enquanto, mas pode ser removida se a regra de negócio for estrita.
-                const usersWithoutSectorQuery = db.collection('users').where('setorId', '==', null).get();
+                const { data: users, error } = await window._supabaseClient
+                    .from('profiles')
+                    .select('*')
+                    .or(`setor_id.eq.${adminUserData.setor_id},setor_id.is.null`)
+                    .order('display_name');
 
-                const [usersInSectorSnap, usersWithoutSectorSnap] = await Promise.all([usersInSectorQuery, usersWithoutSectorQuery]);
-
-                const usersInSector = usersInSectorSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                const usersWithoutSector = usersWithoutSectorSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-
-                const combinedUsers = [...usersInSector, ...usersWithoutSector].sort((a, b) => (a.displayName || '').localeCompare(b.displayName || ''));
-                setAllUsersForManagement(combinedUsers);
-                return combinedUsers;
+                if (error) throw error;
+                const mappedUsers = users.map(u => ({
+                    ...u,
+                    setorId: u.setor_id,
+                    displayName: u.display_name,
+                    emailVerified: u.email_verified,
+                    avatarColor: u.avatar_color
+                }));
+                setAllUsersForManagement(mappedUsers);
+                return mappedUsers;
             } else {
-                // Apenas o Admin Global executa a query geral
-                const snapshot = await db.collection('users').orderBy('displayName').get();
-                const usersList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                setAllUsersForManagement(usersList);
-                return usersList;
+                const { data: users, error } = await window._supabaseClient
+                    .from('profiles')
+                    .select('*')
+                    .order('display_name');
+
+                if (error) throw error;
+                const mappedUsers = users.map(u => ({
+                    ...u,
+                    setorId: u.setor_id,
+                    displayName: u.display_name,
+                    emailVerified: u.email_verified,
+                    avatarColor: u.avatar_color
+                }));
+                setAllUsersForManagement(mappedUsers);
+                return mappedUsers;
             }
         } catch (err) {
             console.error("Erro ao buscar usuários para gerenciamento:", err);
-            if (err.code === 'permission-denied') {
-                alert("Você não tem permissão para visualizar todos os usuários.");
-            }
+            window.showToast("Falha ao buscar usuários.", "error");
         } finally {
             setUserManagementLoading(false);
         }
-        return []; // Retorna um array vazio em caso de erro.
+        return [];
     };
 
 
     const fetchSetores = async () => {
-        if (!db) return;
+        if (!window._supabaseClient) return;
         try {
-            let setoresQuery = db.collection('setores');
-            // Se for chefe de gabinete, busca apenas o seu próprio setor.
             if (adminUserData.role === 'setor_admin' && adminUserData.setorId) {
-                const setorDoc = await setoresQuery.doc(adminUserData.setorId).get();
-                if (setorDoc.exists) {
-                    setSetoresAdmin([{ id: setorDoc.id, ...setorDoc.data() }]);
-                } else {
-                    setSetoresAdmin([]);
-                }
-            } else { // Admin Global busca todos os setores.
-                const snapshot = await setoresQuery.orderBy('nome').get();
-                const setoresList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                setSetoresAdmin(setoresList);
+                const { data: setor, error } = await window._supabaseClient
+                    .from('setores')
+                    .select('*')
+                    .eq('id', adminUserData.setorId)
+                    .maybeSingle();
+
+                if (error) throw error;
+                setSetoresAdmin(setor ? [setor] : []);
+            } else {
+                const { data: setores, error } = await window._supabaseClient
+                    .from('setores')
+                    .select('*')
+                    .order('nome');
+
+                if (error) throw error;
+                setSetoresAdmin(setores || []);
             }
         } catch (err) {
             console.error("Erro ao buscar setores:", err);
         }
     };
 
-    const handleDeleteSector = async (sectorId) => {
-        if (window.confirm("Tem certeza que deseja excluir este setor? Esta ação não pode ser desfeita.")) {
-            await db.collection('setores').doc(sectorId).delete();
-            await logAudit(db, user, 'EXCLUIR_SETOR', `ID: ${sectorId}`);
-            fetchSetores(); // Recarrega a lista
+    const handleDeleteSector = (sectorId) => {
+        const sector = setoresAdmin.find(s => s.id === sectorId);
+        if (!sector) return;
+        setSectorToDelete(sector);
+    };
+
+    const executeDeleteSector = async (sectorObj) => {
+        const sector = sectorObj || sectorToDelete;
+        if (!sector) return;
+        const sectorId = sector.id;
+        const sectorName = sector.nome;
+
+        try {
+            setLoading(true);
+            setSectorToDelete(null);
+            const { error } = await window._supabaseClient
+                .from('setores')
+                .delete()
+                .eq('id', sectorId);
+
+            if (error) throw error;
+
+            await window.logAudit(window._supabaseClient, user, 'EXCLUIR_SETOR', `ID: ${sectorId} - Nome: ${sectorName}`);
+            window.showToast("Setor excluído com sucesso.", "success");
+            await fetchSetores(); // Recarrega a lista
+        } catch (err) {
+            console.error("Erro ao excluir setor:", err);
+            window.showToast("Erro ao excluir setor.", "error");
+        } finally {
+            setLoading(false);
         }
     };
 
     const handleAddSector = async (e) => {
         e.preventDefault();
-        if (!newSectorName.trim()) return;
+        const nome = newSectorName.trim();
+        if (!nome) return;
+
         try {
-            await db.collection('setores').add({ nome: newSectorName.trim() });
-            await logAudit(db, user, 'CRIAR_SETOR', `Nome: ${newSectorName}`);
+            setLoading(true);
+            const { error } = await window._supabaseClient
+                .from('setores')
+                .insert({ nome });
+
+            if (error) throw error;
+
+            await window.logAudit(window._supabaseClient, user, 'CRIAR_SETOR', `Nome: ${nome}`);
             setNewSectorName('');
-            fetchSetores(); // Recarrega a lista de setores
+            window.showToast("Setor adicionado com sucesso.", "success");
+            await fetchSetores(); // Recarrega a lista de setores
         } catch (err) {
             console.error("Erro ao adicionar setor:", err);
-            alert("Falha ao adicionar setor.");
+            if (err.message?.includes('duplicate key')) {
+                window.showToast("Este setor já existe.", "warning");
+            } else {
+                window.showToast("Falha ao adicionar setor.", "error");
+            }
+        } finally {
+            setLoading(false);
         }
     };
 
@@ -2025,7 +2415,7 @@ const AdminPage = ({ setCurrentArea, initialSection }) => {
                 onClose();
             } catch (err) {
                 console.error("Erro ao salvar permissões:", err);
-                alert("Falha ao salvar. Verifique o console.");
+                alert("Falha ao salvar permissões.");
             } finally {
                 setIsSaving(false);
             }
@@ -2034,42 +2424,69 @@ const AdminPage = ({ setCurrentArea, initialSection }) => {
         const canChangeToAdmin = adminUser.role === 'admin';
 
         return (
-            <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
-                <div className="bg-white dark:bg-slate-800 w-full max-w-md rounded-2xl shadow-2xl flex flex-col" onClick={e => e.stopPropagation()}>
-                    <div className="flex justify-between items-center p-6 border-b border-slate-200 dark:border-slate-700">
+            <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-md flex items-center justify-center z-[200] p-4 animate-in fade-in duration-300" onClick={onClose}>
+                <div className="bg-slate-900 border border-white/10 w-full max-w-md rounded-[2.5rem] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-300" onClick={e => e.stopPropagation()}>
+                    <div className="flex justify-between items-center p-10 border-b border-white/5">
                         <div>
-                            <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">Gerenciar Usuário</h2>
-                            <p className="text-sm text-slate-500 dark:text-slate-400">{user.displayName || user.email}</p>
+                            <h2 className="text-xl font-black text-white uppercase tracking-tight">Gerenciar Usuário</h2>
+                            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-1">{user.displayName || user.email}</p>
                         </div>
-                        <button onClick={onClose} className="text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 transition">
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                        <button onClick={onClose} className="w-10 h-10 rounded-full flex items-center justify-center text-slate-500 hover:text-white hover:bg-white/5 transition-all">
+                            <span className="material-icons">close</span>
                         </button>
                     </div>
-                    <div className="p-6 space-y-4">
-                        <div>
-                            <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Permissão</label>
-                            <select value={role} onChange={e => setRole(e.target.value)} className="w-full p-2 text-sm rounded-md bg-white/50 dark:bg-slate-900/50 border border-slate-300 dark:border-slate-700">
-                                <option value="basic">Básico</option>
-                                <option value="intermediate">Intermediário</option>
-                                <option value="setor_admin">Chefe de Gabinete</option>
-                                {canChangeToAdmin && <option value="admin">Admin Global</option>}
-                            </select>
-                            {!canChangeToAdmin && role === 'admin' && <p className="text-xs text-amber-600 mt-1">Você não pode rebaixar um Admin Global.</p>}
+                    <div className="p-10 space-y-8">
+                        <div className="space-y-3">
+                            <label className="block text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] ml-1">Nível de Acesso</label>
+                            <div className="relative">
+                                <select 
+                                    value={role} 
+                                    onChange={e => setRole(e.target.value)} 
+                                    className="w-full h-14 pl-12 pr-4 bg-slate-950 border border-white/5 rounded-2xl focus:border-indigo-500/50 outline-none text-white appearance-none transition-all shadow-inner font-bold text-sm"
+                                >
+                                    <option value="basic">Básico (Visualizador)</option>
+                                    <option value="intermediate">Intermediário (Editor)</option>
+                                    <option value="setor_admin">Chefe de Gabinete</option>
+                                    {canChangeToAdmin && <option value="admin">Administrador Global</option>}
+                                </select>
+                                <span className="material-icons absolute left-4 top-1/2 -translate-y-1/2 text-slate-600">verified_user</span>
+                                <span className="material-icons absolute right-4 top-1/2 -translate-y-1/2 text-slate-600 pointer-events-none">expand_more</span>
+                            </div>
+                            {!canChangeToAdmin && role === 'admin' && (
+                                <p className="text-[10px] font-bold text-rose-500 uppercase tracking-tight ml-1 flex items-center gap-1">
+                                    <span className="material-icons text-xs">warning</span>
+                                    Apenas Administradores podem gerenciar outros Administradores.
+                                </p>
+                            )}
                         </div>
-                        <div>
-                            <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Setor</label>
-                            <select value={setorId} onChange={e => setSetorId(e.target.value)} className="w-full p-2 text-sm rounded-md bg-white/50 dark:bg-slate-900/50 border border-slate-300 dark:border-slate-700">
-                                <option value="">Nenhum</option>
-                                {setores.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
-                            </select>
+
+                        <div className="space-y-3">
+                            <label className="block text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] ml-1">Vínculo de Setor</label>
+                            <div className="relative">
+                                <select 
+                                    value={setorId} 
+                                    onChange={e => setSetorId(e.target.value)} 
+                                    className="w-full h-14 pl-12 pr-4 bg-slate-950 border border-white/5 rounded-2xl focus:border-indigo-500/50 outline-none text-white appearance-none transition-all shadow-inner font-bold text-sm"
+                                >
+                                    <option value="">Sem Setor Definido</option>
+                                    {setores.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
+                                </select>
+                                <span className="material-icons absolute left-4 top-1/2 -translate-y-1/2 text-slate-600">business</span>
+                                <span className="material-icons absolute right-4 top-1/2 -translate-y-1/2 text-slate-600 pointer-events-none">expand_more</span>
+                            </div>
                         </div>
                     </div>
-                    <div className="p-6 border-t border-slate-200 dark:border-slate-700 flex justify-end gap-3">
-                        <button onClick={onClose} className="px-4 py-2 text-sm font-semibold bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300 dark:bg-slate-600 dark:text-slate-200 dark:hover:bg-slate-500">
-                            Cancelar
+                    <div className="flex border-t border-white/5 bg-white/[0.02]">
+                        <button onClick={onClose} className="flex-1 px-8 py-6 text-xs font-black uppercase tracking-widest text-slate-500 hover:text-white hover:bg-white/5 transition-all">
+                            Descartar
                         </button>
-                        <button onClick={handleSave} disabled={isSaving} className="px-4 py-2 text-sm font-semibold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50">
-                            {isSaving ? 'Salvando...' : 'Salvar'}
+                        <button 
+                            onClick={handleSave} 
+                            disabled={isSaving} 
+                            className="flex-1 px-8 py-6 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black uppercase tracking-widest transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                        >
+                            {isSaving ? <span className="material-icons animate-spin text-sm">sync</span> : <span className="material-icons text-sm">save</span>}
+                            {isSaving ? 'SALVANDO...' : 'SALVAR'}
                         </button>
                     </div>
                 </div>
@@ -2077,25 +2494,35 @@ const AdminPage = ({ setCurrentArea, initialSection }) => {
         );
     };
 
-    const handleDeleteUser = async (userToDelete) => {
-        const confirmationMessage = `Você tem certeza que deseja excluir o usuário ${userToDelete.displayName || userToDelete.email}? \n\nTodos os dados deste usuário serão apagados permanentemente e a ação não pode ser desfeita.`;
-        if (window.confirm(confirmationMessage)) {
-            if (!db) {
-                alert("Serviço de banco de dados não disponível.");
-                return;
-            }
-            try {
-                // Exclui o documento do usuário da coleção 'users'.
-                // Nota: Isso NÃO exclui o usuário do Firebase Authentication. Para isso,
-                // seria necessária uma Cloud Function com o Admin SDK.
-                await db.collection('users').doc(userToDelete.id).delete();
-                alert("Usuário excluído com sucesso.");
-                await logAudit(db, user, 'EXCLUIR_USUARIO', `Email: ${userToDelete.email}`);
-                fetchAllUsersForManagement(); // Recarrega a lista de usuários
-            } catch (err) {
-                console.error("Erro ao excluir usuário:", err);
-                alert("Falha ao excluir o usuário. Verifique o console para mais detalhes.");
-            }
+    const [userToDelete, setUserToDelete] = useState(null);
+
+    const handleDeleteUser = (u) => {
+        setUserToDelete(u);
+    };
+
+    const executeDeleteUser = async () => {
+        if (!userToDelete) return;
+        const u = userToDelete;
+        if (!window._supabaseClient) return;
+
+        try {
+            setLoading(true);
+            const { error } = await window._supabaseClient
+                .from('profiles')
+                .delete()
+                .eq('id', u.id);
+
+            if (error) throw error;
+
+            await window.logAudit(window._supabaseClient, user, 'EXCLUIR_USUARIO', `Email: ${u.email}`);
+            setUserToDelete(null);
+            window.showToast("Usuário excluído com sucesso.", "success");
+            fetchAllUsersForManagement();
+        } catch (err) {
+            console.error("Erro ao excluir usuário:", err);
+            window.showToast("Falha ao excluir o usuário.", "error");
+        } finally {
+            setLoading(false);
         }
     };
 
@@ -2109,13 +2536,21 @@ const AdminPage = ({ setCurrentArea, initialSection }) => {
     };
 
     const handleSaveUserPermissions = async (userId, data) => {
-        if (!db) {
-            alert("Serviço de banco de dados não disponível.");
-            return;
-        }
-        // Atualiza o documento do usuário com a nova role e setorId
-        await db.collection('users').doc(userId).update(data);
-        await logAudit(db, user, 'ALTERAR_PERMISSOES', `User: ${userId}, Role: ${data.role}, Setor: ${data.setorId}`);
+        if (!window._supabaseClient) return;
+        
+        // Mapeia de volta para snake_case para o Supabase
+        const updateData = {
+            role: data.role,
+            setor_id: data.setorId || null
+        };
+
+        const { error } = await window._supabaseClient
+            .from('profiles')
+            .update(updateData)
+            .eq('id', userId);
+
+        if (error) throw error;
+        await window.logAudit(window._supabaseClient, user, 'ALTERAR_PERMISSOES', `User: ${userId}, Role: ${data.role}, Setor: ${data.setorId}`);
     };
 
     const handleCloseUserManagementModal = () => {
@@ -2124,34 +2559,48 @@ const AdminPage = ({ setCurrentArea, initialSection }) => {
     };
 
     const handleSectorChange = async (userId, newSectorId) => {
-        if (!db) return;
+        if (!window._supabaseClient) return;
         try {
-            await db.collection('users').doc(userId).update({ setorId: newSectorId });
-            fetchAllUsersForManagement(); // Recarrega para mostrar a mudança
+            const { error } = await window._supabaseClient
+                .from('profiles')
+                .update({ setor_id: newSectorId })
+                .eq('id', userId);
+
+            if (error) throw error;
+            fetchAllUsersForManagement();
         } catch (err) {
             console.error("Erro ao alterar setor:", err);
-            alert("Falha ao alterar o setor do usuário.");
+            window.showToast("Falha ao alterar o setor do usuário.", "error");
         }
     };
 
     const handleManualVerification = async (userId) => {
         if (window.confirm("Tem certeza que deseja verificar manualmente o e-mail deste usuário?")) {
-            if (!db) return;
+            if (!window._supabaseClient) return;
             try {
-                await db.collection('users').doc(userId).update({ emailVerified: true });
-                alert("Usuário verificado com sucesso.");
+                const { error } = await window._supabaseClient
+                    .from('profiles')
+                    .update({ email_verified: true })
+                    .eq('id', userId);
+
+                if (error) throw error;
+                window.showToast("Usuário verificado com sucesso.", "success");
                 fetchAllUsersForManagement();
             } catch (err) {
                 console.error("Erro na verificação manual:", err);
-                alert("Falha ao verificar o usuário.");
+                window.showToast("Falha ao verificar o usuário.", "error");
             }
         }
     };
 
     const handleManualPasswordReset = async (user) => {
         if (window.confirm(`Deseja enviar um link de redefinição de senha para ${user.email}?`)) {
-            await auth.sendPasswordResetEmail(user.email);
-            alert("E-mail de redefinição de senha enviado.");
+            const { error } = await window._supabaseClient.auth.resetPasswordForEmail(user.email);
+            if (error) {
+                window.showToast("Erro ao enviar e-mail: " + error.message, "error");
+            } else {
+                window.showToast("E-mail de redefinição de senha enviado.", "success");
+            }
         }
     };
 
@@ -2377,30 +2826,34 @@ const AdminPage = ({ setCurrentArea, initialSection }) => {
 
         setLoading(true);
         try {
-            const batchSize = 500;
-            const chunks = [];
-            for (let i = 0; i < dataToDelete.length; i += batchSize) chunks.push(dataToDelete.slice(i, i + batchSize));
+            const idsToDelete = dataToDelete.map(d => d.id);
+            const { error } = await window._supabaseClient
+                .from('usage_stats')
+                .delete()
+                .in('id', idsToDelete);
 
-            for (const chunk of chunks) {
-                const batch = db.batch();
-                chunk.forEach(doc => batch.delete(db.collection('usageStats').doc(doc.id)));
-                await batch.commit();
-            }
+            if (error) throw error;
+
             alert("Registros excluídos com sucesso.");
-            const deletedIds = new Set(dataToDelete.map(d => d.id));
+            const deletedIds = new Set(idsToDelete);
             setAllData(prev => prev.filter(item => !deletedIds.has(item.id)));
-        } catch (err) { console.error("Erro ao excluir:", err); alert("Erro ao excluir registros."); } finally { setLoading(false); }
+        } catch (err) { 
+            console.error("Erro ao excluir:", err); 
+            alert("Erro ao excluir registros."); 
+        } finally { 
+            setLoading(false); 
+        }
     };
 
     const handleExport = () => {
         const dataToExport = (selectedUserForStats ? selectedUserForStats.data : filteredData).map(item => ({
-            'ID Utilizador': item.userId,
-            'Utilizador': item.userName || item.userEmail,
-            'Matéria': item.materia,
-            'Prazo (dias)': item.prazo,
+            'ID do Usuário': item.userId,
+            'Usuário': item.userName || item.userEmail,
             'Tipo de Uso': item.type === 'djen_consulta' ? 'Consulta DJEN' : (item.type || 'Calculadora'),
-            'Número do Processo': item.numeroProcesso || '',
-            'Data': item.timestamp ? formatarData(item.timestamp.toDate()) : ''
+            'Matéria': item.type === 'djen_consulta' ? '-' : (item.materia === 'civel' ? 'Cível' : (item.materia ? 'Criminal' : '-')),
+            'Prazo (dias)': item.prazo || '-',
+            'Número do Processo': item.numeroProcesso && item.numeroProcesso !== 'Não informado' ? item.numeroProcesso : '',
+            'Data': item.timestamp ? formatarData(new Date(item.timestamp)) : ''
         }));
         const worksheet = XLSX.utils.json_to_sheet(dataToExport);
         const workbook = XLSX.utils.book_new();
@@ -2410,13 +2863,21 @@ const AdminPage = ({ setCurrentArea, initialSection }) => {
 
     const handleSaveBroadcast = async () => {
         setIsSavingBroadcast(true);
+        console.log('Tentando salvar aviso global:', broadcastMessage);
         try {
-            await db.collection('configuracoes').doc('aviso_global').set(broadcastMessage);
-            await logAudit(db, user, 'ATUALIZAR_BROADCAST', `Ativo: ${broadcastMessage.ativo}, Msg: ${broadcastMessage.mensagem}`);
-            alert("Aviso global atualizado!");
+            const { error } = await window._supabaseClient
+                .from('configuracoes')
+                .update(broadcastMessage)
+                .eq('id', 'aviso_global');
+            
+            if (error) throw error;
+
+            await logAudit(window._supabaseClient, user, 'ATUALIZAR_BROADCAST', `Ativo: ${broadcastMessage.ativo}, Msg: ${broadcastMessage.mensagem}`);
+            alert("Aviso global atualizado com sucesso!");
         } catch (e) {
-            console.error(e);
-            alert("Erro ao salvar aviso.");
+            console.error('Erro ao salvar aviso global:', e);
+            const errorMsg = e.message || (typeof e === 'object' ? JSON.stringify(e) : String(e));
+            alert("Erro ao salvar aviso: " + errorMsg);
         } finally {
             setIsSavingBroadcast(false);
         }
@@ -2426,9 +2887,20 @@ const AdminPage = ({ setCurrentArea, initialSection }) => {
         if (adminSection === 'audit') {
             const fetchAudit = async () => {
                 setLoading(true);
-                const snap = await db.collection('audit_logs').orderBy('timestamp', 'desc').limit(50).get();
-                setAuditLogs(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-                setLoading(false);
+                try {
+                    const { data, error } = await window._supabaseClient
+                        .from('audit_logs')
+                        .select('*')
+                        .order('timestamp', { ascending: false })
+                        .limit(50);
+                    
+                    if (error) throw error;
+                    setAuditLogs(data || []);
+                } catch (err) {
+                    console.error("Erro ao buscar logs:", err);
+                } finally {
+                    setLoading(false);
+                }
             };
             fetchAudit();
         }
@@ -2463,9 +2935,9 @@ const AdminPage = ({ setCurrentArea, initialSection }) => {
         return filteredData;
     }, [selectedUserForStats, filteredData]);
 
-    const { paginatedData, PaginationControls } = usePagination(dataForPagination || [], 10);
+    const { paginatedData, paginationControls } = usePagination(dataForPagination || [], 10);
 
-    const chartDataMateria = { labels: ['Cível', 'Crime'], datasets: [{ data: [stats.perMateria.civel || 0, stats.perMateria.crime || 0], backgroundColor: ['#6366F1', '#F59E0B'] }] };
+    const chartDataMateria = { labels: ['Matéria Cível', 'Matéria Criminal'], datasets: [{ data: [stats.perMateria.civel || 0, stats.perMateria.crime || 0], backgroundColor: ['#6366F1', '#F59E0B'] }] };
     const chartDataPrazo = { labels: ['5 Dias', '15 Dias'], datasets: [{ data: [stats.perPrazo[5] || 0, stats.perPrazo[15] || 0], backgroundColor: ['#10B981', '#3B82F6'] }] };
     const chartDataByDay = { labels: Object.keys(stats.byDay || {}).reverse(), datasets: [{ label: 'Cálculos por Dia', data: Object.values(stats.byDay || {}).reverse(), backgroundColor: 'rgba(79, 70, 229, 0.8)' }] };
     const chartOptions = { legend: { display: false }, maintainAspectRatio: false, scales: { xAxes: [{ ticks: { beginAtZero: true } }] } };
@@ -2482,46 +2954,63 @@ const AdminPage = ({ setCurrentArea, initialSection }) => {
 
     if (selectedUserForStats) {
         return (
-            <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-xl p-6 sm:p-8 rounded-2xl shadow-lg border border-slate-200/50 dark:border-slate-700/50 space-y-6 animate-fade-in-up">
+            <div className="tjpr-card p-6 sm:p-8 space-y-6 animate-fade-in-up">
                 <div className="flex justify-between items-start">
                     <div>
-                        <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Perfil do Utilizador</h2>
-                        <p className="text-slate-500 dark:text-slate-400">{selectedUserForStats.name}</p>
-                        <p className="text-xs text-slate-400 dark:text-slate-500">ID: {selectedUserForStats.data[0]?.userId}</p>
+                        <h2 className="text-2xl font-black text-white tracking-tight">Perfil do Usuário</h2>
+                        <p className="text-slate-400 font-medium">{selectedUserForStats.name}</p>
+                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-1">ID: {selectedUserForStats.data[0]?.userId}</p>
                     </div>
-                    <button onClick={() => setSelectedUserForStats(null)} className="text-sm font-semibold text-indigo-600 hover:text-indigo-500">&larr; Voltar ao Painel</button>
+                    <button onClick={() => setSelectedUserForStats(null)} className="text-xs font-black text-indigo-400 hover:text-indigo-300 uppercase tracking-widest flex items-center gap-2">
+                        <span className="material-icons text-sm">arrow_back</span> Voltar ao Painel
+                    </button>
                 </div>
                 <div className="flex justify-end gap-2">
                     <button onClick={handleExport} className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-all shadow-md hover:shadow-lg flex items-center gap-2 text-sm font-semibold">
                         <span className="material-icons text-sm">download</span>
-                        Baixar Relatório do Utilizador
+                        Baixar Relatório do Usuário
                     </button>
                 </div>
                 <UserUsageCharts userData={selectedUserForStats.data} />
-                <div className="overflow-hidden bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
-                    <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/20">
-                        <h3 className="font-bold text-slate-700 dark:text-slate-200">Histórico Recente</h3>
+                <div className="overflow-hidden bg-slate-900/40 backdrop-blur-xl rounded-[2.5rem] border border-white/5 shadow-2xl">
+                    <div className="px-8 py-6 border-b border-white/5 bg-white/5">
+                        <h3 className="font-black text-white uppercase tracking-widest text-xs">Histórico Recente</h3>
                     </div>
                     <div className="overflow-x-auto">
-                        <table className="w-full text-sm text-left">
-                            <thead className="text-xs text-slate-500 uppercase bg-slate-50 dark:bg-slate-900/60 border-b border-slate-100 dark:border-slate-700">
-                                <tr><th className="px-6 py-3 font-semibold">Data</th><th className="px-6 py-3 font-semibold">Nº Processo</th><th className="px-6 py-3 font-semibold">Matéria</th><th className="px-6 py-3 font-semibold">Prazo</th></tr>
+                        <table className="w-full text-sm text-left border-separate border-spacing-y-2 px-4 pb-4">
+                            <thead className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">
+                                <tr>
+                                    <th className="px-6 py-4">Data</th>
+                                    <th className="px-6 py-4">Nº Processo</th>
+                                    <th className="px-6 py-4 text-center">Tipo / Matéria</th>
+                                    <th className="px-6 py-4 text-center">Prazo</th>
+                                </tr>
                             </thead>
-                            <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
+                            <tbody className="space-y-2">
                                 {paginatedData.map(item => (
-                                    <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors">
-                                        <td className="px-6 py-4">{item.timestamp ? formatarData(item.timestamp.toDate()) : ''}</td>
-                                        <td className="px-6 py-4 font-medium text-slate-700 dark:text-slate-200">{item.numeroProcesso}</td>
-                                        <td className="px-6 py-4 capitalize">{item.materia}</td>
-                                        <td className="px-6 py-4">{item.prazo} dias</td>
+                                    <tr key={item.id} className="bg-white/[0.02] hover:bg-white/[0.05] transition-all group">
+                                        <td className="px-6 py-4 rounded-l-2xl text-slate-400 font-medium">{item.timestamp ? formatarData(item.timestamp.toDate()) : ''}</td>
+                                        <td className="px-6 py-4 font-black text-white">{item.numeroProcesso && item.numeroProcesso !== 'Não informado' ? item.numeroProcesso : '-'}</td>
+                                        <td className="px-6 py-4 text-center">
+                                            {item.type === 'djen_consulta' ? (
+                                                <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                                    DJEN
+                                                </span>
+                                            ) : (
+                                                <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider ${item.materia === 'civel' ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20' : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'}`}>
+                                                    {item.materia === 'civel' ? 'Cível' : 'Criminal'}
+                                                </span>
+                                            )}
+                                        </td>
+                                        <td className="px-6 py-4 rounded-r-2xl font-bold text-indigo-400 text-center">{item.prazo ? `${item.prazo} dias` : '-'}</td>
                                     </tr>
                                 ))}
                             </tbody>
                         </table>
                     </div>
                     {selectedUserForStats.data.length > 10 && (
-                        <div className="p-4 border-t border-slate-100 dark:border-slate-700 bg-slate-50/30 dark:bg-slate-900/10">
-                            <PaginationControls />
+                        <div className="p-6 border-t border-white/5 bg-white/2">
+                            {paginationControls}
                         </div>
                     )}
                 </div>
@@ -2531,46 +3020,91 @@ const AdminPage = ({ setCurrentArea, initialSection }) => {
 
     return (
         <div className="space-y-8">
-            <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-xl p-6 sm:p-8 rounded-2xl shadow-lg border border-slate-200/50 dark:border-slate-700/50">
-                <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Painel Administrativo</h2>
+            <div className="tjpr-card p-6 sm:p-8">
+                <h2 className="text-2xl font-black text-white tracking-tight">Painel Administrativo</h2>
                 <div className="flex items-center gap-2 mt-4 border-b border-slate-200 dark:border-slate-700 pb-4">
-                    <button onClick={() => setAdminSection('stats')} className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors ${adminSection === 'stats' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>Estatísticas de Uso</button>
-                    <button onClick={() => setAdminSection('users')} className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors ${adminSection === 'users' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>
-                        {adminUserData.role === 'setor_admin' ? 'Usuários' : 'Usuários e Setores'}
+                    <button 
+                        onClick={() => setAdminSection('stats')} 
+                        className={`flex items-center gap-2 px-6 py-3 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all duration-300 ${adminSection === 'stats' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/40 scale-105' : 'bg-white/5 text-slate-500 hover:text-slate-300 hover:bg-white/10'}`}
+                    >
+                        <span className="material-icons text-sm">insights</span>
+                        Estatísticas
                     </button>
-                    {(adminUserData.role === 'admin' || adminUserData.role === 'setor_admin') && <button onClick={() => setAdminSection('minutas')} className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors ${adminSection === 'minutas' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>Gerir Minutas</button>}
-                    {adminUserData.role === 'admin' && <button onClick={() => setAdminSection('calendar')} className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors ${adminSection === 'calendar' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>Gerir Calendário</button>}
-                    {adminUserData.role === 'admin' && <button onClick={() => setAdminSection('chamados')} className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors ${adminSection === 'chamados' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>Chamados</button>}
-                    {adminUserData.role === 'admin' && <button onClick={() => setAdminSection('broadcast')} className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors ${adminSection === 'broadcast' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>Aviso Global</button>}
+                    
+                    <button 
+                        onClick={() => setAdminSection('users')} 
+                        className={`flex items-center gap-2 px-6 py-3 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all duration-300 ${adminSection === 'users' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/40 scale-105' : 'bg-white/5 text-slate-500 hover:text-slate-300 hover:bg-white/10'}`}
+                    >
+                        <span className="material-icons text-sm">people</span>
+                        {adminUserData?.role === 'setor_admin' ? 'Usuários' : 'Gestão de Acesso'}
+                    </button>
+                    
+                    {(adminUserData?.role === 'admin' || adminUserData?.role === 'setor_admin') && (
+                        <button 
+                            onClick={() => setAdminSection('minutas')} 
+                            className={`flex items-center gap-2 px-6 py-3 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all duration-300 ${adminSection === 'minutas' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/40 scale-105' : 'bg-white/5 text-slate-500 hover:text-slate-300 hover:bg-white/10'}`}
+                        >
+                            <span className="material-icons text-sm">description</span>
+                            Minutas
+                        </button>
+                    )}
+                    
+                    {adminUserData?.role === 'admin' && (
+                        <>
+                            <button 
+                                onClick={() => setAdminSection('calendar')} 
+                                className={`flex items-center gap-2 px-6 py-3 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all duration-300 ${adminSection === 'calendar' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/40 scale-105' : 'bg-white/5 text-slate-500 hover:text-slate-300 hover:bg-white/10'}`}
+                            >
+                                <span className="material-icons text-sm">event</span>
+                                Calendário
+                            </button>
+                            
+                            <button 
+                                onClick={() => setAdminSection('chamados')} 
+                                className={`flex items-center gap-2 px-6 py-3 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all duration-300 ${adminSection === 'chamados' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/40 scale-105' : 'bg-white/5 text-slate-500 hover:text-slate-300 hover:bg-white/10'}`}
+                            >
+                                <span className="material-icons text-sm">confirmation_number</span>
+                                Chamados
+                            </button>
+                            
+                            <button 
+                                onClick={() => setAdminSection('broadcast')} 
+                                className={`flex items-center gap-2 px-6 py-3 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all duration-300 ${adminSection === 'broadcast' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/40 scale-105' : 'bg-white/5 text-slate-500 hover:text-slate-300 hover:bg-white/10'}`}
+                            >
+                                <span className="material-icons text-sm">campaign</span>
+                                Aviso Global
+                            </button>
+                        </>
+                    )}
 
                 </div>
             </div>
 
             {adminSection === 'stats' && (
-                <div className="space-y-8 animate-fade-in text-slate-800 dark:text-slate-100">
+                <div className="space-y-8 animate-fade-in text-white">
 
                     {/* 1. Header & Filters Toolbar */}
-                    <div className="bg-white/80 dark:bg-slate-800/80 backdrop-blur-xl p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
+                    <div className="tjpr-card p-6">
                         <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
                             <div>
-                                <h3 className="text-xl font-bold text-slate-800 dark:text-slate-100">Visão Geral de Uso</h3>
-                                <p className="text-sm text-slate-500 dark:text-slate-400">Analise o desempenho e engajamento da ferramenta.</p>
+                                <h3 className="text-xl font-black text-white tracking-tight">Visão Geral de Uso</h3>
+                                <p className="text-sm text-slate-400 font-medium">Analise o desempenho e engajamento da ferramenta.</p>
                             </div>
-                            <div className="flex bg-slate-100 dark:bg-slate-900/50 p-1 rounded-lg">
-                                <button onClick={() => setStatsView('calculadora')} className={`px-4 py-1.5 text-sm font-semibold rounded-md transition-all ${statsView === 'calculadora' ? 'bg-white dark:bg-slate-700 shadow-sm text-indigo-600 dark:text-white' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'}`}>Calculadora</button>
-                                <button onClick={() => setStatsView('djen_consulta')} className={`px-4 py-1.5 text-sm font-semibold rounded-md transition-all ${statsView === 'djen_consulta' ? 'bg-white dark:bg-slate-700 shadow-sm text-indigo-600 dark:text-white' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'}`}>Consulta DJEN</button>
+                            <div className="flex bg-white/5 p-1 rounded-xl border border-white/10">
+                                <button onClick={() => setStatsView('calculadora')} className={`px-6 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all ${statsView === 'calculadora' ? 'bg-indigo-600 shadow-lg shadow-indigo-600/20 text-white' : 'text-slate-500 hover:text-slate-300'}`}>Calculadora</button>
+                                <button onClick={() => setStatsView('djen_consulta')} className={`px-6 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all ${statsView === 'djen_consulta' ? 'bg-indigo-600 shadow-lg shadow-indigo-600/20 text-white' : 'text-slate-500 hover:text-slate-300'}`}>Consulta DJEN</button>
                             </div>
                         </div>
 
                         {/* Filters Grid */}
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
-                            <div><label className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1 block">Data Inicial</label><input type="date" name="startDate" value={filters.startDate} onChange={handleFilterChange} className="w-full p-2.5 text-sm rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all outline-none" /></div>
-                            <div><label className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1 block">Data Final</label><input type="date" name="endDate" value={filters.endDate} onChange={handleFilterChange} className="w-full p-2.5 text-sm rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all outline-none" /></div>
+                            <div><label className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mb-2 ml-1 block">Data Inicial</label><input type="date" name="startDate" value={filters.startDate} onChange={handleFilterChange} className="w-full h-12 bg-white/5 border border-white/10 rounded-xl px-4 text-xs font-bold text-slate-200 focus:border-indigo-500/50 outline-none transition-all" /></div>
+                            <div><label className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mb-2 ml-1 block">Data Final</label><input type="date" name="endDate" value={filters.endDate} onChange={handleFilterChange} className="w-full h-12 bg-white/5 border border-white/10 rounded-xl px-4 text-xs font-bold text-slate-200 focus:border-indigo-500/50 outline-none transition-all" /></div>
 
                             {statsView === 'calculadora' ? (
                                 <>
-                                    <div><label className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1 block">Matéria</label><select name="materia" value={filters.materia} onChange={handleFilterChange} className="w-full p-2.5 text-sm rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none"><option value="todos">Todas</option><option value="civel">Cível</option><option value="crime">Crime</option></select></div>
-                                    <div><label className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1 block">Prazo</label><select name="prazo" value={filters.prazo} onChange={handleFilterChange} className="w-full p-2.5 text-sm rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none"><option value="todos">Todos</option><option value="5">5 Dias</option><option value="15">15 Dias</option></select></div>
+                                    <div><label className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mb-2 ml-1 block">Matéria</label><select name="materia" value={filters.materia} onChange={handleFilterChange} className="w-full h-12 bg-white/5 border border-white/10 rounded-xl px-4 text-xs font-bold text-slate-200 appearance-none focus:border-indigo-500/50 outline-none transition-all cursor-pointer"><option value="todos">Todas</option><option value="civel">Matéria Cível</option><option value="crime">Matéria Criminal</option></select></div>
+                                    <div><label className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mb-2 ml-1 block">Prazo</label><select name="prazo" value={filters.prazo} onChange={handleFilterChange} className="w-full h-12 bg-white/5 border border-white/10 rounded-xl px-4 text-xs font-bold text-slate-200 appearance-none focus:border-indigo-500/50 outline-none transition-all cursor-pointer"><option value="todos">Todos</option><option value="5">5 Dias</option><option value="15">15 Dias</option></select></div>
                                 </>
                             ) : (
                                 <div className="lg:col-span-2 hidden lg:block"></div>
@@ -2578,20 +3112,20 @@ const AdminPage = ({ setCurrentArea, initialSection }) => {
 
                             <div className="lg:hidden"><button onClick={handleFilter} className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg transition-colors shadow-sm">Aplicar Filtros</button></div>
                         </div>
-                        <div className="hidden lg:flex justify-end mt-4 pt-4 border-t border-slate-100 dark:border-slate-700">
-                            <button onClick={handleFilter} className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold rounded-lg transition-colors shadow-md flex items-center gap-2">
+                        <div className="hidden lg:flex justify-end mt-6 pt-6 border-t border-white/5">
+                            <button onClick={handleFilter} className="px-8 py-3 bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow-lg shadow-indigo-600/40 flex items-center gap-2 active:scale-95">
                                 <span className="material-icons text-sm">filter_list</span> Aplicar Filtros
                             </button>
                         </div>
                     </div>
 
                     {!hasSearched ? (
-                        <div className="text-center py-20 bg-slate-50 dark:bg-slate-900/30 rounded-3xl border-2 border-dashed border-slate-200 dark:border-slate-700">
-                            <span className="material-icons text-6xl text-slate-300 dark:text-slate-600 mb-4">analytics</span>
-                            <p className="text-lg font-medium text-slate-500 dark:text-slate-400">Configure os filtros acima para visualizar as estatísticas.</p>
+                        <div className="text-center py-24 bg-white/5 rounded-[2.5rem] border border-white/10 border-dashed backdrop-blur-xl">
+                            <span className="material-icons text-6xl text-slate-700 mb-6">analytics</span>
+                            <p className="text-sm font-black text-slate-500 uppercase tracking-widest">Configure os filtros acima para visualizar as estatísticas.</p>
                         </div>
                     ) : filteredData.length === 0 ? (
-                        <div className="text-center py-20 bg-slate-50 dark:bg-slate-900/30 rounded-3xl border-2 border-dashed border-slate-200 dark:border-slate-700 animate-fade-in">
+                        <div className="text-center py-24 bg-white/5 rounded-[2.5rem] border border-white/10 border-dashed backdrop-blur-xl animate-fade-in">
                             {loading ? (
                                 <div className="max-w-4xl mx-auto px-4">
                                     <SkeletonLoader />
@@ -2606,16 +3140,16 @@ const AdminPage = ({ setCurrentArea, initialSection }) => {
                     ) : (
                         <>
                             {/* 2. KPI Cards Section (Collapsible) */}
-                            <div className="bg-white/40 dark:bg-slate-800/40 rounded-3xl border border-slate-200/50 dark:border-slate-700/50 overflow-hidden transition-all duration-300">
+                            <div className="tjpr-card overflow-hidden transition-all duration-300">
                                 <button
                                     onClick={() => setCollapsedSections(prev => ({ ...prev, kpis: !prev.kpis }))}
-                                    className="w-full px-6 py-4 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors"
+                                    className="w-full px-6 py-5 flex items-center justify-between hover:bg-white/5 transition-colors"
                                 >
-                                    <div className="flex items-center gap-2">
-                                        <span className="material-icons text-indigo-600 dark:text-indigo-400">dashboard</span>
-                                        <span className="font-bold text-slate-800 dark:text-slate-100">Indicadores Chave (KPIs)</span>
+                                    <div className="flex items-center gap-3">
+                                        <span className="material-icons text-indigo-400">dashboard</span>
+                                        <span className="font-black text-white tracking-tight">Indicadores Chave (KPIs)</span>
                                     </div>
-                                    <span className={`material-icons transition-transform duration-300 ${collapsedSections.kpis ? '' : 'rotate-180'}`}>expand_more</span>
+                                    <span className={`material-icons text-slate-500 transition-transform duration-300 ${collapsedSections.kpis ? '' : 'rotate-180'}`}>expand_more</span>
                                 </button>
                                 {!collapsedSections.kpis && (
                                     <div className="p-6 pt-0 animate-fade-in">
@@ -2644,37 +3178,37 @@ const AdminPage = ({ setCurrentArea, initialSection }) => {
                             </div>
 
                             {/* 3. Global Charts Section (Collapsible) */}
-                            <div className="bg-white/40 dark:bg-slate-800/40 rounded-3xl border border-slate-200/50 dark:border-slate-700/50 overflow-hidden transition-all duration-300">
+                            <div className="tjpr-card overflow-hidden transition-all duration-300">
                                 <button
                                     onClick={() => setCollapsedSections(prev => ({ ...prev, charts: !prev.charts }))}
-                                    className="w-full px-6 py-4 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors"
+                                    className="w-full px-6 py-5 flex items-center justify-between hover:bg-white/5 transition-colors"
                                 >
-                                    <div className="flex items-center gap-2">
-                                        <span className="material-icons text-purple-600 dark:text-purple-400">insights</span>
-                                        <span className="font-bold text-slate-800 dark:text-slate-100">Gráficos de Tendência e Distribuição</span>
+                                    <div className="flex items-center gap-3">
+                                        <span className="material-icons text-purple-400">insights</span>
+                                        <span className="font-black text-white tracking-tight">Gráficos de Tendência e Distribuição</span>
                                     </div>
-                                    <span className={`material-icons transition-transform duration-300 ${collapsedSections.charts ? '' : 'rotate-180'}`}>expand_more</span>
+                                    <span className={`material-icons text-slate-500 transition-transform duration-300 ${collapsedSections.charts ? '' : 'rotate-180'}`}>expand_more</span>
                                 </button>
                                 {!collapsedSections.charts && (
-                                    <div className="p-6 pt-0 animate-fade-in space-y-6">
-                                        <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
-                                            <h4 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-4">Volume de Utilização por Dia</h4>
+                                    <div className="p-8 pt-2 animate-fade-in space-y-8">
+                                        <div className="bg-slate-950/50 p-6 rounded-2xl border border-white/5 shadow-inner">
+                                            <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mb-6">Volume de Utilização por Dia</h4>
                                             <div className="h-[300px]">
                                                 <Bar data={chartDataByDay} options={{ ...chartOptions, maintainAspectRatio: false }} />
                                             </div>
                                         </div>
 
-                                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                                            <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 h-full">
-                                                <h4 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-4">Distribuição por Matéria</h4>
+                                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                                            <div className="bg-slate-950/50 p-6 rounded-2xl border border-white/5 shadow-inner">
+                                                <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mb-6 text-center">Matéria</h4>
                                                 <div className="h-64"><Pie data={chartDataMateria} options={{ maintainAspectRatio: false }} /></div>
                                             </div>
-                                            <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 h-full">
-                                                <h4 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-4">Distribuição por Prazo</h4>
+                                            <div className="bg-slate-950/50 p-6 rounded-2xl border border-white/5 shadow-inner">
+                                                <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mb-6 text-center">Prazo</h4>
                                                 <div className="h-64"><Pie data={chartDataPrazo} options={{ maintainAspectRatio: false }} /></div>
                                             </div>
-                                            <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 h-full">
-                                                <h4 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-4">Utilização por Setor</h4>
+                                            <div className="bg-slate-950/50 p-6 rounded-2xl border border-white/5 shadow-inner">
+                                                <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mb-6 text-center">Setor</h4>
                                                 <div className="h-64"><HorizontalBar data={chartDataSector} options={{ ...chartOptions, maintainAspectRatio: false }} /></div>
                                             </div>
                                         </div>
@@ -2683,15 +3217,15 @@ const AdminPage = ({ setCurrentArea, initialSection }) => {
                             </div>
 
                             {/* 4. Top Usuários Section */}
-                            <div className="bg-white/40 dark:bg-slate-800/40 rounded-3xl border border-slate-200/50 dark:border-slate-700/50 overflow-hidden">
-                                <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/20 flex justify-between items-center">
-                                    <h3 className="font-bold text-slate-700 dark:text-slate-200 flex items-center gap-2">
-                                        <span className="material-icons text-amber-500">emoji_events</span> Hall da Fama (Mês Atual)
+                            <div className="tjpr-card overflow-hidden">
+                                <div className="px-6 py-4 border-b border-white/5 bg-white/5 flex justify-between items-center">
+                                    <h3 className="font-black text-white flex items-center gap-3 tracking-tight">
+                                        <span className="material-icons text-amber-400">emoji_events</span> Hall da Fama (Mês Atual)
                                     </h3>
-                                    <span className="text-[10px] text-slate-400 uppercase font-bold tracking-widest italic">Baseado em volume de cálculos</span>
+                                    <span className="text-[10px] text-slate-500 uppercase font-black tracking-widest italic">Ranking de Atividade</span>
                                 </div>
-                                <div className="p-6">
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+                                <div className="p-8">
+                                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-6">
                                         {topUsers.map(([email, count], idx) => {
                                             let badge = null;
                                             if (idx === 0) badge = "🥇";
@@ -2699,18 +3233,17 @@ const AdminPage = ({ setCurrentArea, initialSection }) => {
                                             else if (idx === 2) badge = "🥉";
 
                                             return (
-                                                <div key={idx} className={`p-4 rounded-2xl border transition-all duration-300 flex flex-col items-center text-center ${idx < 3 ? 'bg-indigo-50/50 dark:bg-indigo-900/20 border-indigo-100 dark:border-indigo-800 scale-[1.05] shadow-md z-10' : 'bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 opacity-80'
-                                                    }`}>
-                                                    <div className="relative mb-3">
-                                                        <div className={`w-12 h-12 rounded-full flex items-center justify-center text-xl font-bold text-white shadow-inner ${idx === 0 ? 'bg-gradient-to-tr from-amber-400 to-yellow-600' :
-                                                            idx === 1 ? 'bg-gradient-to-tr from-slate-300 to-slate-500' :
-                                                                idx === 2 ? 'bg-gradient-to-tr from-orange-400 to-orange-700' : 'bg-slate-200 dark:bg-slate-700 text-slate-400 dark:text-slate-500'
+                                                <div key={idx} className={`p-6 rounded-2xl border transition-all duration-300 flex flex-col items-center text-center group ${idx < 3 ? 'bg-indigo-600/10 border-indigo-500/20 shadow-lg shadow-indigo-600/5 scale-[1.05]' : 'bg-slate-950/40 border-white/5'}`}>
+                                                    <div className="relative mb-4">
+                                                        <div className={`w-14 h-14 rounded-full flex items-center justify-center text-2xl font-black text-white shadow-inner ${idx === 0 ? 'bg-gradient-to-tr from-amber-400 to-yellow-600 shadow-amber-500/20' :
+                                                            idx === 1 ? 'bg-gradient-to-tr from-slate-300 to-slate-500 shadow-slate-400/20' :
+                                                                idx === 2 ? 'bg-gradient-to-tr from-orange-400 to-orange-700 shadow-orange-600/20' : 'bg-slate-900 border border-white/5 text-slate-600'
                                                             }`}>
                                                             {badge || (idx + 1)}
                                                         </div>
                                                     </div>
-                                                    <div className="text-xs font-bold text-slate-700 dark:text-slate-200 truncate w-full mb-1" title={email}>{email.split('@')[0]}</div>
-                                                    <div className="text-[10px] text-slate-400 font-mono">{count} sessões</div>
+                                                    <div className="text-xs font-black text-white truncate w-full mb-1 tracking-tight" title={email}>{email.split('@')[0]}</div>
+                                                    <div className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">{count} cálculos</div>
                                                 </div>
                                             );
                                         })}
@@ -2719,59 +3252,73 @@ const AdminPage = ({ setCurrentArea, initialSection }) => {
                             </div>
 
                             {/* 5. Detailed Records Table (Collapsible) */}
-                            <div className="bg-white/40 dark:bg-slate-800/40 rounded-3xl border border-slate-200/50 dark:border-slate-700/50 overflow-hidden transition-all duration-300">
+                            <div className="tjpr-card overflow-hidden transition-all duration-300">
                                 <button
                                     onClick={() => setCollapsedSections(prev => ({ ...prev, table: !prev.table }))}
-                                    className="w-full px-6 py-4 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors"
+                                    className="w-full px-6 py-5 flex items-center justify-between hover:bg-white/5 transition-colors"
                                 >
-                                    <div className="flex items-center gap-2">
-                                        <span className="material-icons text-emerald-600 dark:text-emerald-400">table_view</span>
-                                        <span className="font-bold text-slate-800 dark:text-slate-100">Registros Detalhados</span>
+                                    <div className="flex items-center gap-3">
+                                        <span className="material-icons text-emerald-400">table_view</span>
+                                        <span className="font-black text-white tracking-tight">Registros Detalhados</span>
                                     </div>
-                                    <div className="flex items-center gap-4">
-                                        <span className="text-xs font-semibold px-2 py-0.5 bg-white dark:bg-slate-700 rounded-md text-slate-500">{filteredData.length} registros</span>
-                                        <span className={`material-icons transition-transform duration-300 ${collapsedSections.table ? '' : 'rotate-180'}`}>expand_more</span>
+                                    <div className="flex items-center gap-6">
+                                        <span className="text-[10px] font-black px-3 py-1 bg-white/5 border border-white/5 rounded-full text-slate-400 uppercase tracking-widest">{filteredData.length} registros</span>
+                                        <span className={`material-icons text-slate-500 transition-transform duration-300 ${collapsedSections.table ? '' : 'rotate-180'}`}>expand_more</span>
                                     </div>
                                 </button>
                                 {!collapsedSections.table && (
-                                    <div className="p-6 pt-0 animate-fade-in">
-                                        <div className="flex justify-between items-center mb-4">
-                                            <button onClick={handleExport} className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-all shadow-md hover:shadow-lg flex items-center gap-2 text-sm font-semibold">
+                                    <div className="p-8 pt-2 animate-fade-in">
+                                        <div className="flex justify-between items-center mb-6">
+                                            <button onClick={handleExport} className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl transition-all shadow-lg shadow-indigo-600/20 flex items-center gap-2 text-xs font-black uppercase tracking-wider">
                                                 <span className="material-icons text-sm">download</span> Exportar Excel
                                             </button>
                                             {adminUserData.role === 'admin' && (
-                                                <button onClick={handleDeleteClick} className="px-4 py-2 bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 rounded-lg transition-all text-sm font-semibold flex items-center gap-2">
+                                                <button onClick={handleDeleteClick} className="px-5 py-2.5 bg-rose-500/10 text-rose-400 border border-rose-500/20 hover:bg-rose-500/20 rounded-xl transition-all text-xs font-black uppercase tracking-wider flex items-center gap-2">
                                                     <span className="material-icons text-sm">delete_sweep</span> Limpar Período
                                                 </button>
                                             )}
                                         </div>
 
-                                        <div className="overflow-hidden bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
+                                        <div className="overflow-hidden bg-slate-950/40 rounded-2xl border border-white/5">
                                             <div className="overflow-x-auto">
                                                 <table className="w-full text-sm text-left">
-                                                    <thead className="text-xs text-slate-500 uppercase bg-slate-50 dark:bg-slate-900/50 border-b border-slate-100 dark:border-slate-700">
+                                                    <thead className="text-[10px] text-slate-500 uppercase tracking-[0.2em] bg-white/5 border-b border-white/5">
                                                         <tr>
-                                                            <th className="px-6 py-4">Usuário</th>
-                                                            <th className="px-6 py-4">Matéria</th>
-                                                            <th className="px-6 py-4">Prazo</th>
-                                                            <th className="px-6 py-4">Processo</th>
-                                                            <th className="px-6 py-4">Data/Hora</th>
-                                                            <th className="px-6 py-4 text-center">Ações</th>
+                                                            <th className="px-6 py-5 font-black">Usuário</th>
+                                                            <th className="px-6 py-5 font-black text-center">{statsView === 'calculadora' ? 'Matéria' : 'Tipo'}</th>
+                                                            {statsView === 'calculadora' && <th className="px-6 py-5 font-black text-center">Prazo</th>}
+                                                            <th className="px-6 py-5 font-black">Processo</th>
+                                                            <th className="px-6 py-5 font-black">Data/Hora</th>
+                                                            <th className="px-6 py-5 font-black text-center">Ações</th>
                                                         </tr>
                                                     </thead>
-                                                    <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
+                                                    <tbody className="divide-y divide-white/5">
                                                         {paginatedData.map(item => (
-                                                            <tr key={item.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition-colors group">
-                                                                <td className="px-6 py-4">
-                                                                    <div className="font-medium text-slate-800 dark:text-slate-100">{item.userName || item.userEmail}</div>
-                                                                    <div className="text-[10px] text-slate-400">{item.userEmail}</div>
+                                                            <tr key={item.id} className="hover:bg-white/[0.02] transition-colors group">
+                                                                <td className="px-6 py-5">
+                                                                    <div className="font-bold text-white tracking-tight">{item.userName || item.userEmail || <span className="text-slate-500 italic">Anônimo</span>}</div>
+                                                                    {item.userEmail && <div className="text-[10px] text-slate-500 font-medium">{item.userEmail}</div>}
                                                                 </td>
-                                                                <td className="px-6 py-4"><span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${item.materia === 'civel' ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'}`}>{item.materia}</span></td>
-                                                                <td className="px-6 py-4 font-mono text-xs">{item.prazo} dias</td>
-                                                                <td className="px-6 py-4 text-slate-500 font-mono text-xs">{item.numeroProcesso || '-'}</td>
-                                                                <td className="px-6 py-4 text-slate-400 text-xs">{item.timestamp ? formatarData(item.timestamp.toDate()) : '-'}</td>
-                                                                <td className="px-6 py-4 text-center">
-                                                                    <button onClick={() => setSelectedUserForStats({ name: item.userName || item.userEmail, data: allData.filter(d => d.userId === item.userId) })} className="p-2 text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg transition-colors" title="Ver perfil do usuário">
+                                                                <td className="px-6 py-5 text-center">
+                                                                    {statsView === 'calculadora' ? (
+                                                                        item.materia ? (
+                                                                            <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider ${item.materia === 'civel' ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20' : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'}`}>
+                                                                                {item.materia === 'civel' ? 'Cível' : 'Criminal'}
+                                                                            </span>
+                                                                        ) : <span className="text-slate-600">-</span>
+                                                                    ) : (
+                                                                        <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                                                            DJEN
+                                                                        </span>
+                                                                    )}
+                                                                </td>
+                                                                {statsView === 'calculadora' && (
+                                                                    <td className="px-6 py-5 font-black text-slate-400 text-xs text-center">{item.prazo ? `${item.prazo}d` : '-'}</td>
+                                                                )}
+                                                                <td className="px-6 py-5 text-slate-500 font-bold text-[11px] tracking-tighter">{item.numeroProcesso && item.numeroProcesso !== 'Não informado' ? item.numeroProcesso : '-'}</td>
+                                                                <td className="px-6 py-5 text-slate-500 text-[11px] font-medium">{item.timestamp ? formatarData(item.timestamp.toDate()) : '-'}</td>
+                                                                <td className="px-6 py-5 text-center">
+                                                                    <button onClick={() => setSelectedUserForStats({ name: item.userName || item.userEmail || 'Anônimo', data: allData.filter(d => d.userId === item.userId) })} className="p-2 text-indigo-400 hover:bg-indigo-400/10 rounded-lg transition-all" title="Ver perfil do usuário">
                                                                         <span className="material-icons text-sm">visibility</span>
                                                                     </button>
                                                                 </td>
@@ -2780,8 +3327,8 @@ const AdminPage = ({ setCurrentArea, initialSection }) => {
                                                     </tbody>
                                                 </table>
                                             </div>
-                                            <div className="p-4 border-t border-slate-100 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/20">
-                                                <PaginationControls />
+                                            <div className="p-6 border-t border-white/5 bg-white/5">
+                                                {paginationControls}
                                             </div>
                                         </div>
                                     </div>
@@ -2793,46 +3340,57 @@ const AdminPage = ({ setCurrentArea, initialSection }) => {
             )}
 
             {adminSection === 'users' && (
-                <div className="flex flex-col lg:flex-row gap-6 animate-fade-in">
+                <div className="flex flex-col xl:flex-row gap-8 animate-fade-in">
                     {/* Coluna Esquerda: Gerenciamento de Setores (Apenas Admin Global) */}
                     {adminUserData.role === 'admin' && (
-                        <div className="lg:w-1/3 space-y-6">
-                            <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
-                                <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100 mb-4">Gerenciar Setores</h3>
-                                <form onSubmit={handleAddSector} className="space-y-3">
-                                    <div>
-                                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Novo Setor</label>
-                                        <div className="flex gap-2">
+                        <div className="xl:w-1/3 space-y-8">
+                            <div className="tjpr-card p-8">
+                                <h3 className="text-xl font-black text-white mb-6 tracking-tight flex items-center gap-2">
+                                    <span className="material-icons text-blue-400">category</span>
+                                    Gerenciar Setores
+                                </h3>
+                                <form onSubmit={handleAddSector} className="space-y-4">
+                                    <div className="space-y-2">
+                                        <label className="block text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] ml-1">Novo Setor</label>
+                                        <div className="flex flex-col sm:flex-row gap-3">
                                             <input
                                                 type="text"
                                                 placeholder="Nome do setor..."
                                                 value={newSectorName}
                                                 onChange={e => setNewSectorName(e.target.value)}
-                                                className="flex-grow px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition text-sm"
+                                                className="flex-grow px-4 py-3 bg-slate-950/50 border border-white/5 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition text-sm text-white placeholder:text-slate-600"
                                             />
-                                            <button type="submit" className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors shadow-sm">
-                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" /></svg>
+                                            <button type="submit" className="sm:px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl transition-all shadow-lg shadow-indigo-600/20 active:scale-95 flex items-center justify-center">
+                                                <span className="material-icons">add</span>
+                                                <span className="sm:hidden ml-2 font-bold uppercase text-[10px] tracking-widest">Adicionar</span>
                                             </button>
                                         </div>
                                     </div>
                                 </form>
                             </div>
 
-                            <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
-                                <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/30">
-                                    <h3 className="text-sm font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider">Setores Existentes</h3>
+                            <div className="tjpr-card overflow-hidden">
+                                <div className="px-6 py-4 border-b border-white/5 bg-white/5">
+                                    <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Setores Existentes</h3>
                                 </div>
-                                <div className="max-h-[500px] overflow-y-auto divide-y divide-slate-100 dark:divide-slate-700">
+                                <div className="max-h-[500px] overflow-y-auto divide-y divide-white/5">
                                     {setores.map(setor => {
                                         const membersCount = allUsersForManagement.filter(u => u.setorId === setor.id).length;
                                         return (
-                                            <div key={setor.id} className="p-4 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors group">
+                                            <div key={setor.id} className="p-5 flex items-center justify-between hover:bg-white/[0.02] transition-colors group">
                                                 <div>
-                                                    <p className="font-medium text-slate-800 dark:text-slate-200 text-sm">{setor.nome}</p>
-                                                    <p className="text-xs text-slate-500">{membersCount} membros</p>
+                                                    <p className="font-bold text-white text-sm tracking-tight">{setor.nome}</p>
+                                                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{membersCount} membros</p>
                                                 </div>
-                                                <button onClick={() => handleDeleteSector(setor.id)} className="text-slate-400 hover:text-red-600 transition-colors opacity-0 group-hover:opacity-100" title="Excluir Setor">
-                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
+                                                <button 
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        handleDeleteSector(setor.id);
+                                                    }} 
+                                                    className="text-slate-600 hover:text-rose-400 transition-all p-2 rounded-lg hover:bg-rose-400/10" 
+                                                    title="Excluir Setor"
+                                                >
+                                                    <span className="material-icons text-xl">delete_outline</span>
                                                 </button>
                                             </div>
                                         );
@@ -2842,26 +3400,29 @@ const AdminPage = ({ setCurrentArea, initialSection }) => {
                         </div>
                     )}
 
-                    <div className={`${adminUserData.role === 'admin' ? 'lg:w-2/3' : 'w-full'} space-y-6`}>
-                        <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
-                            <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mb-6">
-                                <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">Usuários</h2>
-                                <div className="relative w-full sm:w-64">
+                    <div className={`${adminUserData.role === 'admin' ? 'xl:w-2/3' : 'w-full'} space-y-8`}>
+                        <div className="tjpr-card p-8">
+                            <div className="flex flex-col sm:flex-row justify-between items-center gap-6 mb-8">
+                                <h2 className="text-2xl font-black text-white tracking-tight">Gestão de Usuários</h2>
+                                <div className="relative w-full sm:w-72 group">
                                     <input
                                         type="text"
                                         placeholder="Buscar usuário..."
                                         value={userSearchTerm}
                                         onChange={e => setUserSearchTerm(e.target.value)}
-                                        className="w-full pl-10 pr-4 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition text-sm"
+                                        className="w-full pl-12 pr-4 py-3 bg-slate-950/50 border border-white/5 rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none transition text-sm text-white placeholder:text-slate-600"
                                     />
-                                    <svg className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" /></svg>
+                                    <span className="material-icons absolute left-4 top-1/2 -translate-y-1/2 text-slate-600 group-focus-within:text-indigo-400 transition-colors">search</span>
                                 </div>
                             </div>
 
                             {userManagementLoading ? (
-                                <div className="flex justify-center p-8"><p className="text-slate-500">Carregando usuários...</p></div>
+                                <div className="flex flex-col items-center justify-center py-20 gap-4">
+                                    <div className="w-10 h-10 border-4 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin"></div>
+                                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Carregando base de usuários...</p>
+                                </div>
                             ) : (
-                                <div className="space-y-4">
+                                <div className="space-y-6">
                                     {Object.entries(
                                         allUsersForManagement
                                             .filter(u => u.displayName?.toLowerCase().includes(userSearchTerm.toLowerCase()) || u.email?.toLowerCase().includes(userSearchTerm.toLowerCase()))
@@ -2883,47 +3444,47 @@ const AdminPage = ({ setCurrentArea, initialSection }) => {
                                         const isExpanded = expandedUserSectors.has(sectorId) || userSearchTerm.length > 0;
 
                                         return (
-                                            <div key={sectorId} className="border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
+                                            <div key={sectorId} className="bg-slate-950/30 border border-white/5 rounded-[2rem] overflow-hidden">
                                                 <div
-                                                    className="bg-slate-50 dark:bg-slate-900/50 px-4 py-3 flex justify-between items-center cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                                                    className="px-6 py-4 flex justify-between items-center cursor-pointer hover:bg-white/5 transition-colors"
                                                     onClick={() => toggleUserSectorExpansion(sectorId)}
                                                 >
-                                                    <div className="flex items-center gap-2">
-                                                        <svg xmlns="http://www.w3.org/2000/svg" className={`h-4 w-4 text-slate-500 transition-transform ${isExpanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
-                                                        <h4 className="font-bold text-slate-700 dark:text-slate-200 text-sm">{sectorName}</h4>
+                                                    <div className="flex items-center gap-3">
+                                                        <span className={`material-icons text-slate-600 transition-transform ${isExpanded ? 'rotate-90' : ''}`}>chevron_right</span>
+                                                        <h4 className="font-black text-white text-xs uppercase tracking-widest">{sectorName}</h4>
                                                     </div>
-                                                    <span className="text-xs font-medium bg-white dark:bg-slate-800 px-2 py-1 rounded-md border border-slate-200 dark:border-slate-700 text-slate-500">{users.length}</span>
+                                                    <span className="text-[10px] font-black bg-white/5 px-2.5 py-1 rounded-full border border-white/5 text-slate-400">{users.length}</span>
                                                 </div>
 
                                                 {isExpanded && (
-                                                    <div className="divide-y divide-slate-100 dark:divide-slate-700 bg-white dark:bg-slate-800">
+                                                    <div className="divide-y divide-white/5 bg-slate-950/20">
                                                         {users.map(u => (
-                                                            <div key={u.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-slate-50 dark:hover:bg-slate-700/20 transition-colors">
-                                                                <div className="flex items-center gap-3">
-                                                                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white ${u.emailVerified ? 'bg-green-500' : 'bg-amber-500'}`}>
+                                                            <div key={u.id} className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-white/[0.02] transition-colors">
+                                                                <div className="flex items-center gap-4">
+                                                                    <div className={`w-10 h-10 rounded-full flex items-center justify-center text-xs font-black text-white shadow-lg ${u.emailVerified ? 'bg-gradient-to-br from-emerald-400 to-emerald-600 shadow-emerald-500/20' : 'bg-gradient-to-br from-amber-400 to-amber-600 shadow-amber-500/20'}`}>
                                                                         {u.displayName ? u.displayName.charAt(0).toUpperCase() : u.email.charAt(0).toUpperCase()}
                                                                     </div>
                                                                     <div>
-                                                                        <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">{u.displayName || 'Sem Nome'}</p>
-                                                                        <p className="text-xs text-slate-500">{u.email}</p>
+                                                                        <p className="text-sm font-black text-white tracking-tight">{u.displayName || 'Sem Nome'}</p>
+                                                                        <p className="text-[10px] font-bold text-slate-500 tracking-wider">{u.email}</p>
                                                                     </div>
                                                                 </div>
 
-                                                                <div className="flex items-center gap-3 self-end sm:self-auto">
-                                                                    <span className={`px-2 py-1 text-[10px] font-bold uppercase tracking-wide rounded-md ${u.role === 'admin' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300' :
-                                                                        u.role === 'setor_admin' ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300' :
-                                                                            u.role === 'intermediate' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' :
-                                                                                'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300'
+                                                                <div className="flex items-center gap-4 self-end sm:self-auto">
+                                                                    <span className={`px-2.5 py-1 text-[9px] font-black uppercase tracking-[0.15em] rounded-md border ${u.role === 'admin' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' :
+                                                                        u.role === 'setor_admin' ? 'bg-purple-500/10 text-purple-400 border-purple-500/20' :
+                                                                            u.role === 'intermediate' ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20' :
+                                                                                'bg-slate-500/10 text-slate-400 border-white/5'
                                                                         }`}>
                                                                         {u.role === 'admin' ? 'Global Admin' : u.role === 'setor_admin' ? 'Chefe' : u.role === 'intermediate' ? 'Intermediário' : 'Básico'}
                                                                     </span>
 
-                                                                    <div className="flex items-center border-l border-slate-200 dark:border-slate-700 pl-3 gap-1">
-                                                                        <button onClick={() => handleOpenUserManagementModal(u)} className="p-1.5 text-slate-400 hover:text-blue-600 transition-colors rounded-md hover:bg-blue-50 dark:hover:bg-blue-900/20" title="Editar Permissões">
-                                                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" /></svg>
+                                                                    <div className="flex items-center border-l border-white/5 pl-4 gap-2">
+                                                                        <button onClick={() => handleOpenUserManagementModal(u)} className="p-2 text-slate-500 hover:text-indigo-400 transition-all rounded-xl hover:bg-indigo-400/10" title="Editar Permissões">
+                                                                            <span className="material-icons text-lg">edit_note</span>
                                                                         </button>
-                                                                        <button onClick={() => handleDeleteUser(u)} className="p-1.5 text-slate-400 hover:text-red-600 transition-colors rounded-md hover:bg-red-50 dark:hover:bg-red-900/20" title="Excluir Usuário">
-                                                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
+                                                                        <button onClick={() => handleDeleteUser(u)} className="p-2 text-slate-500 hover:text-rose-400 transition-all rounded-xl hover:bg-rose-400/10" title="Excluir Usuário">
+                                                                            <span className="material-icons text-lg">person_remove</span>
                                                                         </button>
                                                                     </div>
                                                                 </div>
@@ -2944,19 +3505,19 @@ const AdminPage = ({ setCurrentArea, initialSection }) => {
             {adminSection === 'calendar' && <CalendarioAdminPage />}
             {adminSection === 'chamados' && <BugReportsPage />}
             {adminSection === 'broadcast' && (
-                <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-xl p-6 sm:p-8 rounded-2xl shadow-lg border border-slate-200/50 dark:border-slate-700/50 space-y-6 animate-fade-in-up">
-                    <div className="flex items-center gap-3 mb-2">
-                        <div className="p-2 bg-indigo-100 dark:bg-indigo-900/30 rounded-lg text-indigo-600 dark:text-indigo-400">
-                            <span className="material-icons">campaign</span>
+                <div className="tjpr-card p-10 space-y-10 animate-fade-in-up">
+                    <div className="flex items-center gap-4">
+                        <div className="w-14 h-14 bg-indigo-500/10 text-indigo-400 rounded-2xl flex items-center justify-center border border-indigo-500/20">
+                            <span className="material-icons text-3xl">campaign</span>
                         </div>
                         <div>
-                            <h2 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 to-purple-600 dark:from-indigo-400 dark:to-purple-400">Aviso Global</h2>
-                            <p className="text-slate-500 text-sm">Esta mensagem será exibida para todos os usuários no topo da página inicial.</p>
+                            <h2 className="text-2xl font-black text-white tracking-tight uppercase">Aviso Global</h2>
+                            <p className="text-slate-500 text-xs font-bold tracking-widest uppercase mt-1">Comunicação direta com todos os usuários</p>
                         </div>
                     </div>
 
-                    <div className="space-y-5 bg-white/40 dark:bg-slate-900/40 p-6 rounded-xl border border-slate-200/50 dark:border-slate-700/50">
-                        <div className="flex items-center gap-3 p-3 bg-indigo-50/50 dark:bg-indigo-900/10 rounded-lg border border-indigo-100/50 dark:border-indigo-800/20">
+                    <div className="space-y-8 bg-slate-950/40 p-8 rounded-[2rem] border border-white/5">
+                        <div className="flex items-center gap-4 p-4 bg-white/5 rounded-2xl border border-white/5">
                             <label className="relative inline-flex items-center cursor-pointer">
                                 <input
                                     type="checkbox"
@@ -2964,289 +3525,143 @@ const AdminPage = ({ setCurrentArea, initialSection }) => {
                                     checked={broadcastMessage.ativo}
                                     onChange={e => setBroadcastMessage({ ...broadcastMessage, ativo: e.target.checked })}
                                 />
-                                <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-indigo-300 dark:peer-focus:ring-indigo-800 rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-slate-600 peer-checked:bg-indigo-600"></div>
-                                <span className="ml-3 text-sm font-medium text-slate-700 dark:text-slate-300">Exibir aviso para os usuários</span>
+                                <div className="w-12 h-6 bg-slate-800 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[4px] after:left-[4px] after:bg-slate-400 after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600 peer-checked:after:bg-white shadow-inner"></div>
+                                <span className="ml-4 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Exibir aviso na página inicial</span>
                             </label>
                         </div>
 
-                        <div className="space-y-2">
-                            <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300">Conteúdo da Mensagem</label>
+                        <div className="space-y-3">
+                            <label className="block text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] ml-1">Conteúdo da Mensagem</label>
                             <textarea
                                 value={broadcastMessage.mensagem}
                                 onChange={e => setBroadcastMessage({ ...broadcastMessage, mensagem: e.target.value })}
                                 rows="4"
-                                className="w-full p-4 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all shadow-inner placeholder:text-slate-400"
-                                placeholder="Digite aqui o que os usuários devem ver..."
+                                className="w-full p-6 bg-slate-950 border border-white/5 rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all text-white placeholder:text-slate-700 shadow-inner"
+                                placeholder="Digite aqui a mensagem que será exibida para todos..."
                             ></textarea>
                         </div>
 
-                        <div className="flex justify-end pt-2">
+                        <div className="flex justify-end pt-4">
                             <button
                                 onClick={handleSaveBroadcast}
                                 disabled={isSavingBroadcast}
-                                className="flex items-center gap-2 px-8 py-3 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white font-bold rounded-xl transition-all shadow-lg hover:shadow-indigo-500/25 disabled:opacity-50 active:scale-95"
+                                className="flex items-center gap-3 px-10 py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-black uppercase tracking-widest text-xs rounded-2xl transition-all shadow-xl shadow-indigo-600/20 disabled:opacity-50 active:scale-95"
                             >
-                                <span className="material-icons text-sm">{isSavingBroadcast ? 'sync' : 'save'}</span>
-                                {isSavingBroadcast ? 'Salvando...' : 'Salvar Alterações'}
+                                <span className="material-icons text-lg">{isSavingBroadcast ? 'sync' : 'cloud_upload'}</span>
+                                {isSavingBroadcast ? 'Processando...' : 'Publicar Alterações'}
                             </button>
                         </div>
                     </div>
                 </div>
             )}
 
+            {editingUser && (
+                <UserManagementModal
+                    user={editingUser}
+                    setores={setores}
+                    adminUser={adminUserData}
+                    onClose={handleCloseUserManagementModal}
+                    onSave={handleSaveUserPermissions}
+                />
+            )}
 
-            {
-                editingUser && (
-                    <UserManagementModal
-                        user={editingUser}
-                        setores={setores}
-                        adminUser={adminUserData}
-                        onClose={handleCloseUserManagementModal}
-                        onSave={handleSaveUserPermissions}
-                    />
-                )
-            }
-            {
-                showDeleteModal && (
-                    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
-                        <div className="bg-white dark:bg-slate-800 w-full max-md rounded-2xl shadow-2xl p-6 border border-slate-200 dark:border-slate-700">
-                            <h3 className="text-xl font-bold text-slate-800 dark:text-slate-100 mb-4">Excluir Registros por Período</h3>
-                            <p className="text-sm text-slate-600 dark:text-slate-300 mb-4">Selecione o intervalo de datas dos registros que deseja excluir permanentemente.</p>
-
-                            <div className="space-y-4">
-                                <div>
-                                    <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Data Inicial</label>
-                                    <input type="date" value={deleteRange.start} onChange={e => setDeleteRange({ ...deleteRange, start: e.target.value })} className="w-full p-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-200" />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Data Final</label>
-                                    <input type="date" value={deleteRange.end} onChange={e => setDeleteRange({ ...deleteRange, end: e.target.value })} className="w-full p-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-200" />
-                                </div>
+            {/* Modal de Exclusão de Estatísticas (Padrão Elite) */}
+            {showDeleteModal && (
+                <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/90 backdrop-blur-md p-4 animate-in fade-in duration-300" onClick={() => setShowDeleteModal(false)}>
+                    <div className="w-full max-w-md bg-slate-900 border border-white/10 rounded-[2.5rem] overflow-hidden shadow-2xl animate-in zoom-in-95 duration-300" onClick={e => e.stopPropagation()}>
+                        <div className="p-10">
+                            <div className="w-16 h-16 bg-rose-500/10 text-rose-500 rounded-full flex items-center justify-center mx-auto mb-6 border border-rose-500/20">
+                                <span className="material-icons text-3xl">history</span>
                             </div>
-
-                            <div className="flex justify-end gap-3 mt-6">
-                                <button onClick={() => setShowDeleteModal(false)} className="px-4 py-2 text-sm font-semibold bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-200 dark:hover:bg-slate-600">Cancelar</button>
-                                <button onClick={handleConfirmDelete} className="px-4 py-2 text-sm font-semibold bg-red-600 text-white rounded-lg hover:bg-red-700">Excluir</button>
+                            <h3 className="text-xl font-black text-white text-center mb-6 uppercase tracking-tight">Limpar Histórico</h3>
+                            
+                            <div className="space-y-4">
+                                <TJPRInput
+                                    label="Data Inicial"
+                                    type="date"
+                                    value={deleteRange.start}
+                                    onChange={e => setDeleteRange({ ...deleteRange, start: e.target.value })}
+                                    icon="calendar_today"
+                                />
+                                <TJPRInput
+                                    label="Data Final"
+                                    type="date"
+                                    value={deleteRange.end}
+                                    onChange={e => setDeleteRange({ ...deleteRange, end: e.target.value })}
+                                    icon="event"
+                                />
                             </div>
                         </div>
+                        <div className="flex border-t border-white/5 bg-white/[0.02]">
+                            <button onClick={() => setShowDeleteModal(false)} className="flex-1 px-8 py-6 text-xs font-black uppercase tracking-widest text-slate-500 hover:text-white hover:bg-white/5 transition-all">
+                                Cancelar
+                            </button>
+                            <button onClick={handleConfirmDelete} className="flex-1 px-8 py-6 bg-rose-600 hover:bg-rose-500 text-white text-xs font-black uppercase tracking-widest transition-all">
+                                EXCLUIR
+                            </button>
+                        </div>
                     </div>
-                )
-            }
+                </div>
+            )}
+
+            {/* Modal de Confirmação de Exclusão de Setor (Padrão Elite) */}
+            {sectorToDelete && (
+                <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/90 backdrop-blur-md p-4 animate-in fade-in duration-300" onClick={() => setSectorToDelete(null)}>
+                    <div className="w-full max-w-md bg-slate-900 border border-white/10 rounded-[2.5rem] overflow-hidden shadow-2xl animate-in zoom-in-95 duration-300" onClick={e => e.stopPropagation()}>
+                        <div className="p-10 text-center">
+                            <div className="w-20 h-20 bg-rose-500/10 text-rose-500 rounded-full flex items-center justify-center mx-auto mb-6 border border-rose-500/20 shadow-[0_0_40px_-10px_rgba(244,63,94,0.3)]">
+                                <span className="material-icons text-4xl">delete_forever</span>
+                            </div>
+                            <h3 className="text-2xl font-black text-white mb-2 uppercase tracking-tight">Excluir Setor?</h3>
+                            <p className="text-sm text-slate-400 font-medium leading-relaxed">
+                                Tem certeza que deseja excluir o setor <br/>
+                                <span className="text-white font-bold">"{sectorToDelete.nome}"</span>?<br/>
+                                Esta ação removerá o vínculo de todos os usuários.
+                            </p>
+                        </div>
+                        <div className="flex border-t border-white/5 bg-white/[0.02]">
+                            <button onClick={() => setSectorToDelete(null)} className="flex-1 px-8 py-6 text-xs font-black uppercase tracking-widest text-slate-500 hover:text-white hover:bg-white/5 transition-all">
+                                Cancelar
+                            </button>
+                            <button onClick={() => executeDeleteSector()} className="flex-1 px-8 py-6 bg-rose-600 hover:bg-rose-500 text-white text-xs font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2">
+                                <span className="material-icons text-sm">delete</span>
+                                Confirmar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Modal de Confirmação de Exclusão de Usuário (Padrão Elite) */}
+            {userToDelete && (
+                <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/90 backdrop-blur-md p-4 animate-in fade-in duration-300" onClick={() => setUserToDelete(null)}>
+                    <div className="w-full max-w-md bg-slate-900 border border-white/10 rounded-[2.5rem] overflow-hidden shadow-2xl animate-in zoom-in-95 duration-300" onClick={e => e.stopPropagation()}>
+                        <div className="p-10 text-center">
+                            <div className="w-20 h-20 bg-rose-500/10 text-rose-500 rounded-full flex items-center justify-center mx-auto mb-6 border border-rose-500/20 shadow-[0_0_40px_-10px_rgba(244,63,94,0.3)]">
+                                <span className="material-icons text-4xl">person_remove</span>
+                            </div>
+                            <h3 className="text-2xl font-black text-white mb-2 uppercase tracking-tight">Excluir Usuário?</h3>
+                            <p className="text-sm text-slate-400 font-medium leading-relaxed">
+                                Deseja excluir <span className="text-white font-bold">{userToDelete.displayName || userToDelete.email}</span>?<br/>
+                                Esta ação é irreversível.
+                            </p>
+                        </div>
+                        <div className="flex border-t border-white/5 bg-white/[0.02]">
+                            <button onClick={() => setUserToDelete(null)} className="flex-1 px-8 py-6 text-xs font-black uppercase tracking-widest text-slate-500 hover:text-white hover:bg-white/5 transition-all">
+                                Cancelar
+                            </button>
+                            <button onClick={executeDeleteUser} className="flex-1 px-8 py-6 bg-rose-600 hover:bg-rose-500 text-white text-xs font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2">
+                                <span className="material-icons text-sm">delete</span>
+                                Confirmar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div >
     );
 };
 
-const BugReportModal = ({ screenshot, onClose, onSubmit }) => {
-    const { reportData } = useContext(BugReportContext);
-    const [description, setDescription] = useState('');
-    const [extraData, setExtraData] = useState({
-        dataDisponibilizacao: '',
-        isCrime: false,
-        prazo: ''
-    });
-    const [isSubmitting, setIsSubmitting] = useState(false);
-
-    useEffect(() => {
-        if (reportData) {
-            setExtraData({
-                dataDisponibilizacao: reportData.dataDisponibilizacao || '',
-                isCrime: reportData.isCrime || false,
-                prazo: reportData.prazo || ''
-            });
-        }
-    }, [reportData]);
-
-    const handleSubmit = async () => {
-        if (!description.trim()) {
-            alert('Por favor, descreva o problema encontrado.');
-            return;
-        }
-        setIsSubmitting(true);
-        // Combine description and extra data
-        const reportPayload = {
-            description,
-            ...extraData
-        };
-        const success = await onSubmit(reportPayload);
-        if (success) {
-            onClose();
-        }
-        setIsSubmitting(false);
-    };
-
-    return (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4" onClick={onClose}>
-            <div className="bg-white dark:bg-slate-800 w-full max-w-2xl rounded-2xl shadow-2xl flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
-                <div className="flex justify-between items-center p-6 border-b border-slate-200 dark:border-slate-700">
-                    <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Reportar um Problema</h2>
-                    <button onClick={onClose} className="text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 transition">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                    </button>
-                </div>
-                <div className="p-6 space-y-4 overflow-y-auto">
-                    <div>
-                        <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">Screenshot da Tela</label>
-                        <div className="border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-lg p-2">
-                            <img src={screenshot} alt="Screenshot da tela atual" className="w-full h-auto rounded-md" />
-                        </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                            <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Data da Disponibilização</label>
-                            <input
-                                type="date"
-                                value={extraData.dataDisponibilizacao}
-                                onChange={e => setExtraData({ ...extraData, dataDisponibilizacao: e.target.value })}
-                                className="w-full p-2 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition dark:text-gray-100"
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Prazo (dias)</label>
-                            <input
-                                type="number"
-                                value={extraData.prazo}
-                                onChange={e => setExtraData({ ...extraData, prazo: e.target.value })}
-                                className="w-full p-2 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition dark:text-gray-100"
-                            />
-                        </div>
-                        <div className="flex items-center mt-6">
-                            <input
-                                type="checkbox"
-                                id="isCrimeCheck"
-                                checked={extraData.isCrime}
-                                onChange={e => setExtraData({ ...extraData, isCrime: e.target.checked })}
-                                className="w-4 h-4 text-indigo-600 bg-gray-100 border-gray-300 rounded focus:ring-indigo-500 dark:focus:ring-indigo-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600"
-                            />
-                            <label htmlFor="isCrimeCheck" className="ml-2 text-sm font-medium text-gray-900 dark:text-gray-300">É processo Criminal?</label>
-                        </div>
-                    </div>
-
-                    <div>
-                        <label htmlFor="bug-description" className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">
-                            Descrição do Problema
-                        </label>
-                        <textarea
-                            id="bug-description"
-                            rows="4"
-                            value={description}
-                            onChange={e => setDescription(e.target.value)}
-                            placeholder="Por favor, detalhe o que aconteceu, o que você esperava que acontecesse e os passos para reproduzir o erro."
-                            className="w-full p-3 bg-white/50 dark:bg-slate-900/50 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition dark:text-gray-100"
-                        ></textarea>
-                    </div>
-                </div>
-                <div className="p-6 border-t border-slate-200 dark:border-slate-700">
-                    <button
-                        onClick={handleSubmit}
-                        disabled={isSubmitting}
-                        className="w-full flex justify-center items-center bg-gradient-to-br from-indigo-500 to-indigo-600 text-white font-semibold py-3 px-4 rounded-lg hover:from-indigo-600 hover:to-indigo-700 transition-all duration-300 shadow-md disabled:opacity-50"
-                    >
-                        {isSubmitting ? 'Enviando...' : 'Enviar Relatório'}
-                    </button>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-const BugReportButton = () => {
-    const { user } = useAuth();
-    const [isReporting, setIsReporting] = useState(false);
-    const [screenshot, setScreenshot] = useState(null);
-    const [isCapturing, setIsCapturing] = useState(false);
-
-    const handleReportClick = async () => {
-        setIsCapturing(true);
-        try {
-            // Oculta o próprio botão de report para não aparecer no print
-            const reportButton = document.getElementById('bug-report-button');
-            if (reportButton) reportButton.style.display = 'none';
-
-            // Verifica se o tema escuro está ativo
-            const isDarkMode = document.documentElement.classList.contains('dark');
-
-            // Captura o body inteiro para melhor contexto e define uma cor de fundo sólida
-            const canvas = await html2canvas(document.body, {
-                useCORS: true,
-                // Define a cor de fundo com base no tema para evitar problemas com gradientes
-                backgroundColor: isDarkMode ? '#1e293b' : '#f1f5f9', // Cores sólidas (slate-800 e slate-100)
-                scrollX: -window.scrollX,
-                scrollY: -window.scrollY,
-                windowWidth: document.documentElement.offsetWidth,
-                windowHeight: document.documentElement.offsetHeight,
-            });
-
-            if (reportButton) reportButton.style.display = 'flex'; // Mostra o botão novamente
-
-            setScreenshot(canvas.toDataURL('image/png'));
-            setIsReporting(true);
-        } catch (error) {
-            console.error("Erro ao capturar a tela:", error);
-            alert("Não foi possível capturar a tela. Tente novamente.");
-        } finally {
-            setIsCapturing(false);
-        }
-    };
-
-    const handleSubmitReport = async (description) => {
-        // A verificação do 'storage' foi removida, pois não o usaremos mais.
-        if (!db || !user || !screenshot) {
-            alert("Erro: Serviços de autenticação ou banco de dados não estão disponíveis.");
-            return false;
-        }
-
-        try {
-            // A variável 'screenshot' já contém a imagem como uma string Base64 (Data URL).
-            // Vamos salvá-la diretamente no Firestore.
-
-            // Salva o relatório no Firestore
-            await db.collection('bug_reports').add({
-                userId: user.uid,
-                userEmail: user.email,
-                description: description,
-                screenshotBase64: screenshot, // Salva a string da imagem
-                status: 'aberto', // 'aberto', 'resolvido'
-                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-                pageURL: window.location.href,
-                userAgent: navigator.userAgent,
-            });
-
-            alert('Relatório de problema enviado com sucesso! Agradecemos a sua colaboração.');
-            return true; // Retorna sucesso
-
-        } catch (error) {
-            console.error("Erro ao enviar relatório:", error);
-            alert("Ocorreu uma falha ao enviar seu relatório. Por favor, tente novamente.");
-            return false; // Retorna falha
-        }
-    };
-
-    return (
-        <>
-            <button
-                id="bug-report-button"
-                onClick={handleReportClick}
-                disabled={isCapturing}
-                className="fixed bottom-4 left-4 z-[90] bg-red-600 text-white rounded-full h-14 w-14 flex items-center justify-center shadow-lg hover:bg-red-700 transition-transform transform hover:scale-110"
-                title="Reportar um problema"
-            >
-                {isCapturing ? (
-                    <svg className="animate-spin h-6 w-6 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                ) : (
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                )}
-            </button>
-            {isReporting && screenshot && (
-                <BugReportModal
-                    screenshot={screenshot}
-                    onClose={() => setIsReporting(false)}
-                    onSubmit={handleSubmitReport}
-                />
-            )}
-        </>
-    );
-};
 
 const ChangelogModal = ({ onClose }) => {
     const [latestLog, setLatestLog] = useState(null);
@@ -3255,12 +3670,17 @@ const ChangelogModal = ({ onClose }) => {
 
     useEffect(() => {
         const fetchChangelog = async () => {
-            if (!db) return;
+            if (!window._supabaseClient) return;
             try {
-                const snapshot = await db.collection('changelog').orderBy('date', 'desc').limit(1).get();
-                if (!snapshot.empty) {
-                    const log = { id: snapshot.docs[0].id, ...snapshot.docs[0].data() };
-                    setLatestLog(log);
+                const { data, error } = await window._supabaseClient
+                    .from('changelog')
+                    .select('*')
+                    .order('date', { ascending: false })
+                    .limit(1)
+                    .maybeSingle();
+                
+                if (!error && data) {
+                    setLatestLog(data);
                 }
             } catch (err) {
                 console.error("Erro ao buscar changelog:", err);
@@ -3294,7 +3714,7 @@ const ChangelogModal = ({ onClose }) => {
             <div className="bg-white dark:bg-slate-800 w-full max-w-2xl rounded-2xl shadow-2xl flex flex-col max-h-[90vh]">
                 <div className="p-6 text-center border-b border-slate-200 dark:border-slate-700">
                     <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100">{latestLog.title}</h2>
-                    <p className="text-sm text-slate-500 dark:text-slate-400">Novidades da versão {latestLog.id} (em {formatarData(latestLog.date.toDate())})</p>
+                    <p className="text-sm text-slate-500 dark:text-slate-400">Novidades da versão {latestLog.id} (em {formatarData(latestLog.date && latestLog.date.toDate ? latestLog.date.toDate() : new Date(latestLog.date))})</p>
                 </div>
                 <div className="p-6 space-y-4 overflow-y-auto">
                     <ul className="space-y-3">
@@ -3319,10 +3739,11 @@ const ChangelogModal = ({ onClose }) => {
 };
 
 // Usar o componente global definido em components.js
-const NotificationsPanel = window.NotificationsPanel;
+// NotificationsPanel já está declarado no topo do arquivo via window
 
 const SettingsModal = ({ onClose }) => {
     const { settings, updateSettings } = useContext(SettingsContext);
+    const { user } = useAuth();
     const [currentPassword, setCurrentPassword] = useState('');
     const [newPassword, setNewPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
@@ -3345,14 +3766,20 @@ const SettingsModal = ({ onClose }) => {
         }
 
         setIsSaving(true);
-        const user = auth.currentUser;
-        const credential = firebase.auth.EmailAuthProvider.credential(user.email, currentPassword);
+        // O 'user' já vem do contexto useAuth
 
         try {
-            // Reautenticar para segurança
-            await user.reauthenticateWithCredential(credential);
+            // Supabase: valida senha atual tentando login, depois atualiza
+            const { error: signInErr } = await window._supabaseClient.auth.signInWithPassword({
+                email: user.email,
+                password: currentPassword
+            });
+            if (signInErr) throw { code: 'auth/wrong-password' };
+
             // Atualizar a senha
-            await user.updatePassword(newPassword);
+            const { error: updateErr } = await window._supabaseClient.auth.updateUser({ password: newPassword });
+            if (updateErr) throw updateErr;
+
             setMessage('Senha alterada com sucesso!');
             setCurrentPassword('');
             setNewPassword('');
@@ -3428,12 +3855,16 @@ const SettingsModal = ({ onClose }) => {
                                 <input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} required className="w-full px-4 py-2 bg-white/50 dark:bg-slate-900/50 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition" />
                             </div>
                             <div>
-                                <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Confirmar Nova Senha</label>
-                                <input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} required className="w-full px-4 py-2 bg-white/50 dark:bg-slate-900/50 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition" />
+                                <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Nova Senha</label>
+                                <input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} required className="w-full px-4 py-3 bg-slate-950/50 border border-white/10 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition text-white placeholder:text-slate-600" />
                             </div>
-                            {error && <p className="text-sm text-center text-red-500">{error}</p>}
-                            {message && <p className="text-sm text-center text-green-500">{message}</p>}
-                            <button type="submit" disabled={isSaving} className="w-full flex justify-center items-center bg-gradient-to-br from-indigo-500 to-indigo-600 text-white font-semibold py-2 px-4 rounded-lg hover:from-indigo-600 hover:to-indigo-700 transition-all duration-300 shadow-md disabled:opacity-50">
+                            <div>
+                                <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Confirmar Nova Senha</label>
+                                <input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} required className="w-full px-4 py-3 bg-slate-950/50 border border-white/10 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition text-white placeholder:text-slate-600" />
+                            </div>
+                            {error && <p className="text-xs font-bold text-center text-rose-500 uppercase tracking-widest">{error}</p>}
+                            {message && <p className="text-xs font-bold text-center text-emerald-500 uppercase tracking-widest">{message}</p>}
+                            <button type="submit" disabled={isSaving} className="w-full h-14 flex justify-center items-center bg-indigo-600 hover:bg-indigo-500 text-white font-black uppercase tracking-[0.2em] rounded-xl transition-all shadow-lg shadow-indigo-600/20 disabled:opacity-50">
                                 {isSaving ? 'Salvando...' : 'Alterar Senha'}
                             </button>
                         </form>
@@ -3447,126 +3878,277 @@ const SettingsModal = ({ onClose }) => {
 const ProfileModal = ({ user, userData, onClose, onUpdate }) => {
     if (!user) return null;
     const AVATAR_COLORS = ['#EF4444', '#F97316', '#F59E0B', '#84CC16', '#22C55E', '#10B981', '#06B6D4', '#3B82F6', '#8B5CF6', '#EC4899'];
-    const ReactCrop = window.ReactCrop;
-    const [displayName, setDisplayName] = useState(userData?.displayName || '');
-    const [avatarColor, setAvatarColor] = useState(userData?.avatarColor || AVATAR_COLORS[0]);
+    const [activeTab, setActiveTab] = useState('perfil'); // 'perfil' | 'senha'
+    const [displayName, setDisplayName] = useState(userData?.display_name || '');
+    const [avatarColor, setAvatarColor] = useState(userData?.avatar_color || AVATAR_COLORS[0]);
+    const [photoPreview, setPhotoPreview] = useState(userData?.photo_url || userData?.photoURL || null);
     const [isSaving, setIsSaving] = useState(false);
     const [error, setError] = useState('');
     const [message, setMessage] = useState('');
+    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+    const [deleteConfirmInput, setDeleteConfirmInput] = useState('');
+    const fileInputRef = useRef(null);
 
-    const handleDeleteAccount = async () => {
-        const confirmMsg = "ATENÇÃO: Tem certeza que deseja excluir sua conta?\n\nEsta ação é irreversível. Todos os seus dados pessoais e histórico de acesso serão removidos permanentemente do sistema.\n\nDigite 'EXCLUIR' para confirmar:";
-        const userInput = window.prompt(confirmMsg);
+    // Senha
+    const [currentPassword, setCurrentPassword] = useState('');
+    const [newPassword, setNewPassword] = useState('');
+    const [confirmPassword, setConfirmPassword] = useState('');
+    const [pwError, setPwError] = useState('');
+    const [pwMessage, setPwMessage] = useState('');
+    const [isSavingPw, setIsSavingPw] = useState(false);
 
-        if (userInput === 'EXCLUIR') {
-            try {
-                // Deleta o documento do usuário no Firestore
-                await db.collection('users').doc(user.uid).delete();
-                // Deleta o usuário da autenticação
-                await user.delete();
-                // O AuthProvider vai detectar o logout/delete e redirecionar
-            } catch (err) {
-                console.error("Erro ao excluir conta:", err);
-                alert("Erro ao excluir conta. Pode ser necessário fazer login novamente antes de realizar esta ação (medida de segurança do Firebase).");
-            }
+    const handlePhotoChange = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        if (file.size > 2 * 1024 * 1024) {
+            setError('A imagem deve ter no maximo 2 MB.');
+            return;
+        }
+        const reader = new FileReader();
+        reader.onload = (ev) => setPhotoPreview(ev.target.result);
+        reader.readAsDataURL(file);
+        setError('');
+    };
+
+    const handleRemovePhoto = () => {
+        setPhotoPreview(null);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+    };
+
+    const handleDeleteAccount = () => setShowDeleteConfirm(true);
+
+    const confirmDelete = async () => {
+        if (deleteConfirmInput !== 'EXCLUIR') {
+            if (window.showToast) window.showToast("Digite 'EXCLUIR' corretamente para confirmar.", 'error');
+            return;
+        }
+        try {
+            await window._supabaseClient.from('profiles').delete().eq('id', user.id);
+            await window._supabaseClient.auth.signOut();
+            if (window.showToast) window.showToast('Conta excluida com sucesso.', 'success');
+        } catch (err) {
+            console.error('Erro ao excluir conta:', err);
+            if (window.showToast) window.showToast('Erro ao excluir conta. Entre em contato com o suporte.', 'error');
         }
     };
 
     const handleSave = async () => {
-        if (!displayName.trim() || !avatarColor) {
-            setError('O nome não pode ficar em branco.');
+        if (!displayName.trim()) {
+            setError('O nome nao pode ficar em branco.');
             return;
         }
         setIsSaving(true);
         setError('');
         setMessage('');
         try {
+            const photoUrl = photoPreview || null;
             const updateData = {
-                displayName: displayName.trim(),
-                avatarColor: avatarColor,
-                // Remove a foto do perfil ao salvar, se existir
-                photoURL: null
+                display_name: displayName.trim(),
+                avatar_color: avatarColor,
+                photo_url: photoUrl,
             };
-
-            // Atualiza o perfil do Firebase Auth e o documento do Firestore
-            await user.updateProfile({ displayName: displayName.trim(), photoURL: null });
-            await db.collection('users').doc(user.uid).update(updateData);
-
-            setMessage('Perfil atualizado com sucesso!');
-            onUpdate(); // Chama a função para atualizar os dados do usuário na UI
-            setTimeout(() => {
-                setMessage('');
-                onClose();
-            }, 1500);
+            const { error: updateError } = await window._supabaseClient
+                .from('profiles')
+                .update(updateData)
+                .eq('id', user.id);
+            if (updateError) throw updateError;
+            if (window.showToast) window.showToast('Perfil atualizado com sucesso!', 'success');
+            onUpdate();
+            setTimeout(() => onClose(), 1500);
         } catch (err) {
-            setError('Não foi possível atualizar o perfil. Tente novamente.');
-            console.error("Erro ao atualizar nome:", err);
+            setError('Nao foi possivel atualizar o perfil. Tente novamente.');
+            console.error('Erro ao atualizar perfil:', err);
         } finally {
             setIsSaving(false);
         }
     };
 
+    const handlePasswordChange = async (e) => {
+        e.preventDefault();
+        setPwError('');
+        setPwMessage('');
+        if (newPassword !== confirmPassword) {
+            setPwError('As novas senhas nao coincidem.');
+            return;
+        }
+        if (newPassword.length < 6) {
+            setPwError('A nova senha deve ter pelo menos 6 caracteres.');
+            return;
+        }
+        setIsSavingPw(true);
+        try {
+            const { error: signInErr } = await window._supabaseClient.auth.signInWithPassword({
+                email: user.email,
+                password: currentPassword
+            });
+            if (signInErr) throw { code: 'auth/wrong-password' };
+            const { error: updateErr } = await window._supabaseClient.auth.updateUser({ password: newPassword });
+            if (updateErr) throw updateErr;
+            setPwMessage('Senha alterada com sucesso!');
+            setCurrentPassword('');
+            setNewPassword('');
+            setConfirmPassword('');
+            setTimeout(() => setPwMessage(''), 3000);
+        } catch (err) {
+            if (err.code === 'auth/wrong-password') {
+                setPwError('A senha atual esta incorreta.');
+            } else {
+                setPwError('Ocorreu um erro ao alterar a senha. Tente novamente.');
+                console.error('Erro ao alterar senha:', err);
+            }
+        } finally {
+            setIsSavingPw(false);
+        }
+    };
+
+    const previewUserData = { ...userData, display_name: displayName, avatar_color: avatarColor, photoURL: photoPreview };
 
     return (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
-            <div className="bg-white dark:bg-slate-800 w-full max-w-md rounded-2xl shadow-2xl flex flex-col" onClick={e => e.stopPropagation()}>
-                <div className="flex justify-between items-center p-6 border-b border-slate-200 dark:border-slate-700">
-                    <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Perfil do Usuário</h2>
-                    <button onClick={onClose} className="text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 transition">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-xl flex items-center justify-center z-[100] p-4 animate-in fade-in duration-300" onClick={onClose}>
+            <div className="bg-slate-900 border border-white/10 w-full max-w-md rounded-[2.5rem] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-300 max-h-[90vh]" onClick={e => e.stopPropagation()}>
+
+                <div className="flex justify-between items-center p-8 border-b border-white/5 bg-white/[0.02] flex-shrink-0">
+                    <div>
+                        <h2 className="text-2xl font-black text-white tracking-tight">Meu Perfil</h2>
+                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mt-1">Gerencie sua identidade digital</p>
+                    </div>
+                    <button onClick={onClose} className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-slate-400 hover:text-white transition-all">
+                        <span className="material-icons">close</span>
                     </button>
                 </div>
 
-                <div className="p-6 space-y-4">
-                    <div className="flex flex-col items-center gap-4">
-                        <div className="relative w-full flex justify-center items-center">
-                            <Avatar user={user} userData={{ ...userData, displayName, avatarColor }} size="h-24 w-24" />
-                        </div>
-                        <div className="flex flex-wrap justify-center gap-2">
-                            {AVATAR_COLORS.map(color => (
-                                <button key={color} onClick={() => setAvatarColor(color)} className={`h-8 w-8 rounded-full transition-transform transform hover:scale-110 ${avatarColor === color ? 'ring-2 ring-offset-2 ring-indigo-500 dark:ring-offset-slate-800' : ''}`} style={{ backgroundColor: color }}></button>
-                            ))}
-                        </div>
-                    </div>
-                    <div>
-                        <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Nome</label>
-                        <input
-                            type="text"
-                            value={displayName}
-                            onChange={(e) => setDisplayName(e.target.value)}
-                            placeholder="Seu nome completo"
-                            className="w-full px-4 py-3 bg-white/50 dark:bg-slate-900/50 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition"
-                        />
-                    </div>
-                    <div>
-                        <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Email</label>
-                        <p className="w-full px-4 py-3 bg-slate-100/70 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-lg">
-                            {user.email}
-                        </p>
-                    </div>
-
-                    {error && <p className="text-sm text-center text-red-500">{error}</p>}
-                    {message && <p className="text-sm text-center text-green-500">{message}</p>}
-
-                    <button onClick={handleSave} disabled={isSaving} className="w-full flex justify-center items-center bg-gradient-to-br from-indigo-500 to-indigo-600 text-white font-semibold py-3 px-4 rounded-lg hover:from-indigo-600 hover:to-indigo-700 transition-all duration-300 shadow-md disabled:opacity-50">
-                        {isSaving ? 'Salvando...' : 'Salvar Alterações'}
-                    </button>
-
-                    <div className="pt-2">
-                        <button onClick={handleDeleteAccount} className="w-full flex justify-center items-center text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 text-sm font-semibold py-2 px-4 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-all duration-300">
-                            Excluir Minha Conta
+                <div className="flex border-b border-white/5 flex-shrink-0">
+                    {[{ id: 'perfil', label: 'Perfil', icon: 'person' }, { id: 'senha', label: 'Seguranca', icon: 'lock' }].map(tab => (
+                        <button
+                            key={tab.id}
+                            onClick={() => setActiveTab(tab.id)}
+                            className={`flex-1 flex items-center justify-center gap-2 py-4 text-xs font-black uppercase tracking-widest transition-all border-b-2 ${activeTab === tab.id ? 'text-indigo-400 border-indigo-500' : 'text-slate-500 border-transparent hover:text-slate-300'}`}
+                        >
+                            <span className="material-icons text-sm">{tab.icon}</span>
+                            {tab.label}
                         </button>
-                    </div>
+                    ))}
+                </div>
 
-                    <div className="border-t border-slate-200 dark:border-slate-700 pt-4">
-                        <h3 className="text-lg font-semibold text-slate-700 dark:text-slate-200 mb-2">Outras Opções</h3>
-                        <button onClick={() => document.dispatchEvent(new CustomEvent('openSettings'))} className="w-full flex justify-center items-center bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold py-2 px-4 rounded-lg hover:bg-slate-300 dark:hover:bg-slate-600 transition-all duration-300">
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.532 1.532 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.532 1.532 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" /></svg>
-                            Configurações
-                        </button>
-                    </div>
+                <div className="p-8 space-y-6 overflow-y-auto custom-scrollbar flex-1">
+
+                    {activeTab === 'perfil' && (
+                        <>
+                            <div className="flex flex-col items-center gap-5">
+                                <div className="relative group cursor-pointer" onClick={() => fileInputRef.current?.click()}>
+                                    <div className="absolute inset-0 bg-indigo-500/20 blur-2xl rounded-full opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                                    <Avatar user={user} userData={previewUserData} size="h-28 w-28" />
+                                    <div className="absolute inset-0 bg-black/50 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <span className="material-icons text-white text-2xl">photo_camera</span>
+                                    </div>
+                                </div>
+                                <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoChange} />
+                                <div className="flex gap-2 flex-wrap justify-center">
+                                    <button
+                                        onClick={() => fileInputRef.current?.click()}
+                                        className="px-4 py-2 text-[10px] font-black uppercase tracking-widest text-indigo-400 border border-indigo-500/30 rounded-xl hover:bg-indigo-500/10 transition-all flex items-center gap-1.5"
+                                    >
+                                        <span className="material-icons text-sm">upload</span>
+                                        Subir Foto
+                                    </button>
+                                    {photoPreview && (
+                                        <button
+                                            onClick={handleRemovePhoto}
+                                            className="px-4 py-2 text-[10px] font-black uppercase tracking-widest text-rose-400 border border-rose-500/30 rounded-xl hover:bg-rose-500/10 transition-all flex items-center gap-1.5"
+                                        >
+                                            <span className="material-icons text-sm">delete</span>
+                                            Remover
+                                        </button>
+                                    )}
+                                </div>
+                                <p className="text-[10px] text-slate-600 font-medium text-center">JPG, PNG ou GIF - Max. 2 MB | Ou escolha uma cor abaixo</p>
+                                <div className="flex flex-wrap justify-center gap-3">
+                                    {AVATAR_COLORS.map(color => (
+                                        <button key={color} onClick={() => setAvatarColor(color)} className={`h-8 w-8 rounded-full transition-all transform hover:scale-125 hover:shadow-lg ${avatarColor === color && !photoPreview ? 'ring-2 ring-white ring-offset-4 ring-offset-slate-900 scale-110' : 'opacity-40 hover:opacity-100'}`} style={{ backgroundColor: color }}></button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <div className="space-y-4">
+                                <TJPRInput
+                                    label="Nome Completo"
+                                    value={displayName}
+                                    onChange={(e) => setDisplayName(e.target.value)}
+                                    placeholder="Seu nome"
+                                    icon="person"
+                                />
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">E-mail Institucional</label>
+                                    <div className="w-full px-4 py-4 bg-slate-950/50 border border-white/5 rounded-xl text-slate-400 font-bold text-sm">{user.email}</div>
+                                </div>
+                            </div>
+
+                            {error && <p className="text-xs font-bold text-center text-rose-500 uppercase tracking-widest">{error}</p>}
+                            {message && <p className="text-xs font-bold text-center text-emerald-500 uppercase tracking-widest">{message}</p>}
+
+                            <div className="pt-2 space-y-3">
+                                <button onClick={handleSave} disabled={isSaving} className="w-full h-14 flex justify-center items-center bg-indigo-600 hover:bg-indigo-500 text-white font-black uppercase tracking-[0.2em] rounded-xl transition-all shadow-lg shadow-indigo-600/20 disabled:opacity-50">
+                                    {isSaving ? 'Salvando...' : 'Salvar Alteracoes'}
+                                </button>
+                                <button onClick={handleDeleteAccount} className="w-full py-3 flex justify-center items-center text-rose-500 hover:text-rose-400 text-[10px] font-black uppercase tracking-widest transition-all">
+                                    Excluir Minha Conta
+                                </button>
+                            </div>
+                        </>
+                    )}
+
+                    {activeTab === 'senha' && (
+                        <form onSubmit={handlePasswordChange} className="space-y-5">
+                            <div className="w-12 h-12 bg-indigo-500/10 rounded-2xl flex items-center justify-center mx-auto mb-2">
+                                <span className="material-icons text-indigo-400">lock</span>
+                            </div>
+                            <p className="text-center text-[10px] font-bold text-slate-500 uppercase tracking-widest">Altere sua senha de acesso</p>
+
+                            <div className="space-y-2">
+                                <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Senha Atual</label>
+                                <input type="password" value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} required placeholder="..." className="w-full px-4 py-3 bg-slate-950/50 border border-white/10 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition text-white placeholder:text-slate-600" />
+                            </div>
+                            <div className="space-y-2">
+                                <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Nova Senha</label>
+                                <input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} required placeholder="Minimo 6 caracteres" className="w-full px-4 py-3 bg-slate-950/50 border border-white/10 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition text-white placeholder:text-slate-600" />
+                            </div>
+                            <div className="space-y-2">
+                                <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Confirmar Nova Senha</label>
+                                <input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} required placeholder="Repita a nova senha" className="w-full px-4 py-3 bg-slate-950/50 border border-white/10 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition text-white placeholder:text-slate-600" />
+                            </div>
+
+                            {pwError && <p className="text-xs font-bold text-center text-rose-500 uppercase tracking-widest">{pwError}</p>}
+                            {pwMessage && <p className="text-xs font-bold text-center text-emerald-500 uppercase tracking-widest">{pwMessage}</p>}
+
+                            <button type="submit" disabled={isSavingPw} className="w-full h-14 flex justify-center items-center bg-indigo-600 hover:bg-indigo-500 text-white font-black uppercase tracking-[0.2em] rounded-xl transition-all shadow-lg shadow-indigo-600/20 disabled:opacity-50">
+                                {isSavingPw ? 'Salvando...' : 'Alterar Senha'}
+                            </button>
+                        </form>
+                    )}
                 </div>
             </div>
+
+            {showDeleteConfirm && (
+                <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-[110] p-4 animate-in fade-in duration-300" onClick={() => setShowDeleteConfirm(false)}>
+                    <div className="bg-slate-900 border border-rose-500/30 w-full max-w-sm rounded-[2rem] shadow-2xl p-8 animate-in zoom-in-95 duration-300" onClick={e => e.stopPropagation()}>
+                        <div className="text-center space-y-4">
+                            <div className="w-16 h-16 bg-rose-500/20 rounded-2xl flex items-center justify-center mx-auto text-rose-500 mb-4">
+                                <span className="material-icons text-3xl">warning</span>
+                            </div>
+                            <h3 className="text-xl font-black text-white tracking-tight">Excluir Conta?</h3>
+                            <p className="text-xs text-slate-400 leading-relaxed font-bold">Esta acao e irreversivel. Todos os seus dados serao removidos permanentemente.</p>
+                            <div className="space-y-4 pt-4">
+                                <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Digite <span className="text-rose-500">EXCLUIR</span> para confirmar:</p>
+                                <input type="text" value={deleteConfirmInput} onChange={e => setDeleteConfirmInput(e.target.value)} placeholder="Digite aqui..." className="w-full px-4 py-3 bg-slate-950 border border-white/10 rounded-xl text-center font-black tracking-widest text-white uppercase focus:ring-2 focus:ring-rose-500 outline-none transition" />
+                                <div className="flex gap-3 pt-2">
+                                    <button onClick={() => setShowDeleteConfirm(false)} className="flex-1 py-3 bg-white/5 hover:bg-white/10 text-slate-400 font-bold rounded-xl transition-all">Cancelar</button>
+                                    <button onClick={confirmDelete} className="flex-1 py-3 bg-rose-600 hover:bg-rose-500 text-white font-black rounded-xl transition-all shadow-lg shadow-rose-600/20">Excluir</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
@@ -3576,74 +4158,98 @@ const Sidebar = ({ isOpen, setIsOpen, isCollapsed, toggleCollapse, deferredPromp
     const { openBugReport } = useContext(BugReportContext);
 
     const menuItems = [
-        { id: 'Calculadora', label: 'Calculadora', icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg> },
-        { id: 'Admin', label: 'Administração', icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>, condition: !!(isAdmin || isSetorAdmin) },
+        { id: 'Calculadora', label: 'Calculadora', icon: 'calculate' },
+        { id: 'Admin', label: 'Administração', icon: 'admin_panel_settings', condition: !!(isAdmin || isSetorAdmin) },
     ];
 
     return (
         <>
             {/* Overlay Mobile */}
-            {isOpen && <div className="fixed inset-0 bg-black/50 z-[55] lg:hidden" onClick={() => setIsOpen(false)}></div>}
+            {isOpen && <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-[55] lg:hidden" onClick={() => setIsOpen(false)}></div>}
 
             {/* Sidebar Container */}
-            <aside className={`fixed lg:static inset-y-0 left-0 z-[60] ${isCollapsed ? 'w-20' : 'w-64'} bg-tjpr-navy-900 dark:bg-tjpr-navy-900 text-white transform transition-all duration-300 ease-in-out ${isOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0 flex flex-col shadow-xl`}>
-                {/* Top Section - Apenas título sem logo */}
-                <div className={`h-16 flex items-center ${isCollapsed ? 'justify-center' : 'justify-between px-6'} border-b border-tjpr-navy-800 bg-tjpr-navy-900`}>
-                    {!isCollapsed && <span className="text-sm font-semibold tracking-wide text-tjpr-navy-500">NAVEGAÇÃO</span>}
-                    <button onClick={toggleCollapse} className="hidden lg:block text-tjpr-navy-500 hover:text-white transition-colors">
-                        {isCollapsed ? (
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" /></svg>
-                        ) : (
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
-                        )}
-                    </button>
+            <aside className={`fixed lg:static inset-y-0 left-0 z-[60] ${isCollapsed ? 'w-20' : 'w-72'} bg-slate-900 border-r border-white/5 transform transition-all duration-500 ease-in-out ${isOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0 flex flex-col shadow-2xl`}>
+                {/* Brand Section */}
+                <div className={`h-24 flex items-center ${isCollapsed ? 'justify-center' : 'px-8'} relative overflow-hidden`}>
+                    <div className="absolute inset-0 bg-gradient-to-br from-indigo-600/10 to-transparent pointer-events-none"></div>
+                    
+                    {!isCollapsed ? (
+                        <div className="flex items-center gap-4 animate-in fade-in slide-in-from-left duration-500">
+                            <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center backdrop-blur-md">
+                                <img src="Logo.png" alt="Logo" className="h-6 w-auto filter brightness-0 invert" />
+                            </div>
+                            <div className="flex flex-col">
+                                <span className="text-sm font-black tracking-widest text-white">TJPR</span>
+                                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-tighter">Módulo de Prazos</span>
+                            </div>
+                        </div>
+                    ) : (
+                        <img src="Logo.png" alt="Logo" className="h-6 w-auto filter brightness-0 invert animate-in zoom-in duration-500" />
+                    )}
                 </div>
 
                 {/* Navigation */}
-                <nav className="flex-1 px-3 py-6 space-y-1 overflow-y-auto overflow-x-hidden">
+                <nav className="flex-1 px-4 py-8 space-y-2 overflow-y-auto custom-scrollbar">
+                    {!isCollapsed && <p className="px-4 text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mb-4">Principal</p>}
+                    
                     {menuItems.map(item => (
                         (item.condition !== false) && (
                             <button
                                 key={item.id}
                                 onClick={() => { setCurrentArea(item.id); setIsOpen(false); }}
-                                className={`w-full flex items-center ${isCollapsed ? 'justify-center px-2' : 'px-3'} py-2.5 text-sm font-medium rounded-lg transition-colors ${currentArea === item.id ? 'bg-tjpr-navy-700 text-white' : 'text-tjpr-navy-500 hover:bg-tjpr-navy-800 hover:text-white'}`}
+                                className={`w-full flex items-center ${isCollapsed ? 'justify-center' : 'px-4'} py-3.5 rounded-2xl transition-all duration-300 group relative ${currentArea === item.id ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}
                                 title={isCollapsed ? item.label : ''}
                             >
-                                <span className={`${isCollapsed ? '' : 'mr-3'}`}>{item.icon}</span>
-                                {!isCollapsed && item.label}
+                                {currentArea === item.id && (
+                                    <div className="absolute left-0 top-1/4 bottom-1/4 w-1 bg-white rounded-full"></div>
+                                )}
+                                <span className={`material-icons ${isCollapsed ? '' : 'mr-4'} ${currentArea === item.id ? 'text-white' : 'text-slate-500 group-hover:text-indigo-400'}`}>
+                                    {item.icon}
+                                </span>
+                                {!isCollapsed && <span className="font-bold text-sm tracking-tight">{item.label}</span>}
                             </button>
                         )
                     ))}
 
-                    <div className={`pt-6 mt-6 border-t border-tjpr-navy-800 ${isCollapsed ? 'flex flex-col items-center' : ''}`}>
-                        {!isCollapsed && <p className="px-3 text-xs font-semibold text-tjpr-navy-600 uppercase tracking-wider mb-2">Ferramentas</p>}
-                        <button onClick={() => { openCalendario(); setIsOpen(false); }} className={`w-full flex items-center ${isCollapsed ? 'justify-center px-2' : 'px-3'} py-2 text-sm font-medium text-tjpr-navy-500 rounded-lg hover:bg-tjpr-navy-800 hover:text-white transition-colors`} title={isCollapsed ? 'Calendário' : ''}>
-                            <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 ${isCollapsed ? '' : 'mr-3'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                            {!isCollapsed && 'Calendário'}
+                    <div className="pt-8 mt-8 border-t border-white/5">
+                        {!isCollapsed && <p className="px-4 text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mb-4">Ferramentas</p>}
+                        
+                        <button onClick={() => { openCalendario(); setIsOpen(false); }} className={`w-full flex items-center ${isCollapsed ? 'justify-center' : 'px-4'} py-3.5 text-slate-400 rounded-2xl hover:bg-white/5 hover:text-white transition-all duration-300 group`} title={isCollapsed ? 'Calendário' : ''}>
+                            <span className={`material-icons ${isCollapsed ? '' : 'mr-4'} text-slate-500 group-hover:text-indigo-400`}>calendar_today</span>
+                            {!isCollapsed && <span className="font-bold text-sm tracking-tight">Calendário</span>}
                         </button>
-                        <button onClick={() => { openBugReport(); setIsOpen(false); }} className={`w-full flex items-center ${isCollapsed ? 'justify-center px-2' : 'px-3'} py-2 text-sm font-medium text-tjpr-navy-500 rounded-lg hover:bg-tjpr-navy-800 hover:text-white transition-colors`} title={isCollapsed ? 'Reportar Problema' : ''}>
-                            <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 ${isCollapsed ? '' : 'mr-3'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-                            {!isCollapsed && 'Reportar Problema'}
+
+                        <button onClick={() => { openBugReport(); setIsOpen(false); }} className={`w-full flex items-center ${isCollapsed ? 'justify-center' : 'px-4'} py-3.5 text-slate-400 rounded-2xl hover:bg-white/5 hover:text-white transition-all duration-300 group`} title={isCollapsed ? 'Reportar Problema' : ''}>
+                            <span className={`material-icons ${isCollapsed ? '' : 'mr-4'} text-slate-500 group-hover:text-rose-400`}>bug_report</span>
+                            {!isCollapsed && <span className="font-bold text-sm tracking-tight">Reportar Erro</span>}
                         </button>
+
                         {deferredPrompt && (
-                            <button onClick={onInstallClick} className={`w-full flex items-center ${isCollapsed ? 'justify-center px-2' : 'px-3'} py-2 text-sm font-medium text-tjpr-gold rounded-lg hover:bg-tjpr-navy-800 hover:text-tjpr-gold transition-colors mt-2`} title={isCollapsed ? 'Instalar App' : ''}>
-                                {/* Icone do Módulo (App Logo) conforme solicitado */}
-                                <img src="https://cdn-icons-png.flaticon.com/512/2666/2666505.png" className={`h-5 w-5 ${isCollapsed ? '' : 'mr-3'}`} alt="Install Icon" />
-                                {!isCollapsed && 'Instalar App'}
+                            <button onClick={onInstallClick} className={`w-full flex items-center ${isCollapsed ? 'justify-center' : 'px-4'} py-3.5 text-indigo-400 rounded-2xl bg-indigo-500/5 hover:bg-indigo-500/10 transition-all duration-300 mt-4 border border-indigo-500/10 group`} title={isCollapsed ? 'Instalar App' : ''}>
+                                <span className={`material-icons ${isCollapsed ? '' : 'mr-4'} text-indigo-400`}>install_mobile</span>
+                                {!isCollapsed && <span className="font-bold text-sm tracking-tight">Instalar App</span>}
                             </button>
                         )}
                     </div>
                 </nav>
 
-                {/* Bottom Section - Sem perfil (movido para Header) */}
-                <div className={`p-4 border-t border-tjpr-navy-800 bg-tjpr-navy-900 ${isCollapsed ? 'flex justify-center' : ''}`}>
-                    <div className="text-center">
-                        {!isCollapsed && (
-                            <p className="text-xs text-tjpr-navy-600">
-                                © {new Date().getFullYear()} TJPR
-                            </p>
-                        )}
-                    </div>
+                {/* Footer Section */}
+                <div className={`p-6 border-t border-white/5 bg-slate-900/50 backdrop-blur-md`}>
+                    <button 
+                        onClick={toggleCollapse}
+                        className={`w-full flex items-center ${isCollapsed ? 'justify-center' : 'px-4'} py-3 rounded-xl bg-white/5 text-slate-400 hover:text-white transition-colors hidden lg:flex`}
+                    >
+                        <span className="material-icons text-sm">
+                            {isCollapsed ? 'last_page' : 'first_page'}
+                        </span>
+                        {!isCollapsed && <span className="ml-3 text-[10px] font-black uppercase tracking-widest">Recolher</span>}
+                    </button>
+                    
+                    {!isCollapsed && (
+                        <div className="mt-6 text-center">
+                            <p className="text-[9px] font-black text-slate-600 uppercase tracking-[0.2em]">© 2026 TJPR • Assessoria</p>
+                        </div>
+                    )}
                 </div>
             </aside>
         </>
@@ -3692,29 +4298,37 @@ const CalculatorApp = () => {
 };
 
 const CreditsWatermark = () => (
-    <div className="fixed bottom-2 right-6 text-xs text-slate-400 dark:text-slate-600 z-50 text-right pointer-events-none">
-        <p>Desenvolvido por:</p>
-        <p><strong>P-SEP-AR - GESTÃO 2025/2026</strong></p>
+    <div className="text-xs text-slate-500 dark:text-slate-600 text-center opacity-40 hover:opacity-100 transition-opacity duration-500">
+        <p className="mb-1">Desenvolvido por:</p>
+        <p className="font-bold">P-SEP-AR - GESTÃO 2025/2026</p>
         <p>Assessoria de Recursos aos Tribunais Superiores (STF e STJ) da Secretaria Especial da Presidência</p>
-        <p>Alif Pietrobelli Azevedo</p>
-        <p>Elvertoni Martelli Coimbra</p>
-        <p><strong className="font-extrabold text-slate-500 dark:text-slate-400">Luís Gustavo Arruda Lançoni</strong></p>
-        <p>Narley Almeida de Sousa</p>
-        <p>Rodrigo Louzano</p>
+        <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 mt-2 font-medium">
+            <span>Elvertoni Martelli Coimbra</span>
+            <span className="font-black text-slate-400">Luís Gustavo Arruda Lançoni</span>
+            <span>Narley Almeida de Sousa</span>
+            <span>Rodrigo Louzano</span>
+        </div>
     </div>
 );
 
 const UserIDWatermark = ({ overlay = false, isSidebarCollapsed = false }) => {
     const { user, userData } = useAuth();
     if (!user) return null;
+    
+    // Watermark discreta de fundo (opcional, dependendo do design)
     if (overlay) {
-        return <div className="watermark-overlay">{user.uid}</div>
+        return (
+            <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden flex items-center justify-center select-none">
+                <span className="text-[10vw] font-black text-white/[0.02] -rotate-12 uppercase whitespace-nowrap">
+                    P-SEP-AR • TJPR • {user?.id?.slice(0, 8) || 'N/A'}
+                </span>
+            </div>
+        );
     }
+    
     return (
-        <div className={`fixed bottom-4 text-xs text-slate-400 dark:text-slate-600 z-40 pointer-events-none text-left transition-all duration-300 left-4 ${isSidebarCollapsed ? 'lg:left-[6rem]' : 'lg:left-[17rem]'}`}>
-            <p>Logado como:</p>
-            <p>{userData?.displayName || user.email}</p>
-            ID do Utilizador: {user.uid}
+        <div className={`fixed bottom-4 text-[10px] font-bold text-slate-500 z-40 pointer-events-none transition-all duration-300 left-4 ${isSidebarCollapsed ? 'lg:left-[6rem]' : 'lg:left-[17rem]'}`}>
+            <p className="opacity-50">SISTEMA P-SEP-AR • ID: {user?.id?.slice(0, 8) || 'N/A'}</p>
         </div>
     );
 };
@@ -3756,9 +4370,11 @@ const BugReportProvider = ({ children }) => {
     };
 
     const handleSubmitReport = async (payload) => {
-        // payload can be a string (description) or an object { description, dataDisponibilizacao, isCrime, prazo }
-        if (!db || !user || !screenshot) {
-            alert("Erro: Serviços de autenticação ou banco de dados não estão disponíveis.");
+        console.log("BugReportProvider: Iniciando handleSubmitReport com payload:", payload);
+        
+        if (!window._supabaseClient || !user || !screenshot) {
+            console.error("BugReportProvider: Dependências ausentes:", { supabase: !!window._supabaseClient, user: !!user, screenshot: !!screenshot });
+            if (window.showToast) window.showToast("Erro: Serviços de autenticação ou banco de dados não estão disponíveis.", "error");
             return false;
         }
 
@@ -3777,43 +4393,73 @@ const BugReportProvider = ({ children }) => {
         }
 
         try {
-            await db.collection('bug_reports').add({
-                userId: user.uid,
-                userEmail: user.email,
-                description: description,
-                ...extraFields, // Adiciona os campos extras
-                screenshotBase64: screenshot,
-                status: 'aberto',
-                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-                pageURL: window.location.href,
-                userAgent: navigator.userAgent,
-            });
+            console.log("BugReportProvider: Iniciando submissão do relatório...");
+            console.log("BugReportProvider: Dados do usuário:", user ? { id: user.id, email: user.email } : "Sem usuário");
 
-            // Notificar Administradores
-            const adminsSnapshot = await db.collection('users').where('role', '==', 'admin').get();
-            if (!adminsSnapshot.empty) {
-                const batch = db.batch();
-                adminsSnapshot.forEach(adminDoc => {
-                    const notifRef = db.collection('notifications').doc();
-                    batch.set(notifRef, {
-                        userId: adminDoc.id,
-                        message: `Novo chamado aberto por ${user.displayName || user.email}`,
-                        read: false,
-                        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-                        type: 'bug_report_new'
-                    });
-                });
-                await batch.commit();
+            if (!user) {
+                throw new Error("Você precisa estar logado para enviar um relatório.");
             }
 
+            const reportObj = {
+                user_id: user.id,
+                user_email: user.email,
+                description: description,
+                ...extraFields,
+                screenshot_base64: screenshot,
+                status: 'aberto',
+                created_at: new Date().toISOString(),
+                page_url: window.location.href,
+                user_agent: navigator.userAgent,
+            };
+
+            console.log("BugReportProvider: Chamando supabase.from('bug_reports').insert()...");
+            const { data: reportData, error: reportError } = await window._supabaseClient
+                .from('bug_reports')
+                .insert([reportObj])
+                .select()
+                .maybeSingle();
+
+            if (reportError) throw reportError;
+            console.log("BugReportProvider: Relatório salvo com sucesso no banco.");
+            
+            // Notificar Administradores
+            try {
+                console.log("BugReportProvider: Buscando administradores para notificar...");
+                const { data: admins, error: adminError } = await window._supabaseClient
+                    .from('profiles')
+                    .select('id')
+                    .in('role', ['admin', 'setor_admin']);
+
+                if (!adminError && admins && admins.length > 0) {
+                    const notifications = admins.map(admin => ({
+                        user_id: admin.id,
+                        title: 'Novo Chamado',
+                        message: `O usuário ${user.email} abriu um chamado: ${description.substring(0, 40)}...`,
+                        type: 'new_bug_report',
+                        read: false,
+                        related_id: reportData.id,
+                        created_at: new Date().toISOString(),
+                        link: '#admin?tab=bugs'
+                    }));
+
+                    const { error: notifError } = await window._supabaseClient
+                        .from('notifications')
+                        .insert(notifications);
+                    
+                    if (!notifError) console.log("BugReportProvider: Notificações enviadas aos administradores.");
+                }
+            } catch (notifError) {
+                console.warn("BugReportProvider: Falha ao enviar notificações (não crítico):", notifError);
+            }
+
+            if (window.showToast) window.showToast('Relatório de problema enviado com sucesso! Agradecemos a sua colaboração.', 'success');
+            setIsReporting(false);
+            return true;
         } catch (error) {
-            console.error("Erro ao enviar relatório:", error);
-            alert("Ocorreu uma falha ao enviar seu relatório. Por favor, tente novamente.");
+            const errorMsg = error.message || (typeof error === 'object' ? JSON.stringify(error) : String(error));
+            if (window.showToast) window.showToast("Erro ao enviar relatório: " + errorMsg, "error");
             return false;
         }
-
-        alert('Relatório de problema enviado com sucesso! Agradecemos a sua colaboração.');
-        return true;
     };
 
     return (
@@ -3831,15 +4477,44 @@ const GlobalAlert = () => {
     const [animate, setAnimate] = useState(false);
 
     useEffect(() => {
-        if (!db) return;
-        const unsubscribe = db.collection('configuracoes').doc('aviso_global').onSnapshot(doc => {
-            if (doc.exists && doc.data().ativo) {
-                setMsg(doc.data());
+        if (!window._supabaseClient) return;
+        
+        const fetchAviso = async () => {
+            const { data, error } = await window._supabaseClient
+                .from('configuracoes')
+                .select('*')
+                .eq('id', 'aviso_global')
+                .maybeSingle();
+            
+            if (!error && data && data.ativo) {
+                setMsg(data);
             } else {
                 setMsg(null);
             }
-        });
-        return () => unsubscribe();
+        };
+
+        fetchAviso();
+
+        const channel = window._supabaseClient
+            .channel('aviso_global_changes')
+            .on('postgres_changes', { 
+                event: '*', 
+                schema: 'public', 
+                table: 'configuracoes', 
+                filter: 'id=eq.aviso_global' 
+            }, (payload) => {
+                const data = payload.new;
+                if (data && data.ativo) {
+                    setMsg(data);
+                } else {
+                    setMsg(null);
+                }
+            })
+            .subscribe();
+
+        return () => {
+            window._supabaseClient.removeChannel(channel);
+        };
     }, []);
 
     // Animation every 10 minutes (600,000 ms)
@@ -3868,7 +4543,7 @@ const PWAInstallPrompt = ({ deferredPrompt, onInstall, isIOS, onDismiss }) => {
                 <div className="flex-1 min-w-0">
                     <h4 className="text-sm font-bold text-slate-800 dark:text-white truncate">Instalar Prazos TJPR</h4>
                     <p className="text-xs text-slate-500 dark:text-slate-400">
-                        {isIOS ? 'Clique em Compartilhar > Adicionar à Tela de Início' : 'Aceda mais rápido instalando como app.'}
+                        {isIOS ? 'Clique em Compartilhar > Adicionar à Tela de Início' : 'Acesse mais rápido instalando como app.'}
                     </p>
                 </div>
                 <div className="flex gap-2">
@@ -3887,8 +4562,73 @@ const PWAInstallPrompt = ({ deferredPrompt, onInstall, isIOS, onDismiss }) => {
 };
 
 // --- Componente Principal ---
+/**
+ * ToastNotification - Componente para notificações flutuantes (tipo Windows)
+ */
+const ToastNotification = ({ notification, onClose, onNotificationClick }) => {
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            onClose();
+        }, 6000);
+        return () => clearTimeout(timer);
+    }, [onClose]);
+
+    const getIcon = () => {
+        switch(notification.type) {
+            case 'bug_resolved': return 'check_circle';
+            case 'new_bug_report': return 'bug_report';
+            case 'global_alert': return 'campaign';
+            case 'bug_reopened': return 'history';
+            default: return 'notifications';
+        }
+    };
+
+    const getVariant = () => {
+        if (notification.type === 'bug_resolved') return 'success';
+        if (notification.type === 'new_bug_report') return 'warning';
+        if (notification.type === 'bug_reopened') return 'info';
+        return '';
+    };
+
+    return (
+        <div 
+            className={`tjpr-toast ${getVariant()} group`}
+            onClick={() => {
+                if (onNotificationClick) {
+                    onNotificationClick(notification);
+                } else if (notification.link) {
+                    window.location.hash = notification.link;
+                }
+                onClose();
+            }}
+        >
+            <div className="tjpr-toast-glow"></div>
+            <div className="tjpr-toast-icon">
+                <span className="material-icons">
+                    {getIcon()}
+                </span>
+            </div>
+            <div className="tjpr-toast-content">
+                <div className="tjpr-toast-title">
+                    {notification.title || 'Nova Notificação'}
+                </div>
+                <div className="tjpr-toast-message">
+                    {notification.message}
+                </div>
+            </div>
+            <button 
+                onClick={(e) => { e.stopPropagation(); onClose(); }}
+                className="tjpr-toast-close"
+            >
+                <span className="material-icons">close</span>
+            </button>
+        </div>
+    );
+};
+
 const App = () => {
     const { user, userData, isAdmin, loading, refreshUser, currentArea, setCurrentArea } = useAuth();
+    const { settings, updateSettings } = useContext(SettingsContext);
     const [showCalendario, setShowCalendario] = useState(false);
     const [showProfile, setShowProfile] = useState(false);
     const [showSettings, setShowSettings] = useState(false);
@@ -3902,48 +4642,89 @@ const App = () => {
     const [notifications, setNotifications] = useState([]);
     const [showNotifications, setShowNotifications] = useState(false);
     const [adminInitialSection, setAdminInitialSection] = useState(null);
+    const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: null, variant: 'primary' });
+    const prevNotifsRef = React.useRef([]);
 
     useEffect(() => {
         if (user && adminInitialSection) {
-            // Se mudou de área, garante que o adminInitialSection seja limpo depois de um tempo ou
-            // gerenciado de outra forma. Aqui apenas garantimos que o estado existe.
+            // Se mudou de área, garante que o adminInitialSection seja limpo depois de um tempo
         }
     }, [user, adminInitialSection]);
 
     useEffect(() => {
-        if (!user || !db) return;
-        const unsubscribe = db.collection('notifications')
-            .where('userId', '==', user.uid)
-            .where('read', '==', false)
-            .orderBy('createdAt', 'desc')
-            .limit(50)
-            .onSnapshot(snapshot => {
-                const notifs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                setNotifications(notifs);
-            });
-        return () => unsubscribe();
+        if (!user || !window._supabaseClient) return;
+        
+        const fetchNotifications = async () => {
+            const { data, error } = await window._supabaseClient
+                .from('notifications')
+                .select('*')
+                .eq('user_id', user.id)
+                .eq('read', false)
+                .order('created_at', { ascending: false })
+                .limit(50);
+            
+            if (!error && data) {
+                setNotifications(data);
+                prevNotifsRef.current = data;
+            }
+        };
+
+        fetchNotifications();
+
+        const channel = window._supabaseClient
+            .channel('notifications_changes')
+            .on('postgres_changes', { 
+                event: 'INSERT', 
+                schema: 'public', 
+                table: 'notifications', 
+                filter: `user_id=eq.${user.id}` 
+            }, (payload) => {
+                const newNotif = payload.new;
+                setNotifications(prev => [newNotif, ...prev]);
+                if (window.showToast) {
+                    window.showToast(newNotif.message, 'info');
+                }
+            })
+            .subscribe();
+
+        return () => {
+            window._supabaseClient.removeChannel(channel);
+        };
     }, [user]);
 
+    // removeToast removido - agora gerenciado pelo TJPRToastContainer
+
     const handleMarkAsRead = async () => {
-        if (!db || !user) return;
-        const batch = db.batch();
-        notifications.forEach(n => {
-            const ref = db.collection('notifications').doc(n.id);
-            batch.update(ref, { read: true });
-        });
-        await batch.commit();
+        if (!window._supabaseClient || !user) return;
+        const { error } = await window._supabaseClient
+            .from('notifications')
+            .update({ read: true })
+            .eq('user_id', user.id)
+            .eq('read', false);
+        
+        if (!error) {
+            setNotifications([]);
+        }
     };
 
     const handleNotificationClick = async (notif) => {
         // Marca como lida
         if (!notif.read) {
-            await db.collection('notifications').doc(notif.id).update({ read: true });
+            await window._supabaseClient
+                .from('notifications')
+                .update({ read: true })
+                .eq('id', notif.id);
         }
 
         // Navegação baseada no tipo
-        if (notif.type === 'bug_report_new') {
+        if (notif.type === 'new_bug_report') {
+            console.log("handleNotificationClick: Direcionando para chamados");
             setAdminInitialSection({ view: 'chamados', ts: Date.now() });
             setCurrentArea('Admin');
+            setShowNotifications(false);
+        } else if (notif.link) {
+            console.log(`handleNotificationClick: Direcionando para link ${notif.link}`);
+            window.location.hash = notif.link;
             setShowNotifications(false);
         }
     };
@@ -4004,20 +4785,25 @@ const App = () => {
 
     useEffect(() => {
         // Lógica para mostrar o changelog
-        // if (user && db) {
-        //     const checkChangelog = async () => {
-        //         const lastSeenVersion = localStorage.getItem('lastSeenChangelogVersion');
-        //         const snapshot = await db.collection('changelog').orderBy('date', 'desc').limit(1).get();
-        //         if (!snapshot.empty) {
-        //             const latestVersionId = snapshot.docs[0].id;
-        //             if (latestVersionId !== lastSeenVersion) {
-        //                 setShowChangelog(true);
-        //             }
-        //         }
-        //     };
-        //     checkChangelog();
-        // }
-    }, []);
+        if (user && window._supabaseClient) {
+            const checkChangelog = async () => {
+                const lastSeenVersion = localStorage.getItem('lastSeenChangelogVersion');
+                const { data, error } = await window._supabaseClient
+                    .from('changelog')
+                    .select('id')
+                    .order('date', { ascending: false })
+                    .limit(1)
+                    .maybeSingle();
+                
+                if (!error && data) {
+                    if (data.id !== lastSeenVersion) {
+                        setShowChangelog(true);
+                    }
+                }
+            };
+            checkChangelog();
+        }
+    }, [user]);
 
 
 
@@ -4031,16 +4817,16 @@ const App = () => {
     }
 
     // Se o e-mail não for verificado, exibe a página de verificação.
-    // CORREÇÃO: Verifica tanto o status do Firebase Auth quanto o campo manual no Firestore.
-    // A verificação do Firestore (userData.emailVerified) é a que o admin pode alterar.
-    const isVerified = user.emailVerified || userData?.emailVerified;
+    // No Supabase, verificamos 'email_confirmed_at'.
+    // A verificação do userData (profiles table) permite override pelo admin.
+    const isVerified = !!(user?.email_confirmed_at || userData?.emailVerified);
     if (!isVerified) {
         return <VerifyEmailPage />;
     }
 
     // Se o usuário estiver logado e verificado, exibe a aplicação principal.
     return (
-        <div id="app-wrapper" className="h-screen flex bg-slate-50 dark:bg-slate-900 overflow-hidden">
+        <div id="app-wrapper" className="h-screen h-[100dvh] flex bg-slate-950 overflow-hidden text-slate-200">
             <Sidebar
                 isOpen={isSidebarOpen}
                 setIsOpen={setIsSidebarOpen}
@@ -4051,16 +4837,22 @@ const App = () => {
             />
 
             <div className="flex-1 flex flex-col overflow-hidden relative">
+                <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_var(--tw-gradient-stops))] from-indigo-900/20 via-transparent to-transparent pointer-events-none"></div>
+                
                 <GlobalAlert />
+                
                 <TJPRHeader
                     user={userData}
-                    onLogout={() => firebase.auth().signOut()}
-                    onToggleDarkMode={() => {
-                        const html = document.documentElement;
-                        html.classList.toggle('dark');
-                        localStorage.setItem('darkMode', html.classList.contains('dark'));
+                    onLogout={async () => {
+                        if (window._supabaseClient) {
+                            await window._supabaseClient.auth.signOut();
+                        }
                     }}
-                    isDarkMode={document.documentElement.classList.contains('dark')}
+                    onToggleDarkMode={() => {
+                        const next = settings.theme === 'dark' ? 'light' : 'dark';
+                        updateSettings({ theme: next });
+                    }}
+                    isDarkMode={settings.theme === 'dark' || (settings.theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)}
                     onOpenProfile={() => setShowProfile(true)}
                     currentArea={currentArea}
                     onNavigate={(area) => setCurrentArea(area)}
@@ -4077,16 +4869,25 @@ const App = () => {
                     onNotificationClick={handleNotificationClick}
                 />
 
-                <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
-                    <div className="max-w-7xl mx-auto">
+                <main className="flex-1 overflow-y-auto p-4 sm:p-8 lg:p-12 custom-scrollbar relative z-10">
+                    <div className="max-w-7xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
                         {currentArea === 'Calculadora' ? (
                             <CalculatorApp />
                         ) : currentArea === 'Admin' && (isAdmin || userData?.role === 'setor_admin') ? (
-                            <AdminPage setCurrentArea={setCurrentArea} />
+                            <AdminPage 
+                                setCurrentArea={setCurrentArea} 
+                                initialSection={adminInitialSection}
+                            />
                         ) : (
-                            <p>Área desconhecida.</p>
+                            <div className="flex flex-col items-center justify-center min-h-[60vh] text-center">
+                                <span className="material-icons text-6xl text-slate-700 mb-4">explore_off</span>
+                                <h2 className="text-2xl font-black text-white mb-2">Área Desconhecida</h2>
+                                <p className="text-slate-500 max-w-md mx-auto">A página que você está tentando acessar não existe ou você não tem permissão para visualizá-la.</p>
+                                <button onClick={() => setCurrentArea('Calculadora')} className="mt-8 px-6 py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-colors">Voltar para a Calculadora</button>
+                            </div>
                         )}
-                        <footer className="mt-8 border-t border-slate-200 dark:border-slate-800 pt-4">
+                        
+                        <footer className="mt-16 border-t border-white/5 pt-8 pb-12">
                             <CreditsWatermark />
                         </footer>
                     </div>
@@ -4107,6 +4908,21 @@ const App = () => {
             )}
             <CookieConsent />
             <UserIDWatermark isSidebarCollapsed={isSidebarCollapsed} />
+
+            {/* Sistema de Feedback Moderno (Monolith Elite) */}
+            <TJPRToastContainer />
+            
+            <TJPRConfirmModal
+                isOpen={confirmModal.isOpen}
+                title={confirmModal.title}
+                message={confirmModal.message}
+                onConfirm={() => {
+                    if (confirmModal.onConfirm) confirmModal.onConfirm();
+                    setConfirmModal(prev => ({ ...prev, isOpen: false }));
+                }}
+                onCancel={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+                variant={confirmModal.variant}
+            />
         </div>
     );
 };

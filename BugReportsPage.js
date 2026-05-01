@@ -1,30 +1,50 @@
-const { useState, useEffect, useCallback } = React;
+const { useState, useEffect, useCallback, useContext } = React;
 
 const BugReportsPage = () => {
     const [chamados, setChamados] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [error, setError] = useState('');
-    const [activeTab, setActiveTab] = useState('aberto'); // Estado para a aba ativa
+    const [searchTerm, setSearchTerm] = useState('');
+    const [statusFilter, setStatusFilter] = useState('todos');
+    const [selectedScreenshot, setSelectedScreenshot] = useState(null);
+    const [error, setError] = useState(null);
+    const [chamadoToDelete, setChamadoToDelete] = useState(null);
+    const [chamadoToStatus, setChamadoToStatus] = useState(null); // Para confirmar finalização/reabertura
 
     const fetchChamados = useCallback(async () => {
-        if (!db) return;
+        const _supabase = window._supabaseClient;
+        if (!_supabase) {
+            setLoading(false);
+            return;
+        }
         setLoading(true);
         try {
-            const reportsSnapshot = await db.collection('bug_reports').orderBy('createdAt', 'desc').get();
-            const reportsList = reportsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            console.log("BugReportsPage: Buscando chamados...");
+            // Busca bug_reports e profiles via join
+            const { data, error: fetchError } = await _supabase
+                .from('bug_reports')
+                .select(`
+                    *,
+                    profiles:user_id (
+                        display_name,
+                        email
+                    )
+                `)
+                .order('created_at', { ascending: false });
 
-            const userIds = [...new Set(reportsList.map(r => r.userId))];
-            if (userIds.length > 0) {
-                const usersSnapshot = await db.collection('users').where(firebase.firestore.FieldPath.documentId(), 'in', userIds).get();
-                const usersMap = usersSnapshot.docs.reduce((acc, doc) => {
-                    acc[doc.id] = doc.data().displayName;
-                    return acc;
-                }, {});
-                const enrichedReports = reportsList.map(r => ({ ...r, reporterName: usersMap[r.userId] || r.userEmail }));
-                setChamados(enrichedReports);
-            } else {
-                setChamados([]);
-            }
+            if (fetchError) throw fetchError;
+            
+            const reportsWithUsers = data.map(report => ({
+                ...report,
+                // Adaptação para o resto do componente que usa CamelCase ou nomes específicos
+                createdAt: report.created_at,
+                reporterName: report.profiles?.display_name || report.user_name || 'Usuário Desconhecido',
+                reporterEmail: report.profiles?.email || report.user_email || '',
+                reporterAvatar: '#4f46e5', // Padrão ou extraído do perfil se houver
+                screenshotBase64: report.screenshot // Mapeia para o nome esperado no resto do código
+            }));
+
+            setChamados(reportsWithUsers);
+            setError(null);
         } catch (err) {
             console.error("Erro ao buscar chamados:", err);
             setError("Falha ao carregar chamados.");
@@ -33,277 +53,337 @@ const BugReportsPage = () => {
         }
     }, []);
 
-    useEffect(() => {
-        fetchChamados();
-    }, [fetchChamados]);
+    const executeDeleteChamado = async () => {
+        const _supabase = window._supabaseClient;
+        if (!chamadoToDelete || !_supabase) return;
+        try {
+            console.log(`BugReportsPage: Excluindo chamado ${chamadoToDelete.id}`);
+            const { error: delError } = await _supabase
+                .from('bug_reports')
+                .delete()
+                .eq('id', chamadoToDelete.id);
 
-    const handleDeleteChamado = async (chamadoId) => {
-        if (window.confirm("Tem certeza que deseja excluir este chamado permanentemente? Esta ação não pode ser desfeita.")) {
-            if (!db) return;
-            try {
-                await db.collection('bug_reports').doc(chamadoId).delete();
-                fetchChamados();
-            } catch (err) {
-                console.error("Erro ao excluir chamado:", err);
-                alert("Falha ao excluir o chamado.");
+            if (delError) throw delError;
+
+            setChamadoToDelete(null);
+            await fetchChamados();
+            window.showToast?.("Chamado excluído com sucesso.", "success");
+            // Audit log
+            if (window.logAudit && window._supabaseAuth?.user) {
+                await window.logAudit(_supabase, window._supabaseAuth.user, 'EXCLUIR_CHAMADO', `ID: ${chamadoToDelete.id} de ${chamadoToDelete.reporterName}`);
             }
-        }
-    };
-
-    const [selectedImage, setSelectedImage] = useState(null);
-
-    const viewScreenshot = (base64String) => {
-        setSelectedImage(base64String);
-    };
-
-    const closeScreenshotModal = () => {
-        setSelectedImage(null);
-    };
-
-    // Paginação
-    const [currentPage, setCurrentPage] = useState(1);
-    const itemsPerPage = 5;
-
-    // Filter logic
-    const filteredChamados = chamados.filter(report => {
-        if (activeTab === 'aberto') return report.status === 'aberto';
-        if (activeTab === 'resolvido') return report.status === 'resolvido';
-        return true;
-    });
-
-    // Reset page when reports change (e.g. filter)
-    useEffect(() => {
-        setCurrentPage(1);
-    }, [activeTab, chamados]); // Reset page on tab change too
-
-    const totalPages = Math.ceil(filteredChamados.length / itemsPerPage);
-    const paginatedReports = filteredChamados.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
-
-    const handlePageChange = (newPage) => {
-        if (newPage >= 1 && newPage <= totalPages) {
-            setCurrentPage(newPage);
+        } catch (err) {
+            console.error("BugReportsPage: Erro ao excluir chamado:", err);
+            window.showToast?.("Falha ao excluir o chamado: " + (err.message || "Erro desconhecido"), "error");
         }
     };
 
     const handleUpdateStatus = async (chamado, newStatus) => {
-        if (!db) return;
+        setChamadoToStatus({ chamado, newStatus });
+    };
+
+    const executeUpdateStatus = async () => {
+        const _supabase = window._supabaseClient;
+        if (!chamadoToStatus || !_supabase) return;
+        const { chamado, newStatus } = chamadoToStatus;
+        
         try {
-            await db.collection('bug_reports').doc(chamado.id).update({ status: newStatus, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+            console.log(`BugReportsPage: Atualizando status para ${newStatus} no chamado ${chamado.id}`);
+            const { error: upError } = await _supabase
+                .from('bug_reports')
+                .update({ 
+                    status: newStatus, 
+                    updated_at: new Date().toISOString() 
+                })
+                .eq('id', chamado.id);
 
-            // Notification Logic
-            if (newStatus === 'resolvido' && chamado.userId) {
-                try {
-                    await db.collection('notifications').add({
-                        userId: chamado.userId,
-                        message: `O seu reporte: "${chamado.description.substring(0, 40)}${chamado.description.length > 40 ? '...' : ''}" foi marcado como resolvido.`,
-                        read: false,
-                        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-                        type: 'bug_resolved',
-                        link: '/bug-reports' // Contextual link, though navigation handles it
-                    });
-                } catch (notifError) {
-                    console.error("Erro ao criar notificação:", notifError);
-                    // Non-blocking error
-                }
+            if (upError) throw upError;
+
+            setChamadoToStatus(null);
+            await fetchChamados();
+            window.showToast?.(`Status do chamado atualizado para ${newStatus}.`, "success");
+            
+            if (window.logAudit && window._supabaseAuth?.user) {
+                await window.logAudit(_supabase, window._supabaseAuth.user, 'ALTERAR_STATUS_CHAMADO', `ID: ${chamado.id} para ${newStatus}`);
             }
-
-            fetchChamados();
         } catch (err) {
             console.error("Erro ao atualizar status:", err);
-            alert("Falha ao atualizar o status do chamado.");
+            window.showToast?.("Falha ao atualizar status: " + (err.message || "Erro desconhecido"), "error");
         }
     };
 
-    if (loading) {
-        return (
-            <TJPRCard title="Caixa de Chamados de Problemas" icon="bug_report">
-                <div className="text-center py-8">
-                    <span className="material-icons text-4xl text-gray-400 animate-spin">refresh</span>
-                    <p className="mt-2 text-gray-600 dark:text-gray-400">Carregando chamados...</p>
-                </div>
-            </TJPRCard>
-        );
-    }
+    useEffect(() => {
+        fetchChamados();
+        // Listener para mudanças em tempo real via Supabase
+        const _supabase = window._supabaseClient;
+        if (!_supabase) return;
+
+        const channel = _supabase
+            .channel('bug_reports_changes')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'bug_reports' }, () => {
+                fetchChamados();
+            })
+            .subscribe();
+
+        return () => {
+            _supabase.removeChannel(channel);
+        };
+    }, [fetchChamados]);
+
+    // Filtros
+    const filteredChamados = chamados.filter(c => {
+        const matchSearch = (c.description || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+                           (c.reporterName || '').toLowerCase().includes(searchTerm.toLowerCase());
+        const matchStatus = statusFilter === 'todos' || c.status === statusFilter;
+        return matchSearch && matchStatus;
+    });
+
+    const getStatusInfo = (status) => {
+        switch(status) {
+            case 'aberto': return { label: 'Aberto', color: 'warning', icon: 'pending' };
+            case 'em_analise': return { label: 'Em Análise', color: 'info', icon: 'search' };
+            case 'resolvido': return { label: 'Resolvido', color: 'success', icon: 'check_circle' };
+            default: return { label: status, color: 'default', icon: 'help' };
+        }
+    };
 
     if (error) {
         return (
-            <TJPRCard title="Caixa de Chamados de Problemas" icon="bug_report">
-                <div className="bg-red-50 dark:bg-red-900/20 border-l-4 border-tjpr-error p-4 rounded">
-                    <div className="flex items-center gap-2">
-                        <span className="material-icons text-tjpr-error">error</span>
-                        <p className="text-sm text-tjpr-error font-medium">{error}</p>
-                    </div>
+            <div className="p-12 text-center">
+                <div className="w-20 h-20 bg-rose-500/10 text-rose-500 rounded-full flex items-center justify-center mx-auto mb-6">
+                    <span className="material-icons text-4xl">error</span>
                 </div>
-            </TJPRCard>
+                <h2 className="text-2xl font-black text-white mb-2">Ops! Algo deu errado</h2>
+                <p className="text-slate-400 mb-8">{error}</p>
+                <TJPRButton onClick={fetchChamados} icon="refresh">Tentar Novamente</TJPRButton>
+            </div>
         );
     }
 
     return (
-        <>
-            <TJPRCard
-                title="Caixa de Chamados de Problemas"
-                subtitle="Gerencie os chamados e feedbacks dos usuários."
-                icon="bug_report"
-                actions={
-                    <div className="flex bg-slate-100 dark:bg-slate-900/50 p-1 rounded-lg">
-                        <button
-                            onClick={() => setActiveTab('aberto')}
-                            className={`px-4 py-2 text-sm font-semibold rounded-md transition-all flex items-center gap-2 ${activeTab === 'aberto' ? 'bg-white dark:bg-slate-700 shadow-sm text-indigo-600 dark:text-white' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'}`}
-                        >
-                            Em Aberto
-                            <span className={`px-1.5 py-0.5 text-xs rounded-full ${activeTab === 'aberto' ? 'bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400' : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400'}`}>
-                                {chamados.filter(c => c.status === 'aberto').length}
-                            </span>
-                        </button>
-                        <button
-                            onClick={() => setActiveTab('resolvido')}
-                            className={`px-4 py-2 text-sm font-semibold rounded-md transition-all flex items-center gap-2 ${activeTab === 'resolvido' ? 'bg-white dark:bg-slate-700 shadow-sm text-emerald-600 dark:text-emerald-400' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'}`}
-                        >
-                            Finalizados
-                            <span className={`px-1.5 py-0.5 text-xs rounded-full ${activeTab === 'resolvido' ? 'bg-emerald-100 dark:bg-emerald-900/50 text-emerald-600 dark:text-emerald-400' : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400'}`}>
-                                {chamados.filter(c => c.status === 'resolvido').length}
-                            </span>
-                        </button>
+        <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
+            {/* Grid de Estatísticas Elite */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-10">
+                {/* Total */}
+                <div className="relative bg-slate-900/40 backdrop-blur-xl border border-white/10 rounded-[2.5rem] p-8 overflow-hidden group shadow-2xl">
+                    <div className="absolute -right-4 -top-4 w-24 h-24 bg-slate-500/10 blur-3xl rounded-full transition-all group-hover:scale-150"></div>
+                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mb-2">Total de Chamados</p>
+                    <p className="text-4xl font-black text-white tracking-tighter">{chamados.length}</p>
+                </div>
+                
+                {/* Status-based Stats */}
+                {[
+                    { label: 'Em Aberto', count: chamados.filter(c => c.status === 'aberto').length, color: 'text-amber-500', glow: 'bg-amber-500/20' },
+                    { label: 'Em Análise', count: chamados.filter(c => c.status === 'em_analise').length, color: 'text-indigo-500', glow: 'bg-indigo-500/20' },
+                    { label: 'Resolvidos', count: chamados.filter(c => c.status === 'resolvido').length, color: 'text-emerald-500', glow: 'bg-emerald-500/20' }
+                ].map((stat, i) => (
+                    <div key={i} className="relative bg-slate-900/40 backdrop-blur-xl border border-white/10 rounded-[2.5rem] p-8 overflow-hidden group shadow-2xl">
+                        <div className={`absolute -right-4 -top-4 w-24 h-24 ${stat.glow} blur-3xl rounded-full transition-all group-hover:scale-150`}></div>
+                        <p className={`text-[10px] font-black uppercase tracking-[0.2em] mb-2 ${stat.color}`}>{stat.label}</p>
+                        <p className="text-4xl font-black text-white tracking-tighter">{stat.count}</p>
                     </div>
-                }
+                ))}
+            </div>
+
+            <TJPRCard 
+                title="Central de Chamados e Bugs" 
+                subtitle="Gerenciamento de feedback e suporte técnico"
+                icon="bug_report"
             >
-                <div className="space-y-4">
-                    {filteredChamados.length === 0 ? (
-                        <div className="text-center py-12">
-                            <span className="material-icons text-6xl text-gray-300 dark:text-gray-700">{activeTab === 'aberto' ? 'check_circle' : 'search_off'}</span>
-                            <p className="mt-4 text-gray-500 dark:text-gray-400">Nenhum chamado {activeTab === 'aberto' ? 'em aberto' : 'finalizado found'}.</p>
-                        </div>
-                    ) : (
-                        <>
-                            {paginatedReports.map(chamado => (
-                                <div key={chamado.id} className={`p-5 rounded-lg border transition-all duration-200 ${chamado.status === 'aberto'
-                                    ? 'bg-amber-50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-800 hover:shadow-md'
-                                    : 'bg-gray-50 dark:bg-gray-900/30 border-gray-200 dark:border-gray-700 hover:shadow-sm'
-                                    }`}>
-                                    {/* Header do Chamado */}
-                                    <div className="flex justify-between items-start mb-4">
-                                        <div>
-                                            <div className="flex items-center gap-2 mb-1">
-                                                <span className="material-icons text-sm text-gray-500">person</span>
-                                                <p className="text-sm font-medium text-gray-700 dark:text-gray-200">{chamado.reporterName}</p>
+                {/* Filtros e Busca */}
+                <div className="flex flex-col md:grid md:grid-cols-12 gap-6 mb-10">
+                    <div className="md:col-span-6">
+                        <TJPRInput 
+                            placeholder="Buscar por descrição ou solicitante..."
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            icon="search"
+                        />
+                    </div>
+                    <div className="md:col-span-4 relative">
+                        <select 
+                            value={statusFilter}
+                            onChange={(e) => setStatusFilter(e.target.value)}
+                            className="w-full h-[52px] bg-slate-950/50 border border-white/10 rounded-2xl px-6 text-xs font-black uppercase tracking-widest text-slate-300 appearance-none focus:border-indigo-500/50 outline-none transition-all cursor-pointer"
+                        >
+                            <option value="todos">Todos os Status</option>
+                            <option value="aberto">Abertos</option>
+                            <option value="em_analise">Em Análise</option>
+                            <option value="resolvido">Resolvidos</option>
+                        </select>
+                        <span className="material-icons absolute right-6 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none text-lg">expand_more</span>
+                    </div>
+                    <div className="md:col-span-2">
+                        <TJPRButton onClick={fetchChamados} variant="secondary" icon="refresh" className="w-full h-[52px]">
+                            Atualizar
+                        </TJPRButton>
+                    </div>
+                </div>
+
+                {/* Tabela de Chamados */}
+                <div className="overflow-x-auto">
+                    <table className="w-full text-left border-separate border-spacing-y-3">
+                        <thead>
+                            <tr className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] px-4">
+                                <th className="pb-4 pl-6">Solicitante</th>
+                                <th className="pb-4">Descrição</th>
+                                <th className="pb-4">Prioridade</th>
+                                <th className="pb-4">Status</th>
+                                <th className="pb-4 text-right pr-6">Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {loading && chamados.length === 0 ? (
+                                Array(3).fill(0).map((_, i) => (
+                                    <tr key={i} className="animate-pulse">
+                                        <td colSpan="5" className="h-20 bg-slate-950/40 rounded-2xl"></td>
+                                    </tr>
+                                ))
+                            ) : filteredChamados.length === 0 ? (
+                                <tr>
+                                    <td colSpan="5" className="py-20 text-center">
+                                        <p className="text-slate-500 font-bold uppercase tracking-widest">Nenhum chamado encontrado</p>
+                                    </td>
+                                </tr>
+                            ) : filteredChamados.map(chamado => {
+                                const status = getStatusInfo(chamado.status);
+                                return (
+                                    <tr key={chamado.id} className="group bg-slate-950/20 hover:bg-slate-950/40 transition-all">
+                                        <td className="py-5 pl-6 rounded-l-2xl">
+                                            <div className="flex items-center gap-4">
+                                                <div 
+                                                    className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-black text-xs shadow-lg"
+                                                    style={{ background: `linear-gradient(135deg, ${chamado.reporterAvatar}, #1e1b4b)` }}
+                                                >
+                                                    {chamado.reporterName.charAt(0).toUpperCase()}
+                                                </div>
+                                                <div>
+                                                    <p className="text-sm font-bold text-white leading-tight">{chamado.reporterName}</p>
+                                                    <p className="text-[10px] text-slate-500 font-medium">{formatarData(new Date(chamado.createdAt))}</p>
+                                                </div>
                                             </div>
-                                            <div className="flex items-center gap-2">
-                                                <span className="material-icons text-xs text-gray-400">schedule</span>
-                                                <p className="text-xs text-gray-500 dark:text-gray-400">
-                                                    {chamado.createdAt ? formatarData(new Date(chamado.createdAt.toDate())) : 'Data indisponível'}
-                                                </p>
+                                        </td>
+                                        <td className="py-5">
+                                            <p className="text-sm text-slate-300 line-clamp-1 max-w-md font-medium">
+                                                {chamado.description}
+                                            </p>
+                                        </td>
+                                        <td className="py-5">
+                                            <TJPRBadge variant={chamado.priority === 'alta' ? 'error' : 'info'}>
+                                                {chamado.priority || 'normal'}
+                                            </TJPRBadge>
+                                        </td>
+                                        <td className="py-5">
+                                            <TJPRBadge variant={status.color} icon={status.icon}>
+                                                {status.label}
+                                            </TJPRBadge>
+                                        </td>
+                                        <td className="py-5 pr-6 rounded-r-2xl text-right">
+                                            <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                {chamado.screenshotBase64 && (
+                                                    <button 
+                                                        onClick={() => setSelectedScreenshot(chamado.screenshotBase64)}
+                                                        className="w-10 h-10 rounded-xl bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500 hover:text-white transition-all flex items-center justify-center"
+                                                        title="Ver Captura de Tela"
+                                                    >
+                                                        <span className="material-icons text-xl">image</span>
+                                                    </button>
+                                                )}
+                                                {chamado.status !== 'resolvido' && (
+                                                    <button 
+                                                        onClick={() => handleUpdateStatus(chamado, 'resolvido')}
+                                                        className="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500 hover:text-white transition-all flex items-center justify-center"
+                                                        title="Marcar como Resolvido"
+                                                    >
+                                                        <span className="material-icons text-xl">check_circle</span>
+                                                    </button>
+                                                )}
+                                                <button 
+                                                    onClick={() => setChamadoToDelete(chamado)}
+                                                    className="w-10 h-10 rounded-xl bg-rose-500/10 text-rose-500 hover:bg-rose-500 hover:text-white transition-all flex items-center justify-center"
+                                                    title="Excluir Permanentemente"
+                                                >
+                                                    <span className="material-icons text-xl">delete_sweep</span>
+                                                </button>
                                             </div>
-                                        </div>
-                                        <TJPRBadge
-                                            variant={chamado.status === 'aberto' ? 'warning' : 'success'}
-                                            icon={chamado.status === 'aberto' ? 'pending' : 'check_circle'}
-                                        >
-                                            {chamado.status === 'aberto' ? 'Aberto' : 'Resolvido'}
-                                        </TJPRBadge>
-                                    </div>
-
-                                    {/* Descrição do Problema */}
-                                    <div className="bg-white dark:bg-gray-800 p-4 rounded-md border border-gray-200 dark:border-gray-700">
-                                        <p className="text-sm text-gray-800 dark:text-gray-100 whitespace-pre-wrap">{chamado.description}</p>
-                                    </div>
-
-                                    {/* Actions */}
-                                    <div className="mt-4 flex flex-wrap gap-3 items-center">
-                                        <TJPRButton
-                                            onClick={() => viewScreenshot(chamado.screenshotBase64)}
-                                            variant="ghost"
-                                            size="sm"
-                                            icon="image"
-                                        >
-                                            Ver Screenshot
-                                        </TJPRButton>
-
-                                        {chamado.status === 'aberto' ? (
-                                            <TJPRButton
-                                                onClick={() => handleUpdateStatus(chamado, 'resolvido')}
-                                                variant="success"
-                                                size="sm"
-                                                icon="check_circle"
-                                            >
-                                                Marcar como Resolvido
-                                            </TJPRButton>
-                                        ) : (
-                                            <TJPRButton
-                                                onClick={() => handleUpdateStatus(chamado, 'aberto')}
-                                                variant="warning"
-                                                size="sm"
-                                                icon="refresh"
-                                            >
-                                                Reabrir Chamado
-                                            </TJPRButton>
-                                        )}
-
-                                        <TJPRButton
-                                            onClick={() => handleDeleteChamado(chamado.id)}
-                                            variant="error"
-                                            size="sm"
-                                            icon="delete"
-                                        >
-                                            Excluir
-                                        </TJPRButton>
-                                    </div>
-                                </div>
-                            ))}
-
-                            {/* Pagination Controls */}
-                            {totalPages > 1 && (
-                                <div className="flex justify-center items-center gap-4 mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
-                                    <button
-                                        onClick={() => handlePageChange(currentPage - 1)}
-                                        disabled={currentPage === 1}
-                                        className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
-                                        title="Página Anterior"
-                                    >
-                                        <span className="material-icons text-gray-600 dark:text-gray-300">chevron_left</span>
-                                    </button>
-
-                                    <span className="text-sm font-medium text-gray-600 dark:text-gray-300">
-                                        Página {currentPage} de {totalPages}
-                                    </span>
-
-                                    <button
-                                        onClick={() => handlePageChange(currentPage + 1)}
-                                        disabled={currentPage === totalPages}
-                                        className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
-                                        title="Próxima Página"
-                                    >
-                                        <span className="material-icons text-gray-600 dark:text-gray-300">chevron_right</span>
-                                    </button>
-                                </div>
-                            )}
-                        </>
-                    )}
+                                        </td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
                 </div>
             </TJPRCard>
 
-            <TJPRModal
-                isOpen={!!selectedImage}
-                onClose={closeScreenshotModal}
-                title="Visualizador de Screenshot"
-                icon="image"
-                maxWidth="4xl"
+            {/* Modal de Screenshot */}
+            <TJPRModal 
+                isOpen={!!selectedScreenshot} 
+                onClose={() => setSelectedScreenshot(null)}
+                title="Captura de Tela do Erro"
+                maxWidth="6xl"
+                icon="wallpaper"
             >
-                <div className="flex justify-center items-center bg-slate-100 dark:bg-slate-900 rounded-lg p-2">
-                    <img
-                        src={selectedImage}
-                        alt="Screenshot do Chamado"
-                        className="max-w-full max-h-[70vh] object-contain rounded shadow-sm"
-                    />
-                </div>
-                <div className="mt-4 flex justify-end">
-                    <TJPRButton
-                        onClick={closeScreenshotModal}
-                        variant="secondary"
-                    >
-                        Fechar Visualização
-                    </TJPRButton>
+                <div className="bg-slate-950 rounded-3xl overflow-hidden border border-white/10">
+                    <img src={selectedScreenshot} alt="Bug Screenshot" className="w-full h-auto" />
                 </div>
             </TJPRModal>
-        </>
+
+            {/* Modal de Confirmação de Exclusão (Layout Clássico Elite) */}
+            {chamadoToDelete && (
+                <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/90 backdrop-blur-md p-4 animate-in fade-in duration-300" onClick={() => setChamadoToDelete(null)}>
+                    <div className="w-full max-w-md bg-slate-900 border border-white/10 rounded-[2.5rem] overflow-hidden shadow-2xl animate-in zoom-in-95 duration-300" onClick={e => e.stopPropagation()}>
+                        <div className="p-10 text-center">
+                            <div className="w-20 h-20 bg-rose-500/10 text-rose-500 rounded-full flex items-center justify-center mx-auto mb-6 border border-rose-500/20 shadow-[0_0_40px_-10px_rgba(244,63,94,0.3)]">
+                                <span className="material-icons text-4xl">delete_forever</span>
+                            </div>
+                            <h3 className="text-2xl font-black text-white mb-2 uppercase tracking-tight">Excluir Chamado?</h3>
+                            <p className="text-sm text-slate-400 font-medium leading-relaxed">
+                                Tem certeza que deseja excluir o chamado de <br/>
+                                <span className="text-white font-bold">"{chamadoToDelete.reporterName}"</span>?<br/>
+                                Esta ação removerá permanentemente o registro.
+                            </p>
+                        </div>
+                        <div className="flex border-t border-white/5 bg-slate-950/20">
+                            <button onClick={() => setChamadoToDelete(null)} className="flex-1 px-8 py-6 text-xs font-black uppercase tracking-widest text-slate-500 hover:text-white hover:bg-white/5 transition-all">
+                                Cancelar
+                            </button>
+                            <button onClick={executeDeleteChamado} className="flex-1 px-8 py-6 bg-rose-600 hover:bg-rose-500 text-white text-xs font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2">
+                                <span className="material-icons text-sm">delete</span>
+                                Confirmar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Modal de Confirmação de Status (Layout Clássico Elite) */}
+            {chamadoToStatus && (
+                <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/90 backdrop-blur-md p-4 animate-in fade-in duration-300" onClick={() => setChamadoToStatus(null)}>
+                    <div className="w-full max-w-md bg-slate-900 border border-white/10 rounded-[2.5rem] overflow-hidden shadow-2xl animate-in zoom-in-95 duration-300" onClick={e => e.stopPropagation()}>
+                        <div className="p-10 text-center">
+                            <div className="w-20 h-20 bg-emerald-500/10 text-emerald-500 rounded-full flex items-center justify-center mx-auto mb-6 border border-emerald-500/20 shadow-[0_0_40px_-10px_rgba(16,185,129,0.3)]">
+                                <span className="material-icons text-4xl">check_circle</span>
+                            </div>
+                            <h3 className="text-2xl font-black text-white mb-2 uppercase tracking-tight">Resolver Chamado?</h3>
+                            <p className="text-sm text-slate-400 font-medium leading-relaxed">
+                                Deseja marcar o chamado de <br/>
+                                <span className="text-white font-bold">"{chamadoToStatus.chamado.reporterName}"</span> como <span className="text-emerald-400 font-bold">resolvido</span>?
+                            </p>
+                        </div>
+                        <div className="flex border-t border-white/5 bg-slate-950/20">
+                            <button onClick={() => setChamadoToStatus(null)} className="flex-1 px-8 py-6 text-xs font-black uppercase tracking-widest text-slate-500 hover:text-white hover:bg-white/5 transition-all">
+                                Voltar
+                            </button>
+                            <button onClick={executeUpdateStatus} className="flex-1 px-8 py-6 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2">
+                                <span className="material-icons text-sm">task_alt</span>
+                                Confirmar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
     );
 };
+
+window.BugReportsPage = BugReportsPage;

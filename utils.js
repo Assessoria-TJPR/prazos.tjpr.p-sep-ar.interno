@@ -59,17 +59,22 @@ const agruparDiasConsecutivos = (dias) => {
  * @param {string} action - Nome da ação (ex: 'EDITAR_CALENDARIO').
  * @param {string} details - Detalhes da ação.
  */
-const logAudit = async (db, user, action, details) => {
-    if (!db || !user) return;
+const logAudit = async (supabase, user, action, details) => {
+    if (!supabase || !user) return;
     try {
-        await db.collection('audit_logs').add({
+        await supabase.from('audit_logs').insert({
             action,
-            details,
-            performedBy: user.uid,
-            performedByEmail: user.email,
-            timestamp: firebase.firestore.FieldValue.serverTimestamp()
+            admin_id: user.id,
+            admin_name: user.email,
+            details: typeof details === 'object' ? details : { message: details },
+            timestamp: new Date().toISOString()
         });
     } catch (e) {
         console.error("Erro ao registrar auditoria:", e);
     }
 };
+
+// Expondo globalmente para uso em outros componentes (Babel-in-browser legacy)
+window.formatarData = formatarData;
+window.agruparDiasConsecutivos = agruparDiasConsecutivos;
+window.logAudit = logAudit;

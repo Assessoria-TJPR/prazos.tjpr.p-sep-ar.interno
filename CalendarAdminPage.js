@@ -9,56 +9,55 @@ const CalendarioAdminPage = () => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [isSaving, setIsSaving] = useState(false);
-    const [editando, setEditando] = useState(null); // Guarda o item sendo editado
+    const [editando, setEditando] = useState(null); 
     const [novaEntrada, setNovaEntrada] = useState({ data: '', motivo: '', tipo: 'feriado', link: '' });
+    const [entryToDelete, setEntryToDelete] = useState(null); 
 
     const fetchCalendarConfig = useCallback(async () => {
         setLoading(true);
         try {
-            const docRef = db.collection('configuracoes').doc('calendario');
-            const doc = await docRef.get();
-            if (!doc.exists) {
-                setError("Documento de configuração do calendário não encontrado.");
-                setLoading(false);
+            const { data, error } = await window._supabaseClient
+                .from('configuracoes')
+                .select('data')
+                .eq('id', 'calendario')
+                .maybeSingle();
+
+            if (error) throw error;
+            if (!data) {
+                setError("Configuração não encontrada.");
                 return;
             }
-            const data = doc.data();
-            setConfig(data);
+            const configData = data.data;
+            setConfig(configData);
 
-            // Processa os dados para uma lista única para a UI
             const entries = [];
             const anoAtual = new Date().getFullYear();
-            // Define quais anos vamos processar (ex: ano atual e próximo)
             const anosRelevantes = [String(anoAtual), String(anoAtual + 1)];
 
-            // Adiciona anos que já tenham configuração salva, se não estiverem na lista
-            if (data.excecoesAnuais) {
-                Object.keys(data.excecoesAnuais).forEach(ano => {
+            if (configData.excecoesAnuais) {
+                Object.keys(configData.excecoesAnuais).forEach(ano => {
                     if (!anosRelevantes.includes(ano)) anosRelevantes.push(ano);
                 });
             }
             anosRelevantes.sort();
 
             anosRelevantes.forEach(year => {
-                // Adiciona feriados recorrentes para este ano
-                data.feriadosNacionaisRecorrentes?.forEach(f => {
+                configData.feriadosNacionaisRecorrentes?.forEach(f => {
                     const dataStr = `${year}-${String(f.mes).padStart(2, '0')}-${String(f.dia).padStart(2, '0')}`;
-                    entries.push({ id: dataStr, data: dataStr, motivo: f.motivo, tipo: 'feriado', isRecurring: true, link: f.link || '' });
+                    entries.push({ id: `rec_${dataStr}`, data: dataStr, motivo: f.motivo, tipo: 'feriado', isRecurring: true, link: f.link || '' });
                 });
 
-                // Adiciona exceções anuais deste ano
-                if (data.excecoesAnuais && data.excecoesAnuais[year]) {
-                    data.excecoesAnuais[year].forEach(e => {
-                        entries.push({ id: e.data, data: e.data, motivo: e.motivo, tipo: e.tipo, isRecurring: false, link: e.link || '' });
+                if (configData.excecoesAnuais && configData.excecoesAnuais[year]) {
+                    configData.excecoesAnuais[year].forEach(e => {
+                        entries.push({ id: `exc_${e.data}`, data: e.data, motivo: e.motivo, tipo: e.tipo, isRecurring: false, link: e.link || '' });
                     });
                 }
             });
 
             entries.sort((a, b) => new Date(a.data) - new Date(b.data));
             setAllEntries(entries);
-
         } catch (err) {
-            setError('Falha ao carregar a configuração do calendário.');
+            setError('Falha ao carregar o calendário.');
             console.error(err);
         } finally {
             setLoading(false);
@@ -70,57 +69,58 @@ const CalendarioAdminPage = () => {
     }, [fetchCalendarConfig]);
 
     const handleSave = async (e) => {
-        e.preventDefault();
+        if (e) e.preventDefault();
         const item = editando || novaEntrada;
         if (!item.data || !item.motivo || !item.tipo) {
-            setError('Todos os campos são obrigatórios.');
+            window.showToast?.('Preencha todos os campos obrigatórios.', 'warning');
             return;
         }
 
         setIsSaving(true);
         setError('');
-        const updatedConfig = JSON.parse(JSON.stringify(config)); // Deep copy
+        const updatedConfig = JSON.parse(JSON.stringify(config));
         const year = item.data.split('-')[0];
 
         if (editando) {
-            // Se for um feriado recorrente, remove da lista de recorrentes
             if (editando.isRecurring) {
                 const [, month, day] = editando.data.split('-').map(Number);
                 updatedConfig.feriadosNacionaisRecorrentes = updatedConfig.feriadosNacionaisRecorrentes.filter(f => f.mes !== month || f.dia !== day);
             } else {
-                // Se for uma exceção anual, remove da lista de exceções
-                const oldYear = editando.id.split('-')[0];
+                const oldYear = editando.data.split('-')[0];
                 if (updatedConfig.excecoesAnuais[oldYear]) {
-                    updatedConfig.excecoesAnuais[oldYear] = updatedConfig.excecoesAnuais[oldYear].filter(ex => ex.data !== editando.id);
+                    updatedConfig.excecoesAnuais[oldYear] = updatedConfig.excecoesAnuais[oldYear].filter(ex => ex.data !== editando.data);
                 }
             }
         }
 
-        // Adiciona a nova/atualizada entrada
         if (!updatedConfig.excecoesAnuais[year]) {
             updatedConfig.excecoesAnuais[year] = [];
         }
         updatedConfig.excecoesAnuais[year].push({ data: item.data, motivo: item.motivo, tipo: item.tipo, link: item.link || '' });
-        updatedConfig.excecoesAnuais[year].sort((a, b) => new Date(a.data) - new Date(b.data));
-
+        
         try {
-            await db.collection('configuracoes').doc('calendario').set(updatedConfig);
-            await logAudit(db, user, editando ? 'EDITAR_CALENDARIO' : 'ADICIONAR_CALENDARIO', `Data: ${item.data}, Motivo: ${item.motivo}`);
+            const { error: saveError } = await window._supabaseClient
+                .from('configuracoes')
+                .upsert({ id: 'calendario', data: updatedConfig });
+
+            if (saveError) throw saveError;
+
+            await window.logAudit(window._supabaseClient, user, editando ? 'EDITAR_CALENDARIO' : 'ADICIONAR_CALENDARIO', `Data: ${item.data}`);
             setNovaEntrada({ data: '', motivo: '', tipo: 'feriado', link: '' });
             setEditando(null);
-            await fetchCalendarConfig(); // Recarrega tudo
+            await fetchCalendarConfig();
             await refreshCalendar();
+            window.showToast?.('Calendário atualizado com sucesso!', 'success');
         } catch (err) {
-            setError('Falha ao salvar a entrada.');
-            console.error(err);
+            window.showToast?.('Erro ao salvar no banco de dados: ' + err.message, 'error');
         } finally {
             setIsSaving(false);
         }
     };
 
-    const handleDelete = async (itemToDelete) => {
-        if (!window.confirm(`Tem certeza que deseja excluir a entrada para ${itemToDelete.data}?`)) return;
-
+    const executeDelete = async () => {
+        if (!entryToDelete) return;
+        const itemToDelete = entryToDelete;
         setIsSaving(true);
         const updatedConfig = JSON.parse(JSON.stringify(config));
         const year = itemToDelete.data.split('-')[0];
@@ -135,13 +135,19 @@ const CalendarioAdminPage = () => {
         }
 
         try {
-            await db.collection('configuracoes').doc('calendario').set(updatedConfig);
-            await logAudit(db, user, 'EXCLUIR_CALENDARIO', `Data: ${itemToDelete.data}, Motivo: ${itemToDelete.motivo}`);
+            const { error: deleteError } = await window._supabaseClient
+                .from('configuracoes')
+                .upsert({ id: 'calendario', data: updatedConfig });
+
+            if (deleteError) throw deleteError;
+
+            await window.logAudit(window._supabaseClient, user, 'EXCLUIR_CALENDARIO', `Data: ${itemToDelete.data}`);
+            setEntryToDelete(null);
             await fetchCalendarConfig();
             await refreshCalendar();
+            window.showToast?.('Evento removido com sucesso.', 'success');
         } catch (err) {
-            setError('Falha ao excluir a entrada.');
-            console.error(err);
+            window.showToast?.('Erro ao excluir registro: ' + err.message, 'error');
         } finally {
             setIsSaving(false);
         }
@@ -156,234 +162,156 @@ const CalendarioAdminPage = () => {
         }
     };
 
-    const EditModal = () => {
-        if (!editando) return null;
+    if (loading && !config) {
         return (
-            <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setEditando(null)}>
-                <div className="bg-white dark:bg-slate-800 w-full max-w-md rounded-2xl shadow-2xl p-6 border border-slate-200 dark:border-slate-700" onClick={e => e.stopPropagation()}>
-                    <div className="flex justify-between items-center mb-4">
-                        <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">Editar Evento</h2>
-                        <button onClick={() => setEditando(null)} className="text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200">
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                        </button>
-                    </div>
-                    <form onSubmit={handleSave} className="space-y-4">
-                        <div>
-                            <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Data</label>
-                            <input
-                                type="date"
-                                name="data"
-                                value={editando.data}
-                                onChange={handleInputChange}
-                                disabled={true}
-                                required
-                                className="w-full px-3 py-2 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition opacity-70 cursor-not-allowed"
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Motivo</label>
-                            <input
-                                type="text"
-                                name="motivo"
-                                value={editando.motivo}
-                                onChange={handleInputChange}
-                                required
-                                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition"
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Link do Decreto (Opcional)</label>
-                            <input
-                                type="url"
-                                name="link"
-                                value={editando.link || ''}
-                                onChange={handleInputChange}
-                                placeholder="https://..."
-                                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition"
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Tipo</label>
-                            <div className="grid grid-cols-3 gap-2">
-                                {['feriado', 'decreto', 'instabilidade'].map(type => (
-                                    <button
-                                        key={type}
-                                        type="button"
-                                        onClick={() => handleInputChange({ target: { name: 'tipo', value: type } })}
-                                        className={`px-2 py-2 text-xs font-bold uppercase rounded-lg border transition-all ${editando.tipo === type
-                                                ? type === 'feriado' ? 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800'
-                                                    : type === 'decreto' ? 'bg-red-100 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-800'
-                                                        : 'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-800'
-                                                : 'bg-white dark:bg-slate-800 text-slate-500 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700'
-                                            }`}
-                                    >
-                                        {type}
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-                        {error && <div className="p-3 text-xs text-red-600 bg-red-50 dark:bg-red-900/20 rounded-lg">{error}</div>}
-                        <div className="flex justify-end gap-3 pt-4">
-                            <button type="button" onClick={() => setEditando(null)} className="px-4 py-2 text-sm font-semibold bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-200 dark:hover:bg-slate-600">Cancelar</button>
-                            <button type="submit" disabled={isSaving} className="px-4 py-2 text-sm font-semibold bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
-                                {isSaving ? 'Salvando...' : 'Salvar Alterações'}
-                            </button>
-                        </div>
-                    </form>
-                </div>
+            <div className="flex flex-col items-center justify-center py-24">
+                <div className="w-12 h-12 rounded-full border-4 border-white/10 border-t-indigo-500 animate-spin mb-4"></div>
+                <p className="text-slate-500 font-black uppercase tracking-widest text-[10px]">Acessando Registros do Calendário...</p>
             </div>
         );
-    };
+    }
 
     return (
-        <div className="flex flex-col lg:flex-row gap-6 animate-fade-in">
-            {/* Coluna Esquerda: Formulário */}
-            <div className="lg:w-1/3 space-y-6">
-                <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 sticky top-4">
-                    <div className="flex justify-between items-center mb-4">
-                        <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">
-                            Adicionar Evento ({selectedYear})
-                        </h2>
-                    </div>
-
-                    <form onSubmit={handleSave} className="space-y-4">
-                        <div>
-                            <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Data</label>
-                            <input
-                                type="date"
-                                name="data"
-                                value={novaEntrada.data}
-                                onChange={handleInputChange}
-                                disabled={false}
-                                min={`${selectedYear}-01-01`}
-                                max={`${selectedYear}-12-31`}
-                                required
-                                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition"
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Motivo</label>
-                            <input
-                                type="text"
-                                name="motivo"
-                                value={novaEntrada.motivo}
-                                onChange={handleInputChange}
-                                required
-                                placeholder="Ex: Feriado Municipal"
-                                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition"
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Link do Decreto (Opcional)</label>
-                            <input
-                                type="url"
-                                name="link"
-                                value={novaEntrada.link || ''}
-                                onChange={handleInputChange}
-                                placeholder="https://..."
-                                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition"
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Tipo</label>
-                            <div className="grid grid-cols-3 gap-2">
-                                {['feriado', 'decreto', 'instabilidade'].map(type => (
+        <div className="flex flex-col lg:flex-row gap-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
+            {/* Coluna de Controle */}
+            <div className="lg:w-[380px] space-y-6">
+                <TJPRCard title="Gestão de Eventos" subtitle="Controle de feriados e suspensões." icon="event_note">
+                    <div className="space-y-6">
+                        <TJPRInput
+                            label="Data do Evento"
+                            type="date"
+                            name="data"
+                            value={novaEntrada.data}
+                            onChange={handleInputChange}
+                            icon="calendar_today"
+                        />
+                        <TJPRInput
+                            label="Descrição / Motivo"
+                            name="motivo"
+                            value={novaEntrada.motivo}
+                            onChange={handleInputChange}
+                            placeholder="Ex: Feriado Estadual"
+                            icon="description"
+                        />
+                        <TJPRInput
+                            label="URL do Decreto (Opcional)"
+                            name="link"
+                            value={novaEntrada.link}
+                            onChange={handleInputChange}
+                            placeholder="https://diario.tjpr.jus.br/..."
+                            icon="link"
+                        />
+                        
+                        <div className="space-y-3">
+                            <label className="tjpr-label">Categoria do Evento</label>
+                            <div className="grid grid-cols-1 gap-2">
+                                {[
+                                    { id: 'feriado', label: 'Feriado Nacional', icon: 'flag', color: 'text-indigo-400' },
+                                    { id: 'decreto', label: 'Decreto Judiciário', icon: 'gavel', color: 'text-rose-400' },
+                                    { id: 'instabilidade', label: 'Instabilidade Técnica', icon: 'bolt', color: 'text-amber-400' }
+                                ].map(cat => (
                                     <button
-                                        key={type}
+                                        key={cat.id}
                                         type="button"
-                                        onClick={() => handleInputChange({ target: { name: 'tipo', value: type } })}
-                                        className={`px-2 py-2 text-xs font-bold uppercase rounded-lg border transition-all ${novaEntrada.tipo === type
-                                                ? type === 'feriado' ? 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800'
-                                                    : type === 'decreto' ? 'bg-red-100 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-800'
-                                                        : 'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-800'
-                                                : 'bg-white dark:bg-slate-800 text-slate-500 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700'
-                                            }`}
+                                        onClick={() => handleInputChange({ target: { name: 'tipo', value: cat.id } })}
+                                        className={`flex items-center gap-4 p-4 rounded-2xl border transition-all ${novaEntrada.tipo === cat.id ? 'bg-indigo-500/10 border-indigo-500/50' : 'bg-slate-950/20 border-white/5 hover:bg-slate-950/40'}`}
                                     >
-                                        {type}
+                                        <span className={`material-icons ${novaEntrada.tipo === cat.id ? 'text-white' : cat.color}`}>{cat.icon}</span>
+                                        <span className={`text-xs font-black uppercase tracking-widest ${novaEntrada.tipo === cat.id ? 'text-white' : 'text-slate-400'}`}>{cat.label}</span>
                                     </button>
                                 ))}
                             </div>
                         </div>
 
-                        {!editando && error && <div className="p-3 text-xs text-red-600 bg-red-50 dark:bg-red-900/20 rounded-lg">{error}</div>}
+                        {error && <p className="text-rose-400 text-[10px] font-black uppercase text-center">{error}</p>}
 
-                        <button
-                            type="submit"
+                        <TJPRButton
+                            onClick={handleSave}
                             disabled={isSaving}
-                            className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-md shadow-blue-500/20 transition-all disabled:opacity-50"
+                            className="w-full"
+                            icon="add_circle"
                         >
-                            {isSaving ? 'Salvando...' : 'Adicionar ao Calendário'}
-                        </button>
-                    </form>
-                </div>
+                            {isSaving ? 'Processando...' : 'Registrar Evento'}
+                        </TJPRButton>
+                    </div>
+                </TJPRCard>
             </div>
 
-            {/* Coluna Direita: Listas */}
-            <div className="lg:w-2/3 space-y-6">
-
-                {/* Abas de Ano */}
-                <div className="flex space-x-2 border-b border-slate-200 dark:border-slate-700 pb-2">
+            {/* Coluna de Listagem */}
+            <div className="flex-1 space-y-8">
+                {/* Year Selection Tabs */}
+                <div className="flex flex-wrap items-center justify-center sm:justify-start gap-3 p-2 bg-slate-950/40 border border-white/5 rounded-[2.5rem] w-full sm:w-fit backdrop-blur-md shadow-2xl mx-auto sm:mx-0">
                     {(() => {
                         const anosDisponiveis = [String(new Date().getFullYear()), String(new Date().getFullYear() + 1)];
-                        // Adiciona outros anos se houver dados (opcional, aqui fixamos 2025/2026 como base)
-                        // Mas vamos pegar do allEntries para ser reativo.
                         const anosNosDados = [...new Set(allEntries.map(e => e.data.split('-')[0]))].sort();
-                        // Garante que o ano atual e próximo apareçam mesmo sem dados
                         const anosParaMostrar = [...new Set([...anosNosDados, ...anosDisponiveis])].sort();
 
                         return anosParaMostrar.map(ano => (
                             <button
                                 key={ano}
                                 onClick={() => setSelectedYear(ano)}
-                                className={`px-4 py-2 font-bold text-sm rounded-t-lg transition-colors ${selectedYear === ano
-                                        ? 'bg-blue-600 text-white shadow-sm'
-                                        : 'bg-slate-100 text-slate-500 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700'
-                                    }`}
+                                className={`px-6 sm:px-10 py-3 sm:py-4 rounded-2xl text-[9px] sm:text-[10px] font-black uppercase tracking-[0.2em] transition-all duration-500 border ${selectedYear === ano ? 'bg-indigo-600 border-indigo-500 text-white shadow-[0_10px_30px_-10px_rgba(79,70,229,0.5)] scale-105' : 'bg-transparent border-transparent text-slate-500 hover:text-slate-300 hover:bg-white/5'}`}
                             >
-                                {ano}
+                                Exercício {ano}
                             </button>
                         ));
                     })()}
                 </div>
 
-                {loading ? (
-                    <div className="flex justify-center p-12"><p className="text-slate-500">Carregando...</p></div>
-                ) : (
-                    ['feriado', 'decreto', 'instabilidade'].map(tipo => {
-                        const itemsFiltrados = allEntries.filter(item => item.tipo === tipo && item.data.startsWith(selectedYear));
-                        if (itemsFiltrados.length === 0) return null;
-
-                        const configTipo = {
-                            feriado: { label: 'Feriados', color: 'text-blue-600', bg: 'bg-blue-50 dark:bg-blue-900/10', border: 'border-blue-100 dark:border-blue-900/20' },
-                            decreto: { label: 'Decretos', color: 'text-red-600', bg: 'bg-red-50 dark:bg-red-900/10', border: 'border-red-100 dark:border-red-900/20' },
-                            instabilidade: { label: 'Instabilidades', color: 'text-amber-600', bg: 'bg-amber-50 dark:bg-amber-900/10', border: 'border-amber-100 dark:border-amber-900/20' }
-                        }[tipo];
+                {/* Categorized Lists */}
+                <div className="space-y-6">
+                    {[
+                        { id: 'feriado', label: 'Feriados & Pontos Facultativos', icon: 'event_available', color: 'text-indigo-400', glow: 'bg-indigo-500' },
+                        { id: 'decreto', label: 'Decretos de Suspensão', icon: 'gavel', color: 'text-rose-400', glow: 'bg-rose-500' },
+                        { id: 'instabilidade', label: 'Relatórios de Instabilidade', icon: 'report_problem', color: 'text-amber-400', glow: 'bg-amber-500' }
+                    ].map(cat => {
+                        const items = allEntries.filter(item => item.tipo === cat.id && item.data.startsWith(selectedYear));
+                        if (items.length === 0) return null;
 
                         return (
-                            <div key={tipo} className={`bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden`}>
-                                <div className={`px-6 py-4 border-b border-slate-100 dark:border-slate-700 flex items-center gap-3 ${configTipo.bg}`}>
-                                    <h3 className={`text-lg font-bold ${configTipo.color}`}>{configTipo.label}</h3>
-                                    <span className="px-2 py-0.5 text-xs font-bold bg-white dark:bg-slate-800 rounded-full shadow-sm opacity-70">{itemsFiltrados.length}</span>
+                            <div key={cat.id} className="tjpr-card group hover:bg-slate-900/40 transition-all duration-500">
+                                <div className={`absolute top-0 left-0 w-1 h-full ${cat.glow}`}></div>
+                                <div className="px-8 py-6 border-b border-white/5 bg-slate-950/20 flex flex-col sm:flex-row justify-between items-center gap-4">
+                                    <div className="flex items-center gap-4">
+                                        <span className={`material-icons ${cat.color}`}>{cat.icon}</span>
+                                        <h3 className="text-sm font-black text-white uppercase tracking-[0.2em]">{cat.label}</h3>
+                                    </div>
+                                    <span className="px-3 py-1 rounded-full bg-white/5 border border-white/10 text-[10px] font-black text-slate-400 uppercase">
+                                        {items.length} {items.length === 1 ? 'Evento' : 'Eventos'}
+                                    </span>
                                 </div>
-                                <div className="divide-y divide-slate-100 dark:divide-slate-700">
-                                    {itemsFiltrados.map(item => (
-                                        <div key={item.id} className="p-4 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors group">
-                                            <div className="flex items-center gap-4">
-                                                <div className="flex-shrink-0 w-16 text-center">
-                                                    <span className="block text-xs font-bold text-slate-400 uppercase">{new Date(item.data + 'T00:00:00').toLocaleString('pt-BR', { month: 'short' }).replace('.', '')}</span>
-                                                    <span className="block text-xl font-bold text-slate-800 dark:text-slate-200">{new Date(item.data + 'T00:00:00').getDate()}</span>
+                                <div className="divide-y divide-white/5">
+                                    {items.map(item => (
+                                        <div key={item.id} className="group px-8 py-5 flex items-center justify-between hover:bg-slate-950/40 transition-all">
+                                            <div className="flex items-center gap-8">
+                                                {/* Calendar Leaf UI */}
+                                                <div className="w-16 h-16 bg-slate-950 border border-white/10 rounded-2xl flex flex-col items-center justify-center shadow-inner group-hover:border-white/20 transition-all">
+                                                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-tighter mb-0.5">
+                                                        {new Date(item.data + 'T00:00:00').toLocaleString('pt-BR', { month: 'short' }).replace('.', '')}
+                                                    </span>
+                                                    <span className="text-xl font-black text-white leading-none">
+                                                        {new Date(item.data + 'T00:00:00').getDate()}
+                                                    </span>
                                                 </div>
                                                 <div>
-                                                    <p className="font-medium text-slate-800 dark:text-slate-200">{item.motivo}</p>
-                                                    <p className="text-xs text-slate-500">{new Date(item.data + 'T00:00:00').getFullYear()} • {item.isRecurring ? 'Recorrente' : 'Anual'}</p>
+                                                    <p className="text-sm font-bold text-white group-hover:text-indigo-300 transition-colors">{item.motivo}</p>
+                                                    <div className="flex items-center gap-3 mt-1.5">
+                                                        <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">{item.isRecurring ? 'Recorrência Anual' : 'Ajuste Pontual'}</span>
+                                                        {item.link && (
+                                                            <a href={item.link} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[9px] font-black text-indigo-400 hover:text-indigo-300 uppercase tracking-widest border-b border-indigo-400/20">
+                                                                <span className="material-icons text-[10px]">open_in_new</span>
+                                                                Ver Decreto
+                                                            </a>
+                                                        )}
+                                                    </div>
                                                 </div>
                                             </div>
-                                            <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                <button onClick={() => setEditando(item)} className="p-2 text-slate-400 hover:text-blue-600 transition-colors" title="Editar">
-                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" /></svg>
+                                            <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-all translate-x-4 group-hover:translate-x-0">
+                                                <button onClick={() => setEditando(item)} className="w-10 h-10 rounded-xl bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white transition-all flex items-center justify-center">
+                                                    <span className="material-icons text-lg">edit</span>
                                                 </button>
-                                                <button onClick={() => handleDelete(item)} className="p-2 text-slate-400 hover:text-red-600 transition-colors" title="Excluir">
-                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
+                                                <button onClick={() => setEntryToDelete(item)} className="w-10 h-10 rounded-xl bg-rose-500/10 text-rose-400 hover:bg-rose-500 hover:text-white transition-all flex items-center justify-center">
+                                                    <span className="material-icons text-lg">delete_outline</span>
                                                 </button>
                                             </div>
                                         </div>
@@ -391,10 +319,71 @@ const CalendarioAdminPage = () => {
                                 </div>
                             </div>
                         );
-                    })
-                )}
+                    })}
+                </div>
             </div>
-            {editando && <EditModal />}
+
+            {/* Edit Modal Elite */}
+            <TJPRModal
+                isOpen={!!editando}
+                onClose={() => setEditando(null)}
+                title="Ajustar Registro"
+                subtitle={`Modificando evento datado de ${editando?.data.split('-').reverse().join('/')}`}
+                icon="edit_calendar"
+            >
+                <div className="space-y-6">
+                    <TJPRInput
+                        label="Motivo / Descrição"
+                        name="motivo"
+                        value={editando?.motivo || ''}
+                        onChange={handleInputChange}
+                        icon="edit"
+                    />
+                    <TJPRInput
+                        label="URL do Decreto"
+                        name="link"
+                        value={editando?.link || ''}
+                        onChange={handleInputChange}
+                        icon="link"
+                    />
+                    <div className="flex justify-end gap-4 mt-8">
+                        <TJPRButton onClick={() => setEditando(null)} variant="ghost">Cancelar</TJPRButton>
+                        <TJPRButton onClick={handleSave} disabled={isSaving}>
+                            {isSaving ? 'Salvando...' : 'Aplicar Mudanças'}
+                        </TJPRButton>
+                    </div>
+                </div>
+            </TJPRModal>
+            
+            {/* Modal de Confirmação de Exclusão (Layout Clássico Elite) */}
+            {entryToDelete && (
+                <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/90 backdrop-blur-md p-4 animate-in fade-in duration-300" onClick={() => setEntryToDelete(null)}>
+                    <div className="w-full max-w-md bg-slate-900 border border-white/10 rounded-[2.5rem] overflow-hidden shadow-2xl animate-in zoom-in-95 duration-300" onClick={e => e.stopPropagation()}>
+                        <div className="p-10 text-center">
+                            <div className="w-20 h-20 bg-rose-500/10 text-rose-500 rounded-full flex items-center justify-center mx-auto mb-6 border border-rose-500/20 shadow-[0_0_40px_-10px_rgba(244,63,94,0.3)]">
+                                <span className="material-icons text-4xl">delete_forever</span>
+                            </div>
+                            <h3 className="text-2xl font-black text-white mb-2 uppercase tracking-tight">Excluir Evento?</h3>
+                            <p className="text-sm text-slate-400 font-medium leading-relaxed">
+                                Tem certeza que deseja excluir o evento <br/>
+                                <span className="text-white font-bold">"{entryToDelete.motivo}"</span> de <span className="text-white font-bold">{entryToDelete.data.split('-').reverse().join('/')}</span>?<br/>
+                                Esta ação não pode ser desfeita.
+                            </p>
+                        </div>
+                        <div className="flex border-t border-white/5 bg-slate-950/20">
+                            <button onClick={() => setEntryToDelete(null)} className="flex-1 px-8 py-6 text-xs font-black uppercase tracking-widest text-slate-500 hover:text-white hover:bg-white/5 transition-all">
+                                Cancelar
+                            </button>
+                            <button onClick={executeDelete} className="flex-1 px-8 py-6 bg-rose-600 hover:bg-rose-500 text-white text-xs font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2">
+                                <span className="material-icons text-sm">delete</span>
+                                Confirmar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
+
+window.CalendarioAdminPage = CalendarioAdminPage;

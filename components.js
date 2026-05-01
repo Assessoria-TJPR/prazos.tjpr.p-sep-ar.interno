@@ -1,34 +1,36 @@
 /**
  * @file components.jsx
- * Componentes reutilizáveis do Design System TJPR
+ * Componentes Elite do Design System P-SEP-AR
  */
 
 const { useState, useEffect } = React;
 
 // ============================================
-// COMPONENTES BASE DO DESIGN SYSTEM
+// COMPONENTES BASE - MONOLITH ELITE
 // ============================================
 
 /**
- * TJPRCard - Container estilizado para seções de conteúdo
+ * TJPRCard - Container Elite com Glassmorphism Profundo
  */
 const TJPRCard = ({ title, subtitle, children, actions, className = '', icon }) => {
     return (
         <div className={`tjpr-card ${className}`}>
             {(title || subtitle || icon) && (
-                <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-                    <div className="flex items-center gap-3">
+                <div className="px-6 py-5 border-b border-white/5">
+                    <div className="flex items-center gap-4">
                         {icon && (
-                            <span className="material-icons text-tjpr-navy-700 dark:text-tjpr-navy-500">{icon}</span>
+                            <div className="w-10 h-10 rounded-xl bg-indigo-500/10 flex items-center justify-center">
+                                <span className="material-icons text-indigo-400">{icon}</span>
+                            </div>
                         )}
                         <div className="flex-1">
                             {title && (
-                                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                                <h3 className="text-xl font-extrabold text-white tracking-tight">
                                     {title}
                                 </h3>
                             )}
                             {subtitle && (
-                                <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                                <p className="text-xs font-semibold text-slate-400 mt-1 uppercase tracking-widest">
                                     {subtitle}
                                 </p>
                             )}
@@ -40,7 +42,7 @@ const TJPRCard = ({ title, subtitle, children, actions, className = '', icon }) 
                 {children}
             </div>
             {actions && (
-                <div className="px-6 py-4 bg-gray-50 dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 flex items-center justify-end gap-3">
+                <div className="px-6 py-5 bg-slate-950/20 border-t border-white/5 flex items-center justify-end gap-4">
                     {actions}
                 </div>
             )}
@@ -49,7 +51,7 @@ const TJPRCard = ({ title, subtitle, children, actions, className = '', icon }) 
 };
 
 /**
- * TJPRButton - Botão estilizado do sistema
+ * TJPRButton - Botão de Alta Performance com Gradientes Flamejantes
  */
 const TJPRButton = ({
     children,
@@ -62,24 +64,24 @@ const TJPRButton = ({
     className = '',
     type = 'button'
 }) => {
-    const baseClasses = 'inline-flex items-center justify-center gap-2 font-semibold transition-all duration-200 rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2';
+    const baseClasses = 'inline-flex items-center justify-center gap-2 font-bold transition-all duration-300 rounded-lg focus:outline-none relative overflow-hidden';
 
     const variantClasses = {
-        primary: 'bg-tjpr-navy-800 hover:bg-tjpr-navy-700 text-white focus:ring-tjpr-navy-700 shadow-sm hover:shadow-md',
-        secondary: 'bg-white hover:bg-gray-50 text-tjpr-navy-800 border-2 border-tjpr-navy-800 focus:ring-tjpr-navy-700',
-        success: 'bg-tjpr-success hover:bg-green-700 text-white focus:ring-tjpr-success shadow-sm',
-        warning: 'bg-tjpr-warning hover:bg-orange-600 text-white focus:ring-tjpr-warning shadow-sm',
-        error: 'bg-tjpr-error hover:bg-red-700 text-white focus:ring-tjpr-error shadow-sm',
-        ghost: 'bg-transparent hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300'
+        primary: 'tjpr-button-primary text-white',
+        secondary: 'bg-slate-950/20 hover:bg-slate-950/40 text-white border border-white/10 hover:border-white/20',
+        success: 'bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/30',
+        warning: 'bg-amber-600/20 hover:bg-amber-600/30 text-amber-400 border border-amber-500/30',
+        error: 'bg-rose-600/20 hover:bg-rose-600/30 text-rose-400 border border-rose-500/30',
+        ghost: 'bg-transparent hover:bg-slate-950/40 text-slate-400 hover:text-white'
     };
 
     const sizeClasses = {
-        sm: 'px-3 py-1.5 text-sm',
-        md: 'px-4 py-2 text-base',
-        lg: 'px-6 py-3 text-lg'
+        sm: 'px-4 py-2 text-xs',
+        md: 'px-6 py-3 text-sm',
+        lg: 'px-8 py-4 text-base'
     };
 
-    const disabledClasses = 'opacity-50 cursor-not-allowed pointer-events-none';
+    const disabledClasses = 'opacity-40 cursor-not-allowed pointer-events-none grayscale';
 
     return (
         <button
@@ -89,18 +91,18 @@ const TJPRButton = ({
             className={`${baseClasses} ${variantClasses[variant]} ${sizeClasses[size]} ${disabled ? disabledClasses : ''} ${className}`}
         >
             {icon && iconPosition === 'left' && (
-                <span className="material-icons text-inherit" style={{ fontSize: 'inherit' }}>{icon}</span>
+                <span className="material-icons text-[1.2em]">{icon}</span>
             )}
-            {children}
+            <span className="relative z-10">{children}</span>
             {icon && iconPosition === 'right' && (
-                <span className="material-icons text-inherit" style={{ fontSize: 'inherit' }}>{icon}</span>
+                <span className="material-icons text-[1.2em]">{icon}</span>
             )}
         </button>
     );
 };
 
 /**
- * TJPRInput - Campo de entrada estilizado
+ * TJPRInput - Campo de Entrada com Foco Luminoso
  */
 const TJPRInput = ({
     label,
@@ -119,13 +121,13 @@ const TJPRInput = ({
             {label && (
                 <label className="tjpr-label">
                     {label}
-                    {required && <span className="text-tjpr-error ml-1">*</span>}
+                    {required && <span className="text-rose-500 ml-1">*</span>}
                 </label>
             )}
-            <div className="relative">
+            <div className="relative group">
                 {icon && (
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                        <span className="material-icons text-gray-400">{icon}</span>
+                    <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none transition-colors group-focus-within:text-indigo-400">
+                        <span className="material-icons text-slate-500">{icon}</span>
                     </div>
                 )}
                 <input
@@ -134,17 +136,17 @@ const TJPRInput = ({
                     onChange={onChange}
                     placeholder={placeholder}
                     required={required}
-                    className={`tjpr-input ${icon ? 'pl-10' : ''} ${error ? 'border-tjpr-error' : ''}`}
+                    className={`tjpr-input ${icon ? 'pl-12' : ''} ${error ? 'border-rose-500/50 bg-rose-500/5' : ''}`}
                 />
             </div>
             {error && (
-                <p className="mt-1 text-sm text-tjpr-error flex items-center gap-1">
-                    <span className="material-icons text-sm">error</span>
+                <p className="mt-2 text-xs font-bold text-rose-400 flex items-center gap-1">
+                    <span className="material-icons text-[14px]">error_outline</span>
                     {error}
                 </p>
             )}
             {helperText && !error && (
-                <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                <p className="mt-2 text-xs font-medium text-slate-500">
                     {helperText}
                 </p>
             )}
@@ -153,100 +155,105 @@ const TJPRInput = ({
 };
 
 /**
- * TJPRHeader - Cabeçalho institucional do sistema
+ * TJPRHeader - Barra de Navegação Monolítica
  */
 const TJPRHeader = ({ user, onLogout, onToggleDarkMode, isDarkMode, onOpenProfile, currentArea, onNavigate, isAdmin, notifications, onToggleNotifications }) => {
     const [isMenuOpen, setIsMenuOpen] = useState(false);
 
     return (
-        <header className="tjpr-header sticky top-0 z-50">
-            <div className="max-w-full px-4 sm:px-6 lg:px-8">
-                <div className="flex items-center justify-between h-16">
-                    {/* Logo e Título */}
-                    <div className="flex items-center gap-4">
-                        <img src="Logo.png" alt="TJPR" className="h-10 w-auto" />
-                        <div className="hidden sm:block">
-                            <h1 className="text-lg font-semibold text-white">
-                                Módulo de Prazos Processuais
+        <header className="tjpr-header">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div className="flex items-center justify-between h-20">
+                    {/* Logo e Título Elite */}
+                    <div className="flex items-center gap-6">
+                        <div className="relative group cursor-pointer" onClick={() => onNavigate && onNavigate('home')}>
+                            <img src="Logo.png" alt="TJPR" className="h-11 w-auto relative z-10 transition-transform group-hover:scale-105" />
+                            <div className="absolute inset-0 bg-indigo-500/20 blur-xl opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                        </div>
+                        <div className="hidden md:block">
+                            <h1 className="text-xl font-black text-white tracking-tight flex items-center gap-2">
+                                P-SEP-AR
                             </h1>
-                            <p className="text-xs text-tjpr-navy-500">
-                                Assessoria P-SEP-AR
+                            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mt-0.5">
+                                Módulo de Prazos Processuais
                             </p>
                         </div>
                     </div>
 
-                    {/* Navigation (if navigation is provided) */}
-
-
-                    {/* Actions */}
-                    <div className="flex items-center gap-3">
+                    {/* Actions Elite */}
+                    <div className="flex items-center gap-4">
                         {/* Notifications Toggle */}
                         {onToggleNotifications && (
                             <button
                                 onClick={onToggleNotifications}
-                                className="relative p-2 rounded-lg hover:bg-tjpr-navy-700 transition-colors"
+                                className="relative p-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 transition-all group"
                                 title="Notificações"
                             >
-                                <span className="material-icons text-white">notifications</span>
+                                <span className="material-icons text-slate-400 group-hover:text-white">notifications</span>
                                 {notifications && notifications.length > 0 && (
-                                    <span className="absolute top-1.5 right-1.5 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-tjpr-navy-900 pointer-events-none"></span>
+                                    <span className="absolute top-2.5 right-2.5 w-3 h-3 bg-rose-500 rounded-full border-[3px] border-[#020617] animate-pulse"></span>
                                 )}
                             </button>
                         )}
 
-                        {/* Dark Mode Toggle */}
-                        <button
-                            onClick={onToggleDarkMode}
-                            className="p-2 rounded-lg hover:bg-tjpr-navy-700 transition-colors"
-                            title={isDarkMode ? 'Modo Claro' : 'Modo Escuro'}
-                        >
-                            <span className="material-icons text-white">
-                                {isDarkMode ? 'light_mode' : 'dark_mode'}
-                            </span>
-                        </button>
-
-                        {/* User Menu */}
+                        {/* User Menu Elite */}
                         <div className="relative">
                             <button
                                 onClick={() => setIsMenuOpen(!isMenuOpen)}
-                                className="flex items-center gap-2 p-2 rounded-lg hover:bg-tjpr-navy-700 transition-colors"
+                                className="flex items-center gap-3 p-2 pl-3 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/5 transition-all"
                             >
-                                <div
-                                    className="w-8 h-8 rounded-full flex items-center justify-center text-white font-semibold"
-                                    style={{ backgroundColor: user?.avatarColor || '#C5A572' }}
-                                >
-                                    {user?.displayName?.charAt(0).toUpperCase() || user?.email?.charAt(0).toUpperCase() || 'U'}
+                                <div className="hidden lg:block text-right">
+                                    <p className="text-xs font-black text-white leading-none">
+                                        {user?.displayName || 'Usuário'}
+                                    </p>
+                                    <p className="text-[9px] font-bold text-slate-500 uppercase mt-1">
+                                        {isAdmin ? 'Administrador' : 'Acessor'}
+                                    </p>
                                 </div>
-                                <span className="hidden md:block text-white text-sm font-medium">
-                                    {user?.displayName || user?.email?.split('@')[0] || 'Usuário'}
-                                </span>
-                                <span className="material-icons text-white text-sm">
-                                    {isMenuOpen ? 'expand_less' : 'expand_more'}
-                                </span>
+                                <div
+                                    className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-black shadow-lg shadow-black/20"
+                                    style={{ background: `linear-gradient(135deg, ${user?.avatarColor || '#4f46e5'}, #312e81)` }}
+                                >
+                                    {user?.displayName?.charAt(0).toUpperCase() || 'U'}
+                                </div>
                             </button>
 
-                            {/* Dropdown Menu */}
+                            {/* Dropdown Elite */}
                             {isMenuOpen && (
-                                <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-800 rounded-lg shadow-xl py-2 border border-gray-200 dark:border-gray-700">
+                                <div className="absolute right-0 mt-3 w-56 bg-slate-900 border border-white/10 rounded-2xl shadow-2xl py-2 z-[100] animate-in fade-in slide-in-from-top-2">
+                                    <div className="px-4 py-3 border-b border-white/5 mb-2">
+                                        <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">Opções</p>
+                                    </div>
                                     <button
                                         onClick={() => {
                                             onOpenProfile();
                                             setIsMenuOpen(false);
                                         }}
-                                        className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+                                        className="w-full px-4 py-3 text-left text-sm font-bold text-slate-300 hover:text-white hover:bg-white/5 flex items-center gap-3 transition-colors"
                                     >
-                                        <span className="material-icons text-sm">person</span>
+                                        <span className="material-icons text-lg text-indigo-400">person_outline</span>
                                         Meu Perfil
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            onToggleDarkMode();
+                                        }}
+                                        className="w-full px-4 py-3 text-left text-sm font-bold text-slate-300 hover:text-white hover:bg-white/5 flex items-center gap-3 transition-colors"
+                                    >
+                                        <span className="material-icons text-lg text-amber-400">
+                                            {isDarkMode ? 'light_mode' : 'dark_mode'}
+                                        </span>
+                                        {isDarkMode ? 'Modo Claro' : 'Modo Escuro'}
                                     </button>
                                     <button
                                         onClick={() => {
                                             onLogout();
                                             setIsMenuOpen(false);
                                         }}
-                                        className="w-full px-4 py-2 text-left text-sm text-tjpr-error hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+                                        className="w-full px-4 py-3 text-left text-sm font-bold text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 flex items-center gap-3 transition-colors"
                                     >
-                                        <span className="material-icons text-sm">logout</span>
-                                        Sair
+                                        <span className="material-icons text-lg">logout</span>
+                                        Encerrar Sessão
                                     </button>
                                 </div>
                             )}
@@ -259,45 +266,27 @@ const TJPRHeader = ({ user, onLogout, onToggleDarkMode, isDarkMode, onOpenProfil
 };
 
 /**
- * TJPRBadge - Badge para status e categorias
+ * TJPRBadge - Badge com Profundidade
  */
 const TJPRBadge = ({ children, variant = 'default', icon }) => {
     const variants = {
-        default: 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300',
+        default: 'bg-slate-800 text-slate-400 border border-slate-700',
         success: 'tjpr-badge-success',
         warning: 'tjpr-badge-warning',
         error: 'tjpr-badge-error',
-        info: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300'
+        info: 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/30'
     };
 
     return (
         <span className={`tjpr-badge ${variants[variant]}`}>
-            {icon && <span className="material-icons text-xs mr-1">{icon}</span>}
+            {icon && <span className="material-icons text-[14px] mr-1.5">{icon}</span>}
             {children}
         </span>
     );
 };
 
 /**
- * TJPRFormGroup - Wrapper para grupos de campos de formulário
- */
-const TJPRFormGroup = ({ children, cols = 1, className = '' }) => {
-    const gridCols = {
-        1: 'grid-cols-1',
-        2: 'grid-cols-1 md:grid-cols-2',
-        3: 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3',
-        4: 'grid-cols-1 md:grid-cols-2 lg:grid-cols-4'
-    };
-
-    return (
-        <div className={`grid ${gridCols[cols]} gap-4 ${className}`}>
-            {children}
-        </div>
-    );
-};
-
-/**
- * TJPRModal - Modal/Dialog profissional
+ * TJPRModal - Modal Glassmorphic
  */
 const TJPRModal = ({ isOpen, onClose, title, children, maxWidth = '2xl', icon }) => {
     if (!isOpen) return null;
@@ -313,132 +302,33 @@ const TJPRModal = ({ isOpen, onClose, title, children, maxWidth = '2xl', icon })
     };
 
     return (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
-            <div className={`w-full ${maxWidths[maxWidth]} max-h-[90vh] overflow-auto`}>
-                <div className="tjpr-card">
-                    {/* Header */}
-                    <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-                        <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                                {icon && (
-                                    <span className="material-icons text-tjpr-navy-700 dark:text-tjpr-navy-500">{icon}</span>
-                                )}
-                                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-                                    {title}
-                                </h3>
-                            </div>
-                            <button
-                                onClick={onClose}
-                                className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-                            >
-                                <span className="material-icons text-gray-500">close</span>
-                            </button>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-300">
+            <div className={`w-full ${maxWidths[maxWidth]} max-h-[90vh] overflow-hidden flex flex-col`}>
+                <div className="tjpr-card flex flex-col h-full">
+                    {/* Header Elite */}
+                    <div className="px-6 py-5 border-b border-white/5 flex items-center justify-between">
+                        <div className="flex items-center gap-4">
+                            {icon && (
+                                <div className="w-10 h-10 rounded-xl bg-indigo-500/10 flex items-center justify-center">
+                                    <span className="material-icons text-indigo-400">{icon}</span>
+                                </div>
+                            )}
+                            <h3 className="text-xl font-extrabold text-white tracking-tight">
+                                {title}
+                            </h3>
                         </div>
+                        <button
+                            onClick={onClose}
+                            className="w-10 h-10 rounded-xl hover:bg-white/5 flex items-center justify-center text-slate-500 hover:text-white transition-all"
+                        >
+                            <span className="material-icons">close</span>
+                        </button>
                     </div>
 
-                    {/* Content */}
-                    <div className="p-6">
+                    {/* Content Scrollable */}
+                    <div className="p-6 overflow-y-auto custom-scrollbar flex-1">
                         {children}
                     </div>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-/**
- * PrivacyPolicyModal - Modal de Política de Privacidade
- */
-const PrivacyPolicyModal = ({ onClose }) => {
-    return (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[70] p-4" onClick={onClose}>
-            <div className="bg-white dark:bg-slate-800 w-full max-w-2xl rounded-2xl shadow-2xl flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
-                <div className="flex justify-between items-center p-6 border-b border-slate-200 dark:border-slate-700">
-                    <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Política de Privacidade e Termos de Uso</h2>
-                    <button onClick={onClose} className="text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 transition">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                    </button>
-                </div>
-                <div className="p-6 space-y-4 overflow-y-auto text-slate-700 dark:text-slate-300 text-sm leading-relaxed">
-                    <h3 className="text-lg font-bold text-slate-900 dark:text-white">1. Coleta de Dados</h3>
-                    <p>Para o funcionamento desta ferramenta (Calculadora de Prazos e Painel Administrativo), coletamos os seguintes dados pessoais:</p>
-                    <ul className="list-disc pl-5 space-y-1">
-                        <li><strong>Identificação:</strong> Nome, E-mail e Setor de lotação.</li>
-                        <li><strong>Dados de Uso:</strong> Registros de cálculos realizados, números de processos consultados, data e hora das ações.</li>
-                        <li><strong>Técnicos:</strong> Endereço IP e User-Agent (navegador) para fins de segurança e auditoria.</li>
-                    </ul>
-
-                    <h3 className="text-lg font-bold text-slate-900 dark:text-white mt-4">2. Finalidade</h3>
-                    <p>Os dados são utilizados estritamente para:</p>
-                    <ul className="list-disc pl-5 space-y-1">
-                        <li>Autenticação e controle de acesso ao sistema.</li>
-                        <li>Geração de histórico de cálculos para o próprio usuário.</li>
-                        <li>Auditoria e estatísticas de uso para a administração do sistema (TJPR).</li>
-                        <li>Melhoria contínua da ferramenta através da análise de erros reportados.</li>
-                    </ul>
-
-                    <h3 className="text-lg font-bold text-slate-900 dark:text-white mt-4">3. Armazenamento e Segurança</h3>
-                    <p>Os dados são armazenados em nuvem utilizando os serviços do Google Firebase, com regras de segurança que restringem o acesso apenas a usuários autorizados e administradores do sistema.</p>
-
-                    <h3 className="text-lg font-bold text-slate-900 dark:text-white mt-4">4. Seus Direitos (LGPD)</h3>
-                    <p>Conforme a Lei Geral de Proteção de Dados (Lei nº 13.709/2018), você tem direito a:</p>
-                    <ul className="list-disc pl-5 space-y-1">
-                        <li>Acessar seus dados (disponível no Perfil e Histórico).</li>
-                        <li>Corrigir dados incompletos ou desatualizados.</li>
-                        <li>Solicitar a exclusão de sua conta e dados pessoais (disponível na opção "Excluir Conta" no perfil).</li>
-                    </ul>
-
-                    <h3 className="text-lg font-bold text-slate-900 dark:text-white mt-4">5. Cookies e Armazenamento Local</h3>
-                    <p>Utilizamos armazenamento local (LocalStorage) para salvar suas preferências de tema e configurações da calculadora. Não utilizamos cookies de rastreamento publicitário.</p>
-                </div>
-                <div className="p-6 border-t border-slate-200 dark:border-slate-700">
-                    <button onClick={onClose} className="w-full bg-blue-600 text-white font-bold py-3 rounded-xl hover:bg-blue-700 transition-all">Entendi</button>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-/**
- * CookieConsent - Banner de consentimento de cookies/LGPD
- */
-const CookieConsent = () => {
-    const [visible, setVisible] = React.useState(false);
-
-    React.useEffect(() => {
-        const consent = localStorage.getItem('lgpd_consent');
-        if (!consent) {
-            setVisible(true);
-        }
-    }, []);
-
-    const handleAccept = () => {
-        localStorage.setItem('lgpd_consent', 'true');
-        setVisible(false);
-    };
-
-    if (!visible) return null;
-
-    return (
-        <div className="fixed bottom-0 left-0 right-0 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 p-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)] z-[80] animate-fade-in">
-            <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
-                <div className="text-sm text-slate-600 dark:text-slate-300">
-                    <p><strong>Este sistema utiliza dados para funcionamento.</strong></p>
-                    <p>Utilizamos armazenamento local para salvar suas preferências e coletamos dados de uso para fins de auditoria e melhoria, em conformidade com a LGPD. Ao continuar, você concorda com nossa Política de Privacidade.</p>
-                </div>
-                <div className="flex gap-3 flex-shrink-0">
-                    <button
-                        onClick={() => document.dispatchEvent(new CustomEvent('openPrivacyPolicy'))}
-                        className="px-4 py-2 text-sm font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
-                    >
-                        Ler Política
-                    </button>
-                    <button
-                        onClick={handleAccept}
-                        className="px-6 py-2 text-sm font-bold bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
-                    >
-                        Concordar e Fechar
-                    </button>
                 </div>
             </div>
         </div>
@@ -450,35 +340,41 @@ const NotificationsPanel = ({ notifications, onMarkAsRead, isOpen, onClose, onNo
 
     return (
         <React.Fragment>
-            <div className="fixed inset-0 z-[40]" onClick={onClose}></div>
-            <div className="absolute top-16 right-4 w-80 max-h-[80vh] bg-white dark:bg-slate-800 rounded-lg shadow-xl border border-slate-200 dark:border-slate-700 overflow-hidden z-[50] animate-fade-in-up origin-top-right">
-                <div className="p-4 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-slate-50 dark:bg-slate-900/50">
-                    <h3 className="font-bold text-slate-800 dark:text-slate-100">Notificações</h3>
+            <div className="fixed inset-0 z-[90]" onClick={onClose}></div>
+            <div className="absolute top-20 right-4 w-96 max-h-[80vh] bg-slate-900/90 backdrop-blur-xl rounded-3xl shadow-[0_30px_60px_-15px_rgba(0,0,0,0.5)] border border-white/10 overflow-hidden z-[100] animate-in zoom-in-95 slide-in-from-top-4 duration-200 origin-top-right">
+                <div className="p-6 border-b border-white/5 flex justify-between items-center bg-white/5">
+                    <h3 className="font-black text-white tracking-tight">NOTIFICAÇÕES</h3>
                     {notifications.length > 0 && (
-                        <button onClick={onMarkAsRead} className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline">
-                            Marcar todas como lidas
+                        <button onClick={onMarkAsRead} className="text-[10px] font-bold text-indigo-400 hover:text-indigo-300 uppercase tracking-widest border-b border-indigo-400/30">
+                            Limpar Tudo
                         </button>
                     )}
                 </div>
-                <div className="overflow-y-auto max-h-[60vh]">
+                <div className="overflow-y-auto max-h-[60vh] custom-scrollbar">
                     {notifications.length === 0 ? (
-                        <div className="p-8 text-center text-slate-500 dark:text-slate-400">
-                            <span className="material-icons text-4xl mb-2 text-slate-300 dark:text-slate-600">notifications_off</span>
-                            <p className="text-sm">Nenhuma notificação nova.</p>
+                        <div className="p-12 text-center">
+                            <div className="w-16 h-16 bg-white/5 rounded-full flex items-center justify-center mx-auto mb-4">
+                                <span className="material-icons text-slate-600 text-3xl">notifications_off</span>
+                            </div>
+                            <p className="text-sm font-bold text-slate-500 uppercase tracking-widest">Vazio</p>
                         </div>
                     ) : (
-                        <div className="divide-y divide-slate-100 dark:divide-slate-700/50">
+                        <div className="divide-y divide-white/5">
                             {notifications.map(notif => (
                                 <div
                                     key={notif.id}
                                     onClick={() => onNotificationClick && onNotificationClick(notif)}
-                                    className={`p-4 hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors cursor-pointer ${!notif.read ? 'bg-indigo-50/50 dark:bg-indigo-900/10' : ''}`}
+                                    className={`p-5 hover:bg-white/5 transition-all cursor-pointer group ${!notif.read ? 'bg-indigo-500/[0.03]' : ''}`}
                                 >
-                                    <div className="flex gap-3">
-                                        <div className={`mt-1 w-2 h-2 rounded-full flex-shrink-0 ${!notif.read ? 'bg-indigo-500' : 'bg-transparent'}`}></div>
+                                    <div className="flex gap-4">
+                                        <div className={`mt-1.5 w-2 h-2 rounded-full flex-shrink-0 transition-transform group-hover:scale-150 ${!notif.read ? 'bg-indigo-500 shadow-[0_0_8px_rgba(79,70,229,0.5)]' : 'bg-transparent'}`}></div>
                                         <div className="flex-1">
-                                            <p className="text-sm text-slate-800 dark:text-slate-200">{notif.message}</p>
-                                            <p className="text-xs text-slate-400 mt-1">{formatarData(notif.createdAt?.toDate())}</p>
+                                            <p className={`text-sm font-medium leading-relaxed ${!notif.read ? 'text-white' : 'text-slate-400'}`}>
+                                                {notif.message}
+                                            </p>
+                                            <p className="text-[10px] font-bold text-slate-600 uppercase mt-2 tracking-tighter">
+                                                {formatarData(notif.createdAt ? new Date(notif.createdAt) : null)}
+                                            </p>
                                         </div>
                                     </div>
                                 </div>
@@ -491,4 +387,182 @@ const NotificationsPanel = ({ notifications, onMarkAsRead, isOpen, onClose, onNo
     );
 };
 
+/**
+ * TJPRToast - Notificação Elite
+ */
+const TJPRToast = ({ message, type = 'info', onClose, duration = 5000 }) => {
+    useEffect(() => {
+        const timer = setTimeout(onClose, duration);
+        return () => clearTimeout(timer);
+    }, [onClose, duration]);
+
+    const icons = {
+        info: 'info',
+        success: 'check_circle',
+        warning: 'warning',
+        error: 'error'
+    };
+
+    const colors = {
+        info: 'border-indigo-500/50 bg-slate-900/90 text-indigo-400',
+        success: 'border-emerald-500/50 bg-slate-900/90 text-emerald-400',
+        warning: 'border-amber-500/50 bg-slate-900/90 text-amber-400',
+        error: 'border-rose-500/50 bg-slate-900/90 text-rose-400'
+    };
+
+    return (
+        <div className={`flex items-center gap-4 px-6 py-4 rounded-2xl border backdrop-blur-xl shadow-2xl animate-in slide-in-from-right-full duration-500 mb-3 min-w-[300px] max-w-md ${colors[type]}`}>
+            <span className="material-icons">{icons[type]}</span>
+            <p className="text-xs font-black uppercase tracking-widest flex-1">{message}</p>
+            <button onClick={onClose} className="text-slate-500 hover:text-white transition-colors">
+                <span className="material-icons text-sm">close</span>
+            </button>
+        </div>
+    );
+};
+
+const TJPRToastContainer = () => {
+    const [toasts, setToasts] = useState([]);
+
+    useEffect(() => {
+        window.showToast = (message, type = 'info') => {
+            const id = Date.now();
+            setToasts(prev => [...prev, { id, message, type }]);
+        };
+    }, []);
+
+    const removeToast = (id) => {
+        setToasts(prev => prev.filter(t => t.id !== id));
+    };
+
+    return (
+        <div className="fixed bottom-8 right-8 z-[1000] flex flex-col items-end">
+            {toasts.map(toast => (
+                <TJPRToast
+                    key={toast.id}
+                    message={toast.message}
+                    type={toast.type}
+                    onClose={() => removeToast(toast.id)}
+                />
+            ))}
+        </div>
+    );
+};
+
+/**
+ * TJPRConfirmModal - Modal de Confirmação Elite
+ */
+const TJPRConfirmModal = ({ isOpen, onClose, onConfirm, title, message, confirmText = 'Confirmar', cancelText = 'Cancelar', variant = 'primary', icon = 'help_outline' }) => {
+    return (
+        <TJPRModal
+            isOpen={isOpen}
+            onClose={onClose}
+            title={title}
+            icon={icon}
+            maxWidth="sm"
+        >
+            <div className="space-y-6 text-center py-4">
+                <p className="text-slate-400 text-sm font-bold uppercase tracking-widest leading-relaxed">
+                    {message}
+                </p>
+                <div className="flex gap-4 pt-4">
+                    <TJPRButton 
+                        variant="ghost" 
+                        onClick={onClose}
+                        className="flex-1"
+                    >
+                        {cancelText}
+                    </TJPRButton>
+                    <TJPRButton 
+                        variant={variant} 
+                        onClick={() => {
+                            onConfirm();
+                            onClose();
+                        }}
+                        className="flex-1"
+                    >
+                        {confirmText}
+                    </TJPRButton>
+                </div>
+            </div>
+        </TJPRModal>
+    );
+};
+
+// Export to window
+window.TJPRCard = TJPRCard;
+window.TJPRButton = TJPRButton;
+window.TJPRInput = TJPRInput;
+window.TJPRHeader = TJPRHeader;
+window.TJPRBadge = TJPRBadge;
+window.TJPRModal = TJPRModal;
 window.NotificationsPanel = NotificationsPanel;
+window.TJPRToastContainer = TJPRToastContainer;
+window.TJPRConfirmModal = TJPRConfirmModal;
+
+/**
+ * CookieConsent - Aviso de Cookies Elite
+ */
+const CookieConsent = () => {
+    const [isVisible, setIsVisible] = useState(false);
+
+    useEffect(() => {
+        const consent = localStorage.getItem('tjpr_cookie_consent');
+        if (!consent) {
+            // Pequeno delay para não impactar o LCP imediatamente
+            const timer = setTimeout(() => setIsVisible(true), 1000);
+            return () => clearTimeout(timer);
+        }
+    }, []);
+
+    const handleAccept = () => {
+        localStorage.setItem('tjpr_cookie_consent', 'true');
+        setIsVisible(false);
+    };
+
+    if (!isVisible) return null;
+
+    return (
+        <div className="fixed bottom-6 left-6 right-6 lg:left-auto lg:max-w-md z-[200] animate-in slide-in-from-bottom-10 duration-700">
+            <div className="bg-slate-900/90 backdrop-blur-xl border border-white/10 rounded-[2rem] p-8 shadow-[0_20px_50px_rgba(0,0,0,0.5)]">
+                <div className="flex items-start gap-5">
+                    <div className="w-12 h-12 rounded-2xl bg-indigo-500/10 flex items-center justify-center flex-shrink-0">
+                        <span className="material-icons text-indigo-400">cookie</span>
+                    </div>
+                    <div className="flex-1">
+                        <h4 className="text-sm font-black text-white uppercase tracking-widest mb-2">Privacidade & Cookies</h4>
+                        <p className="text-[11px] font-medium text-slate-400 leading-relaxed mb-6">
+                            Utilizamos cookies e tecnologias similares para garantir a melhor experiência em nossa plataforma monolítica, em conformidade com a LGPD e diretrizes de segurança do TJPR.
+                        </p>
+                        <div className="flex gap-3">
+                            <button 
+                                onClick={handleAccept} 
+                                className="flex-1 px-4 py-3 bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow-lg shadow-indigo-500/20"
+                            >
+                                Aceitar Termos
+                            </button>
+                            <button 
+                                onClick={() => setIsVisible(false)} 
+                                className="px-4 py-3 bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all"
+                            >
+                                Fechar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+window.CookieConsent = CookieConsent;
+
+window.TJPRFormGroup = ({ children, cols = 1, className = '' }) => {
+    const gridCols = {
+        1: 'grid-cols-1',
+        2: 'grid-cols-1 md:grid-cols-2',
+        3: 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3',
+        4: 'grid-cols-1 md:grid-cols-2 lg:grid-cols-4'
+    };
+    return <div className={`grid ${gridCols[cols]} gap-6 ${className}`}>{children}</div>;
+};

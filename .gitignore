@@ -1,0 +1,33 @@
+# Credenciais e configs sensíveis
+migration/serviceAccountKey.json
+supabase-init.js
+
+# Pasta de migração (scripts one-shot, não necessários para o app)
+migration/
+
+# Scripts de debug e teste
+debug_*.js
+test_*.js
+verify_*.js
+temp_*.js
+run_playwright.js
+create_test.js
+
+# Artefatos gerados
+playwright-report/
+test-results/
+out.json
+out.txt
+find_results.txt
+find_results_utf8.txt
+server.log
+
+# Pasta scratch (arquivos temporários)
+scratch/
+
+# Node
+node_modules/
+
+# OS
+.DS_Store
+Thumbs.db

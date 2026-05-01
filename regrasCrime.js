@@ -12,23 +12,37 @@ const calcularPrazoCrime = (_dataPubApp, _inicioPrazoApp, prazoNumerico, diasNao
     if (dataDisponibilizacaoStr === '2025-05-28' || dataDisponibilizacaoStr === '2025-05-29') {
         const prazoFinalEspecial = new Date('2025-06-25T00:00:00');
         const resultadoEspecial = { prazoFinalProrrogado: prazoFinalEspecial, diasNaoUteis: [], diasProrrogados: [] };
-        // Retorna a estrutura correta para que o front-end exiba e permita o recálculo se necessário
-        return { dataPublicacao: dataPublicacaoComDecreto, inicioPrazo: inicioDoPrazoComDecreto, semDecreto: resultadoEspecial, comDecreto: resultadoEspecial, suspensoesComprovaveis: [], prazo: prazoNumerico, tipo: 'crime' };
+        
+        // No caso especial de maio/2025, os marcos iniciais são fixos.
+        const dataPubEspecial = new Date(inicioDisponibilizacao.getTime());
+        dataPubEspecial.setDate(dataPubEspecial.getDate() + 1);
+        const dataInicEspecial = new Date('2025-05-30T00:00:00');
+
+        return {
+            dataPublicacao: dataPubEspecial,
+            inicioPrazo: dataInicEspecial,
+            semDecreto: resultadoEspecial,
+            comDecreto: resultadoEspecial,
+            suspensoesComprovaveis: [],
+            prazo: prazoNumerico,
+            tipo: 'crime',
+            ignorarRecesso
+        };
     }
 
     // PASSO 1: A partir da Disponibilização, calcula a Publicação (D+1 Útil)
     // Cenário 1: Sem Decreto -> Ignora decretos (false)
-    const { proximoDia: dataPublicacaoSemDecreto, suspensoesEncontradas: suspensoesPubSemDecreto } = getProximoDiaUtilParaPublicacao(inicioDisponibilizacao, false);
+    const { proximoDia: dataPublicacaoSemDecreto, suspensoesEncontradas: suspensoesPubSemDecreto } = getProximoDiaUtilParaPublicacao(inicioDisponibilizacao, false, new Set(), ignorarRecesso);
 
     // Cenário 2: Com Decreto -> Considera apenas decretos COMPROVADOS
-    const { proximoDia: dataPublicacaoComDecreto } = getProximoDiaUtilComprovado(inicioDisponibilizacao, diasComprovados);
+    const { proximoDia: dataPublicacaoComDecreto } = getProximoDiaUtilComprovado(inicioDisponibilizacao, diasComprovados, ignorarRecesso);
 
     // PASSO 2: A partir da Publicação, calcula o Início do Prazo (D+1 Útil - Súmula 310 STF)
     // Cenário 1: Sem Decreto
-    const { proximoDia: inicioDoPrazoSemDecreto, suspensoesEncontradas: suspensoesInicioSemDecreto } = getProximoDiaUtilParaPublicacao(dataPublicacaoSemDecreto, false);
+    const { proximoDia: inicioDoPrazoSemDecreto, suspensoesEncontradas: suspensoesInicioSemDecreto } = getProximoDiaUtilParaPublicacao(dataPublicacaoSemDecreto, false, new Set(), ignorarRecesso);
 
     // Cenário 2: Com Decreto (baseado na publicação ajustada pelos decretos comprovados)
-    const { proximoDia: inicioDoPrazoComDecreto } = getProximoDiaUtilComprovado(dataPublicacaoComDecreto, diasComprovados);
+    const { proximoDia: inicioDoPrazoComDecreto } = getProximoDiaUtilComprovado(dataPublicacaoComDecreto, diasComprovados, ignorarRecesso);
 
     // Combina suspensões encontradas (apenas feriados/recessos que realmente pularam dias no Cenário 1)
     const todasSuspensoes = [
@@ -44,8 +58,8 @@ const calcularPrazoCrime = (_dataPubApp, _inicioPrazoApp, prazoNumerico, diasNao
     });
 
     // Verificar se o dia de início do prazo tem decreto
-    const decretoNoInicioDoPrazo = getMotivoDiaNaoUtil(inicioDoPrazoSemDecreto, true, 'decreto') ||
-        getMotivoDiaNaoUtil(inicioDoPrazoSemDecreto, true, 'instabilidade');
+    const decretoNoInicioDoPrazo = getMotivoDiaNaoUtil(inicioDoPrazoSemDecreto, true, 'decreto', new Set(), ignorarRecesso) ||
+        getMotivoDiaNaoUtil(inicioDoPrazoSemDecreto, true, 'instabilidade', new Set(), ignorarRecesso);
 
     // CALCULO DO PRAZO
     // Cenário 1: Sem Decreto
@@ -60,16 +74,21 @@ const calcularPrazoCrime = (_dataPubApp, _inicioPrazoApp, prazoNumerico, diasNao
     // - Instabilidades só pedem comprovação se caírem no Início do Prazo ou no Fim do Prazo.
     // - Instabilidades na Publicação/Disponibilização são ignoradas.
     // - Feriados e Recessos são automáticos e não devem aparecer na lista.
-    const filtroComprovavel = (tipo) => tipo === 'decreto' || tipo === 'instabilidade' || tipo === 'suspensao_outubro' || tipo === 'feriado_cnj';
+    const filtroComprovavel = (d) => {
+        const t = (typeof d === 'string') ? d : (d?.tipo);
+        const data = (typeof d === 'object' && d?.data) ? d.data : null;
+
+        return t === 'decreto' || t === 'instabilidade' || t === 'suspensao_outubro' || t === 'feriado_cnj';
+    };
 
     const suspensoesParaUI = [];
 
     // 0. Coleta suspensões comprováveis dos marcos iniciais (Salto Duplo)
     // Usamos o caminho COM DECRETOS para encontrar os dias que empurraram os marcos para frente,
     // caso o usuário marque as opções.
-    const { suspensoesEncontradas: suspPubComDecreto } = getProximoDiaUtilParaPublicacao(inicioDisponibilizacao, true);
+    const { suspensoesEncontradas: suspPubComDecreto } = getProximoDiaUtilParaPublicacao(inicioDisponibilizacao, true, diasComprovados, ignorarRecesso);
     // Para Intimação/Início, usamos a data de publicação calculada (sem decreto) como base
-    const { suspensoesEncontradas: suspInicioMax } = getProximoDiaUtilParaPublicacao(dataPublicacaoSemDecreto, true);
+    const { suspensoesEncontradas: suspInicioMax } = getProximoDiaUtilParaPublicacao(dataPublicacaoSemDecreto, true, diasComprovados, ignorarRecesso);
 
     const todasSuspensoesIniciaisComDecreto = [
         ...(suspPubComDecreto || []),
@@ -77,7 +96,7 @@ const calcularPrazoCrime = (_dataPubApp, _inicioPrazoApp, prazoNumerico, diasNao
     ];
 
     todasSuspensoesIniciaisComDecreto.forEach(suspensao => {
-        if (filtroComprovavel(suspensao.tipo)) {
+        if (filtroComprovavel(suspensao)) {
             const dStr = suspensao.data.toISOString().split('T')[0];
             if (!suspensoesParaUI.some(s => s.data.toISOString().split('T')[0] === dStr)) {
                 suspensoesParaUI.push(suspensao);
@@ -86,30 +105,51 @@ const calcularPrazoCrime = (_dataPubApp, _inicioPrazoApp, prazoNumerico, diasNao
     });
 
     // 1. Verifica Instabilidade/Decreto no INÍCIO DO PRAZO (Dies a Quo efetivo)
-    // O dia calculado como início (sem decreto) pode ter uma instabilidade. Se tiver, pedimos comprovação.
-    const suspensaoNoInicio = getMotivoDiaNaoUtil(inicioDoPrazoSemDecreto, true, 'todos');
-    if (suspensaoNoInicio && filtroComprovavel(suspensaoNoInicio.tipo)) {
-        const dStr = inicioDoPrazoSemDecreto.toISOString().split('T')[0];
-        if (!suspensoesParaUI.some(s => s.data.toISOString().split('T')[0] === dStr)) {
-            suspensoesParaUI.push({ data: new Date(inicioDoPrazoSemDecreto.getTime()), ...suspensaoNoInicio });
+    // Usamos a data base (sem decreto) para sugerir a primeira comprovação, 
+    // mas também a data corrente (com decreto) para permitir o cascateamento.
+    [inicioDoPrazoSemDecreto, inicioDoPrazoComDecreto].forEach(dataRef => {
+        const suspensaoNoInicio = getMotivoDiaNaoUtil(dataRef, true, 'todos', new Set(), ignorarRecesso);
+        if (suspensaoNoInicio && filtroComprovavel({ data: dataRef, ...suspensaoNoInicio })) {
+            const dStr = dataRef.toISOString().split('T')[0];
+            if (!suspensoesParaUI.some(s => s.data.toISOString().split('T')[0] === dStr)) {
+                suspensoesParaUI.push({ data: new Date(dataRef.getTime()), ...suspensaoNoInicio });
+            }
         }
-    }
+    });
 
     // 2. Verifica Instabilidade/Decreto no FIM DO PRAZO (Dies ad Quem)
-    // O dia calculado como final (sem decreto, já prorrogado por feriados naturais) pode cair numa instabilidade.
-    const prazoFinalParaVerificar = resultadoSemDecreto.prazoFinalProrrogado; // Usa o 'Prorrogado' para lidar com feriados naturais primeiro
-    const suspensaoNoFim = getMotivoDiaNaoUtil(prazoFinalParaVerificar, true, 'todos');
-
-    if (suspensaoNoFim && filtroComprovavel(suspensaoNoFim.tipo)) {
-        // Garantir que não é duplicata
-        const dStr = prazoFinalParaVerificar.toISOString().split('T')[0];
-        if (!suspensoesParaUI.some(s => s.data.toISOString().split('T')[0] === dStr)) {
-            suspensoesParaUI.push({ data: new Date(prazoFinalParaVerificar.getTime()), ...suspensaoNoFim });
+    // O dia calculado como final (sem decreto) pode cair numa instabilidade.
+    // Também verificamos o prazo final prorrogado PELO CENÁRIO COM DECRETO para permitir cascateamento.
+    const prazoFinalBase = resultadoSemDecreto.prazoFinalProrrogado;
+    const prazoFinalAtual = resultadoComDecretoInicial.prazoFinalProrrogado;
+    
+    [prazoFinalBase, prazoFinalAtual].forEach(dataRef => {
+        const suspensaoNoFim = getMotivoDiaNaoUtil(dataRef, true, 'todos', new Set(), ignorarRecesso);
+        if (suspensaoNoFim && filtroComprovavel({ data: dataRef, ...suspensaoNoFim })) {
+            const dStr = dataRef.toISOString().split('T')[0];
+            if (!suspensoesParaUI.some(s => s.data.toISOString().split('T')[0] === dStr)) {
+                suspensoesParaUI.push({ data: new Date(dataRef.getTime()), ...suspensaoNoFim });
+            }
         }
+    });
+
+    // 2b. Adiciona também os dias que JÁ ESTÃO comprovados para garantir que eles continuem aparecendo na UI
+    if (diasComprovados && diasComprovados.size > 0) {
+        diasComprovados.forEach(dStr => {
+            if (!suspensoesParaUI.some(s => s.data.toISOString().split('T')[0] === dStr)) {
+                const dataObj = new Date(dStr + 'T12:00:00');
+                const susp = getMotivoDiaNaoUtil(dataObj, true, 'todos', new Set(), ignorarRecesso);
+                if (susp) {
+                    suspensoesParaUI.push({ data: dataObj, ...susp });
+                }
+            }
+        });
     }
 
-    // REMOVIDO "Varredura de Intervalo" completa que trazia dias 23/10, 24/10 etc.
-    // O usuário foi claro que instabilidades nesses dias não devem ser cobradas.
+    // 3. VARREDURA DE MEIO DE PRAZO (Removida: decretos no meio do prazo não suspendem Crime)
+    // No meio do prazo o Crime agora ignora decretos, conforme nova regra.
+    // dataVarredura = new Date(inicioDoPrazoSemDecreto.getTime());
+
 
     // Ordena
     suspensoesParaUI.sort((a, b) => a.data - b.data);
@@ -121,6 +161,11 @@ const calcularPrazoCrime = (_dataPubApp, _inicioPrazoApp, prazoNumerico, diasNao
         comDecreto: resultadoComDecretoInicial,
         suspensoesComprovaveis: suspensoesParaUI,
         prazo: prazoNumerico, tipo: 'crime',
-        diasProrrogados: resultadoComDecretoInicial.diasProrrogados
+        diasProrrogados: resultadoComDecretoInicial.diasProrrogados,
+        ignorarRecesso
     };
 };
+
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { calcularPrazoCrime };
+}

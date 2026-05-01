@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Modulo Prazos - P-SEP-AR - TJPR</title>
+    <title>Módulo Prazos - P-SEP-AR - TJPR</title>
     <link rel="icon" href="Logo.png">
     <link rel="manifest" href="manifest.json">
 
@@ -52,11 +52,8 @@
     <link rel="stylesheet" href="https://unpkg.com/react-image-crop/dist/ReactCrop.css" />
     <script src="https://unpkg.com/react-image-crop/dist/ReactCrop.umd.js"></script>
 
-    <!-- SDKs do Firebase -->
-    <script src="https://www.gstatic.com/firebasejs/9.15.0/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.15.0/firebase-auth-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.15.0/firebase-firestore-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.15.0/firebase-storage-compat.js"></script>
+    <!-- SDK do Supabase (substitui Firebase) -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
     <!-- Chart.js e SheetJS (para gráficos e Excel) -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.9.4/Chart.min.js"></script>
@@ -82,24 +79,24 @@
     <div id="root"></div>
 
     <!-- O Babel irá transpilar este arquivo .js externo -->
-    <script src="firebase-init.js" type="text/babel"></script>
-    <script src="contexts.js" type="text/babel"></script>
-    <script src="utils.js" type="text/babel"></script>
-    <script src="regrasCNJ.js" type="text/babel"></script>
-    <script src="regrasCrime.js" type="text/babel"></script>
-    <script src="regrasCivel.js" type="text/babel"></script>
-    <script src="minutas-default.js" type="text/babel"></script> <!-- Carrega os modelos padrão -->
-    <script src="migration-scripts.js" type="text/babel"></script> <!-- Scripts de migração -->
-    <script src="MinutasAdminPage.js?v=6" type="text/babel"></script> <!-- Carrega o componente da página -->
-    <script src="CalendarAdminPage.js?v=6" type="text/babel"></script>
+    <!-- Supabase: init -->
+    <script src="supabase-init.js?v=15"></script>
+    <script src="contexts.js?v=15" type="text/babel"></script>
+    <script src="utils.js?v=15" type="text/babel"></script>
+    <script src="regrasCNJ.js?v=15" type="text/babel"></script>
+    <script src="regrasCrime.js?v=15" type="text/babel"></script>
+    <script src="regrasCivel.js?v=15" type="text/babel"></script>
+    <script src="minutas-default.js?v=15" type="text/babel"></script> <!-- Carrega os modelos padrão -->
+    <script src="MinutasAdminPage.js?v=15" type="text/babel"></script> <!-- Carrega o componente da página -->
+    <script src="CalendarAdminPage.js?v=15" type="text/babel"></script>
     <!-- Os arquivos de Estatísticas e Usuários serão criados a seguir -->
-    <script src="BugReportsPage.js?v=6" type="text/babel"></script>
+    <script src="BugReportsPage.js?v=15" type="text/babel"></script>
 
     <!-- Componentes do Design System TJPR -->
-    <script src="components.js?v=6" type="text/babel"></script>
-    <script src="login.js?v=6" type="text/babel"></script>
+    <script src="components.js?v=15" type="text/babel"></script>
+    <script src="login.js?v=15" type="text/babel"></script>
 
-    <script src="app.js?v=6" type="text/babel"></script>
+    <script src="app.js?v=15" type="text/babel"></script>
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
