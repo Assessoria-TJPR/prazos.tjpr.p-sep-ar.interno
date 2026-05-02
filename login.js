@@ -186,9 +186,9 @@ const TJPRLoginPage = () => {
     };
 
     return (
-        <div className="min-h-screen flex flex-col md:flex-row bg-[#020617] text-white selection:bg-indigo-500/30">
+        <div className="min-h-screen flex flex-col md:flex-row tjpr-bg-main tjpr-text-main selection:bg-indigo-500/30">
             {/* LADO ESQUERDO: AUTORIDADE E MARCA */}
-            <div className="hidden md:flex md:w-1/2 lg:w-3/5 bg-slate-900 relative overflow-hidden items-center justify-center p-20">
+            <div className="hidden md:flex md:w-1/2 lg:w-3/5 tjpr-bg-alt relative overflow-hidden items-center justify-center p-20">
                 {/* Background Decorativo */}
                 <div className="absolute inset-0 z-0">
                     <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_20%_30%,rgba(79,70,229,0.15)_0%,transparent_50%)]"></div>
@@ -197,12 +197,12 @@ const TJPRLoginPage = () => {
                 </div>
 
                 <div className="relative z-10 max-w-lg">
-                    <div className="mb-12 inline-flex items-center gap-4 p-4 rounded-3xl bg-white/5 border border-white/10 backdrop-blur-sm animate-in fade-in slide-in-from-left duration-700">
-                        <img src="Logo.png" alt="TJPR" className="h-14 w-auto filter brightness-0 invert" />
-                        <div className="h-10 w-px bg-white/10 mx-2"></div>
+                    <div className="mb-12 inline-flex items-center gap-4 p-4 rounded-3xl tjpr-bg-alt/50 border tjpr-border-main backdrop-blur-sm animate-in fade-in slide-in-from-left duration-700">
+                        <img src="Logo.png" alt="TJPR" className="h-14 w-auto dark:filter dark:brightness-0 dark:invert" />
+                        <div className="h-10 w-px bg-slate-200 dark:bg-white/10 mx-2"></div>
                         <div>
                             <h2 className="text-sm font-black tracking-widest uppercase">TJPR</h2>
-                            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-[0.3em]">Justiça com Tecnologia</p>
+                            <p className="text-[10px] tjpr-text-dim font-bold uppercase tracking-[0.3em]">Justiça com Tecnologia</p>
                         </div>
                     </div>
 
@@ -210,20 +210,20 @@ const TJPRLoginPage = () => {
                         Excelência no <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-violet-400">Controle de Prazos.</span>
                     </h1>
 
-                    <p className="text-xl text-slate-400 font-medium leading-relaxed mb-12 animate-in fade-in slide-in-from-bottom duration-700 delay-300">
+                    <p className="text-xl tjpr-text-dim font-medium leading-relaxed mb-12 animate-in fade-in slide-in-from-bottom duration-700 delay-300">
                         A plataforma monolítica para assessores do P-SEP-AR. Precisão judicial, segurança de dados e alta performance operacional.
                     </p>
 
                     <div className="grid grid-cols-2 gap-8 animate-in fade-in slide-in-from-bottom duration-700 delay-500">
-                        <div className="p-6 rounded-3xl bg-white/5 border border-white/10 hover:bg-white/[0.08] transition-colors group">
+                        <div className="p-6 rounded-3xl tjpr-bg-alt/50 border tjpr-border-main hover:tjpr-bg-alt transition-colors group">
                             <span className="material-icons text-indigo-400 mb-4 text-3xl group-hover:scale-110 transition-transform">verified_user</span>
-                            <h3 className="font-bold text-white mb-1">Acesso Seguro</h3>
-                            <p className="text-xs text-slate-500 font-medium leading-relaxed">Autenticação centralizada com monitoramento de sessões.</p>
+                            <h3 className="font-bold tjpr-text-main mb-1">Acesso Seguro</h3>
+                            <p className="text-xs tjpr-text-dim font-medium leading-relaxed">Autenticação centralizada com monitoramento de sessões.</p>
                         </div>
-                        <div className="p-6 rounded-3xl bg-white/5 border border-white/10 hover:bg-white/[0.08] transition-colors group">
+                        <div className="p-6 rounded-3xl tjpr-bg-alt/50 border tjpr-border-main hover:tjpr-bg-alt transition-colors group">
                             <span className="material-icons text-indigo-400 mb-4 text-3xl group-hover:scale-110 transition-transform">auto_graph</span>
-                            <h3 className="font-bold text-white mb-1">Regras CNJ</h3>
-                            <p className="text-xs text-slate-500 font-medium leading-relaxed">Cálculos baseados na legislação vigente e normas do CNJ.</p>
+                            <h3 className="font-bold tjpr-text-main mb-1">Regras CNJ</h3>
+                            <p className="text-xs tjpr-text-dim font-medium leading-relaxed">Cálculos baseados na legislação vigente e normas do CNJ.</p>
                         </div>
                     </div>
                 </div>
@@ -236,22 +236,22 @@ const TJPRLoginPage = () => {
             </div>
 
             {/* LADO DIREITO: LOGIN FORM */}
-            <div className="flex-1 flex items-center justify-center p-6 sm:p-12 lg:p-20 relative bg-slate-950 overflow-y-auto">
+            <div className="flex-1 flex items-center justify-center p-6 sm:p-12 lg:p-20 relative tjpr-bg-main overflow-y-auto">
                 {/* Blur Decorativo de Fundo (Mobile Only) */}
                 <div className="md:hidden absolute inset-0 bg-gradient-to-br from-indigo-950/20 to-slate-950 pointer-events-none"></div>
 
                 <div className="w-full max-w-md relative z-10">
                     <div className="mb-10 text-center md:text-left">
-                        <img src="Logo.png" alt="TJPR" className="h-10 w-auto mb-6 mx-auto md:mx-0 md:hidden filter brightness-0 invert" />
-                        <h2 className="text-4xl font-black tracking-tight mb-3">
+                        <img src="Logo.png" alt="TJPR" className="h-10 w-auto mb-6 mx-auto md:mx-0 md:hidden dark:filter dark:brightness-0 dark:invert" />
+                        <h2 className="text-4xl font-black tracking-tight mb-3 tjpr-text-main">
                             {isLogin ? 'Bem-vindo de volta' : 'Inicie sua jornada'}
                         </h2>
-                        <p className="text-slate-400 font-bold text-sm uppercase tracking-widest">
+                        <p className="tjpr-text-dim font-bold text-sm uppercase tracking-widest">
                             Acesse o Portal de Prazos
                         </p>
                     </div>
 
-                    <div className="tjpr-card !bg-white/5 !border-white/10 !p-8 backdrop-blur-xl shadow-2xl animate-in zoom-in-95 duration-500">
+                    <div className="tjpr-card !tjpr-bg-alt/50 !tjpr-border-main !p-8 backdrop-blur-xl shadow-2xl animate-in zoom-in-95 duration-500">
                         <form onSubmit={handleSubmit} className="space-y-6">
                             {error && (
                                 <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/20 flex items-center gap-3 animate-shake">
@@ -283,7 +283,7 @@ const TJPRLoginPage = () => {
                                 <div className="space-y-2">
                                     <label className="tjpr-label">Setor de Lotação</label>
                                     <div className="relative group">
-                                        <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-500 group-focus-within:text-indigo-400">
+                                        <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none tjpr-text-dim group-focus-within:text-indigo-400">
                                             <span className="material-icons">business</span>
                                         </div>
                                         <select
@@ -292,9 +292,9 @@ const TJPRLoginPage = () => {
                                             required
                                             className="tjpr-input pl-12 appearance-none cursor-pointer"
                                         >
-                                            <option value="" disabled className="bg-slate-900">Selecione seu setor...</option>
-                                            {setores.map(setor => <option key={setor.id} value={setor.id} className="bg-slate-900">{setor.nome}</option>)}
-                                            <option value="__novo__" className="bg-slate-900 font-bold text-indigo-400">Cadastrar novo setor...</option>
+                                            <option value="" disabled className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">Selecione seu setor...</option>
+                                            {setores.map(setor => <option key={setor.id} value={setor.id} className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">{setor.nome}</option>)}
+                                            <option value="__novo__" className="bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 font-bold">Cadastrar novo setor...</option>
                                         </select>
                                     </div>
                                     {setorIdSelecionado === '__novo__' && (
@@ -335,7 +335,7 @@ const TJPRLoginPage = () => {
                                     <button
                                         type="button"
                                         onClick={() => setShowPassword(!showPassword)}
-                                        className="text-[10px] font-bold text-slate-500 hover:text-indigo-400 flex items-center gap-1 transition-colors uppercase tracking-widest"
+                                        className="text-[10px] font-bold tjpr-text-dim hover:text-indigo-400 flex items-center gap-1 transition-colors uppercase tracking-widest"
                                     >
                                         <span className="material-icons text-sm">{showPassword ? 'visibility_off' : 'visibility'}</span>
                                         {showPassword ? 'Ocultar' : 'Exibir'}
@@ -343,7 +343,7 @@ const TJPRLoginPage = () => {
                                     <button
                                         type="button"
                                         onClick={openForgotPasswordModal}
-                                        className="text-[10px] font-bold text-slate-500 hover:text-indigo-400 transition-colors uppercase tracking-widest"
+                                        className="text-[10px] font-bold tjpr-text-dim hover:text-indigo-400 transition-colors uppercase tracking-widest"
                                     >
                                         Esqueci minha senha
                                     </button>
@@ -366,11 +366,11 @@ const TJPRLoginPage = () => {
                                             type="checkbox"
                                             checked={acceptTerms}
                                             onChange={(e) => setAcceptTerms(e.target.checked)}
-                                            className="mt-1 h-4 w-4 rounded border-white/10 bg-slate-900 text-indigo-600 focus:ring-indigo-500"
+                                            className="mt-1 h-4 w-4 rounded border-slate-300 dark:border-white/10 bg-white dark:bg-slate-900 text-indigo-600 focus:ring-indigo-500"
                                             id="terms"
                                         />
-                                        <label htmlFor="terms" className="text-[10px] font-bold text-slate-400 leading-tight uppercase tracking-widest">
-                                            Li e aceito as <button type="button" onClick={() => setShowPrivacy(true)} className="text-indigo-400 underline">normas de uso</button> e a política de proteção de dados.
+                                        <label htmlFor="terms" className="text-[10px] font-bold tjpr-text-dim leading-tight uppercase tracking-widest">
+                                            Li e aceito as <button type="button" onClick={() => setShowPrivacy(true)} className="text-indigo-600 dark:text-indigo-400 underline">normas de uso</button> e a política de proteção de dados.
                                         </label>
                                     </div>
                                 </React.Fragment>
@@ -406,9 +406,9 @@ const TJPRLoginPage = () => {
                                 className="text-xs font-bold text-slate-500 hover:text-indigo-400 transition-colors uppercase tracking-widest"
                             >
                                 {isLogin ? (
-                                    <span>Não tem acesso? <span className="text-white border-b border-indigo-500/50">Solicite aqui</span></span>
+                                    <span>Não tem acesso? <span className="tjpr-text-main border-b border-indigo-500/50">Solicite aqui</span></span>
                                 ) : (
-                                    <span>Já possui cadastro? <span className="text-white border-b border-indigo-500/50">Ir para Login</span></span>
+                                    <span>Já possui cadastro? <span className="tjpr-text-main border-b border-indigo-500/50">Ir para Login</span></span>
                                 )}
                             </button>
                         </div>
@@ -422,11 +422,11 @@ const TJPRLoginPage = () => {
 
             {/* MODAL ESQUECI MINHA SENHA ELITE */}
             {showForgotPasswordModal && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/90 backdrop-blur-md p-4 animate-in fade-in duration-300">
-                    <div className="w-full max-w-md bg-slate-900 border border-white/10 rounded-3xl overflow-hidden shadow-2xl">
-                        <div className="p-8 border-b border-white/5">
-                            <h2 className="text-xl font-black mb-2">Recuperar Acesso</h2>
-                            <p className="text-sm text-slate-400 font-medium">
+                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/60 dark:bg-slate-950/90 backdrop-blur-md p-4 animate-in fade-in duration-300">
+                    <div className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-3xl overflow-hidden shadow-2xl">
+                        <div className="p-8 border-b tjpr-border-main">
+                            <h2 className="text-xl font-black mb-2 tjpr-text-main">Recuperar Acesso</h2>
+                            <p className="text-sm tjpr-text-dim font-medium">
                                 Um link de redefinição será enviado para o e-mail informado abaixo.
                             </p>
                         </div>

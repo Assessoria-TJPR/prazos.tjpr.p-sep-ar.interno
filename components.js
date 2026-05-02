@@ -16,21 +16,21 @@ const TJPRCard = ({ title, subtitle, children, actions, className = '', icon }) 
     return (
         <div className={`tjpr-card ${className}`}>
             {(title || subtitle || icon) && (
-                <div className="px-6 py-5 border-b border-white/5">
+                <div className="px-6 py-5 border-b tjpr-border-main">
                     <div className="flex items-center gap-4">
                         {icon && (
-                            <div className="w-10 h-10 rounded-xl bg-indigo-500/10 flex items-center justify-center">
-                                <span className="material-icons text-indigo-400">{icon}</span>
+                            <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+                                <span className="material-icons text-primary">{icon}</span>
                             </div>
                         )}
                         <div className="flex-1">
                             {title && (
-                                <h3 className="text-xl font-extrabold text-white tracking-tight">
+                                <h3 className="text-xl font-extrabold tjpr-text-main tracking-tight">
                                     {title}
                                 </h3>
                             )}
                             {subtitle && (
-                                <p className="text-xs font-semibold text-slate-400 mt-1 uppercase tracking-widest">
+                                <p className="text-xs font-semibold tjpr-text-dim mt-1 uppercase tracking-widest">
                                     {subtitle}
                                 </p>
                             )}
@@ -42,7 +42,7 @@ const TJPRCard = ({ title, subtitle, children, actions, className = '', icon }) 
                 {children}
             </div>
             {actions && (
-                <div className="px-6 py-5 bg-slate-950/20 border-t border-white/5 flex items-center justify-end gap-4">
+                <div className="px-6 py-5 tjpr-bg-alt border-t tjpr-border-main flex items-center justify-end gap-4">
                     {actions}
                 </div>
             )}
@@ -68,11 +68,11 @@ const TJPRButton = ({
 
     const variantClasses = {
         primary: 'tjpr-button-primary text-white',
-        secondary: 'bg-slate-950/20 hover:bg-slate-950/40 text-white border border-white/10 hover:border-white/20',
-        success: 'bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/30',
-        warning: 'bg-amber-600/20 hover:bg-amber-600/30 text-amber-400 border border-amber-500/30',
-        error: 'bg-rose-600/20 hover:bg-rose-600/30 text-rose-400 border border-rose-500/30',
-        ghost: 'bg-transparent hover:bg-slate-950/40 text-slate-400 hover:text-white'
+        secondary: 'tjpr-bg-secondary hover:tjpr-bg-secondary-hover text-white',
+        success: 'tjpr-bg-success/10 tjpr-text-success border tjpr-border-success/20 hover:tjpr-bg-success/20',
+        warning: 'tjpr-bg-warning/10 tjpr-text-warning border tjpr-border-warning/20 hover:tjpr-bg-warning/20',
+        error: 'tjpr-bg-error/10 tjpr-text-error border tjpr-border-error/20 hover:tjpr-bg-error/20',
+        ghost: 'bg-transparent hover:tjpr-bg-alt tjpr-text-dim hover:tjpr-text-main'
     };
 
     const sizeClasses = {
@@ -121,13 +121,13 @@ const TJPRInput = ({
             {label && (
                 <label className="tjpr-label">
                     {label}
-                    {required && <span className="text-rose-500 ml-1">*</span>}
+                    {required && <span className="tjpr-text-error ml-1">*</span>}
                 </label>
             )}
             <div className="relative group">
                 {icon && (
-                    <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none transition-colors group-focus-within:text-indigo-400">
-                        <span className="material-icons text-slate-500">{icon}</span>
+                    <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none transition-colors group-focus-within:tjpr-text-primary">
+                        <span className="material-icons tjpr-text-dim">{icon}</span>
                     </div>
                 )}
                 <input
@@ -136,17 +136,17 @@ const TJPRInput = ({
                     onChange={onChange}
                     placeholder={placeholder}
                     required={required}
-                    className={`tjpr-input ${icon ? 'pl-12' : ''} ${error ? 'border-rose-500/50 bg-rose-500/5' : ''}`}
+                    className={`tjpr-input ${icon ? 'pl-12' : ''} ${error ? 'tjpr-border-error/50 tjpr-bg-error/5' : ''} ${className}`}
                 />
             </div>
             {error && (
-                <p className="mt-2 text-xs font-bold text-rose-400 flex items-center gap-1">
+                <p className="mt-2 text-xs font-bold tjpr-text-error flex items-center gap-1">
                     <span className="material-icons text-[14px]">error_outline</span>
                     {error}
                 </p>
             )}
             {helperText && !error && (
-                <p className="mt-2 text-xs font-medium text-slate-500">
+                <p className="mt-2 text-xs font-medium tjpr-text-dim">
                     {helperText}
                 </p>
             )}
@@ -157,7 +157,7 @@ const TJPRInput = ({
 /**
  * TJPRHeader - Barra de Navegação Monolítica
  */
-const TJPRHeader = ({ user, onLogout, onToggleDarkMode, isDarkMode, onOpenProfile, currentArea, onNavigate, isAdmin, notifications, onToggleNotifications }) => {
+const TJPRHeader = ({ user, onLogout, onToggleDarkMode, theme, onOpenProfile, currentArea, onNavigate, isAdmin, notifications, onToggleNotifications }) => {
     const [isMenuOpen, setIsMenuOpen] = useState(false);
 
     return (
@@ -166,15 +166,16 @@ const TJPRHeader = ({ user, onLogout, onToggleDarkMode, isDarkMode, onOpenProfil
                 <div className="flex items-center justify-between h-20">
                     {/* Logo e Título Elite */}
                     <div className="flex items-center gap-6">
-                        <div className="relative group cursor-pointer" onClick={() => onNavigate && onNavigate('home')}>
-                            <img src="Logo.png" alt="TJPR" className="h-11 w-auto relative z-10 transition-transform group-hover:scale-105" />
-                            <div className="absolute inset-0 bg-indigo-500/20 blur-xl opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                        <div className="flex items-center gap-3 group cursor-pointer" onClick={() => window.location.href = '/'}>
+                            <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center shadow-lg shadow-primary/20 group-hover:scale-110 transition-transform">
+                                <img src="Logo.png" alt="TJPR" className="w-6 h-6 object-contain dark:brightness-0 dark:invert" />
+                            </div>
+                            <h1 className="text-xl font-black tjpr-text-main tracking-tight flex items-center gap-2">
+                                P-SEP-AR <span className="text-xs font-medium px-2 py-0.5 bg-primary/10 text-primary rounded-full border border-primary/20">ADMIN</span>
+                            </h1>
                         </div>
                         <div className="hidden md:block">
-                            <h1 className="text-xl font-black text-white tracking-tight flex items-center gap-2">
-                                P-SEP-AR
-                            </h1>
-                            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mt-0.5">
+                            <p className="text-[10px] font-bold tjpr-text-dim uppercase tracking-[0.2em] mt-0.5">
                                 Módulo de Prazos Processuais
                             </p>
                         </div>
@@ -186,12 +187,12 @@ const TJPRHeader = ({ user, onLogout, onToggleDarkMode, isDarkMode, onOpenProfil
                         {onToggleNotifications && (
                             <button
                                 onClick={onToggleNotifications}
-                                className="relative p-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 transition-all group"
+                                className="relative p-3 rounded-xl tjpr-bg-alt hover:opacity-80 border tjpr-border-main transition-all group"
                                 title="Notificações"
                             >
-                                <span className="material-icons text-slate-400 group-hover:text-white">notifications</span>
+                                <span className="material-icons tjpr-text-dim group-hover:tjpr-text-main">notifications</span>
                                 {notifications && notifications.length > 0 && (
-                                    <span className="absolute top-2.5 right-2.5 w-3 h-3 bg-rose-500 rounded-full border-[3px] border-[#020617] animate-pulse"></span>
+                                    <span className="absolute top-2.5 right-2.5 w-3 h-3 tjpr-bg-error rounded-full border-[3px] tjpr-bg-main animate-pulse"></span>
                                 )}
                             </button>
                         )}
@@ -200,18 +201,18 @@ const TJPRHeader = ({ user, onLogout, onToggleDarkMode, isDarkMode, onOpenProfil
                         <div className="relative">
                             <button
                                 onClick={() => setIsMenuOpen(!isMenuOpen)}
-                                className="flex items-center gap-3 p-2 pl-3 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/5 transition-all"
+                                className="flex items-center gap-3 p-2 pl-3 rounded-2xl tjpr-bg-alt hover:opacity-80 border tjpr-border-main transition-all"
                             >
                                 <div className="hidden lg:block text-right">
-                                    <p className="text-xs font-black text-white leading-none">
+                                    <p className="text-xs font-black tjpr-text-main leading-none">
                                         {user?.displayName || 'Usuário'}
                                     </p>
-                                    <p className="text-[9px] font-bold text-slate-500 uppercase mt-1">
+                                    <p className="text-[9px] font-bold tjpr-text-dim uppercase mt-1">
                                         {isAdmin ? 'Administrador' : 'Acessor'}
                                     </p>
                                 </div>
                                 <div
-                                    className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-black shadow-lg shadow-black/20"
+                                    className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-black shadow-lg shadow-black/10 dark:shadow-black/20"
                                     style={{ background: `linear-gradient(135deg, ${user?.avatarColor || '#4f46e5'}, #312e81)` }}
                                 >
                                     {user?.displayName?.charAt(0).toUpperCase() || 'U'}
@@ -220,37 +221,37 @@ const TJPRHeader = ({ user, onLogout, onToggleDarkMode, isDarkMode, onOpenProfil
 
                             {/* Dropdown Elite */}
                             {isMenuOpen && (
-                                <div className="absolute right-0 mt-3 w-56 bg-slate-900 border border-white/10 rounded-2xl shadow-2xl py-2 z-[100] animate-in fade-in slide-in-from-top-2">
-                                    <div className="px-4 py-3 border-b border-white/5 mb-2">
-                                        <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">Opções</p>
+                                <div className="absolute right-0 mt-3 w-56 tjpr-bg-main border tjpr-border-main rounded-2xl shadow-2xl py-2 z-[100] animate-in fade-in slide-in-from-top-2">
+                                    <div className="px-4 py-3 border-b tjpr-border-main mb-2">
+                                        <p className="text-xs font-bold tjpr-text-dim uppercase tracking-widest">Opções</p>
                                     </div>
                                     <button
                                         onClick={() => {
                                             onOpenProfile();
                                             setIsMenuOpen(false);
                                         }}
-                                        className="w-full px-4 py-3 text-left text-sm font-bold text-slate-300 hover:text-white hover:bg-white/5 flex items-center gap-3 transition-colors"
+                                        className="w-full px-4 py-3 text-left text-sm font-bold tjpr-text-dim hover:tjpr-bg-alt hover:tjpr-text-main flex items-center gap-3 transition-colors"
                                     >
-                                        <span className="material-icons text-lg text-indigo-400">person_outline</span>
+                                        <span className="material-icons text-lg text-primary">person_outline</span>
                                         Meu Perfil
                                     </button>
                                     <button
                                         onClick={() => {
                                             onToggleDarkMode();
                                         }}
-                                        className="w-full px-4 py-3 text-left text-sm font-bold text-slate-300 hover:text-white hover:bg-white/5 flex items-center gap-3 transition-colors"
+                                        className="w-full px-4 py-3 text-left text-sm font-bold tjpr-text-dim hover:tjpr-bg-alt hover:tjpr-text-main flex items-center gap-3 transition-colors"
                                     >
                                         <span className="material-icons text-lg text-amber-400">
-                                            {isDarkMode ? 'light_mode' : 'dark_mode'}
+                                            {theme === 'dark' ? 'light_mode' : theme === 'light' ? 'dark_mode' : 'brightness_auto'}
                                         </span>
-                                        {isDarkMode ? 'Modo Claro' : 'Modo Escuro'}
+                                        {theme === 'dark' ? 'Modo Claro' : theme === 'light' ? 'Modo Escuro' : 'Tema do Sistema'}
                                     </button>
                                     <button
                                         onClick={() => {
                                             onLogout();
                                             setIsMenuOpen(false);
                                         }}
-                                        className="w-full px-4 py-3 text-left text-sm font-bold text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 flex items-center gap-3 transition-colors"
+                                        className="w-full px-4 py-3 text-left text-sm font-bold tjpr-text-error hover:tjpr-bg-error/10 flex items-center gap-3 transition-colors"
                                     >
                                         <span className="material-icons text-lg">logout</span>
                                         Encerrar Sessão
@@ -270,11 +271,13 @@ const TJPRHeader = ({ user, onLogout, onToggleDarkMode, isDarkMode, onOpenProfil
  */
 const TJPRBadge = ({ children, variant = 'default', icon }) => {
     const variants = {
-        default: 'bg-slate-800 text-slate-400 border border-slate-700',
+        default: 'tjpr-bg-alt tjpr-text-dim border tjpr-border-main',
         success: 'tjpr-badge-success',
         warning: 'tjpr-badge-warning',
         error: 'tjpr-badge-error',
-        info: 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/30'
+        info: 'tjpr-badge-primary',
+        primary: 'tjpr-badge-primary',
+        secondary: 'tjpr-badge-secondary'
     };
 
     return (
@@ -302,31 +305,31 @@ const TJPRModal = ({ isOpen, onClose, title, children, maxWidth = '2xl', icon })
     };
 
     return (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-300">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-md animate-in fade-in duration-300">
             <div className={`w-full ${maxWidths[maxWidth]} max-h-[90vh] overflow-hidden flex flex-col`}>
-                <div className="tjpr-card flex flex-col h-full">
+                <div className="tjpr-card flex flex-col h-full tjpr-bg-main">
                     {/* Header Elite */}
-                    <div className="px-6 py-5 border-b border-white/5 flex items-center justify-between">
+                    <div className="px-6 py-5 border-b tjpr-border-main flex items-center justify-between">
                         <div className="flex items-center gap-4">
                             {icon && (
-                                <div className="w-10 h-10 rounded-xl bg-indigo-500/10 flex items-center justify-center">
-                                    <span className="material-icons text-indigo-400">{icon}</span>
+                                <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+                                    <span className="material-icons text-primary">{icon}</span>
                                 </div>
                             )}
-                            <h3 className="text-xl font-extrabold text-white tracking-tight">
+                            <h3 className="text-xl font-extrabold tjpr-text-main tracking-tight">
                                 {title}
                             </h3>
                         </div>
                         <button
                             onClick={onClose}
-                            className="w-10 h-10 rounded-xl hover:bg-white/5 flex items-center justify-center text-slate-500 hover:text-white transition-all"
+                            className="w-10 h-10 rounded-xl hover:tjpr-bg-alt flex items-center justify-center tjpr-text-dim hover:tjpr-text-main transition-all"
                         >
                             <span className="material-icons">close</span>
                         </button>
                     </div>
 
                     {/* Content Scrollable */}
-                    <div className="p-6 overflow-y-auto custom-scrollbar flex-1">
+                    <div className="p-6 overflow-y-auto custom-scrollbar flex-1 tjpr-text-main">
                         {children}
                     </div>
                 </div>
@@ -341,11 +344,11 @@ const NotificationsPanel = ({ notifications, onMarkAsRead, isOpen, onClose, onNo
     return (
         <React.Fragment>
             <div className="fixed inset-0 z-[90]" onClick={onClose}></div>
-            <div className="absolute top-20 right-4 w-96 max-h-[80vh] bg-slate-900/90 backdrop-blur-xl rounded-3xl shadow-[0_30px_60px_-15px_rgba(0,0,0,0.5)] border border-white/10 overflow-hidden z-[100] animate-in zoom-in-95 slide-in-from-top-4 duration-200 origin-top-right">
-                <div className="p-6 border-b border-white/5 flex justify-between items-center bg-white/5">
-                    <h3 className="font-black text-white tracking-tight">NOTIFICAÇÕES</h3>
+             <div className="absolute top-20 right-4 w-96 max-h-[80vh] tjpr-bg-main backdrop-blur-xl rounded-3xl shadow-2xl border tjpr-border-main overflow-hidden z-[100] animate-in zoom-in-95 slide-in-from-top-4 duration-200 origin-top-right">
+                <div className="p-6 border-b tjpr-border-main flex justify-between items-center tjpr-bg-alt">
+                    <h3 className="font-black tjpr-text-main tracking-tight">NOTIFICAÇÕES</h3>
                     {notifications.length > 0 && (
-                        <button onClick={onMarkAsRead} className="text-[10px] font-bold text-indigo-400 hover:text-indigo-300 uppercase tracking-widest border-b border-indigo-400/30">
+                        <button onClick={onMarkAsRead} className="text-[10px] font-bold text-primary hover:opacity-80 uppercase tracking-widest border-b border-primary/30">
                             Limpar Tudo
                         </button>
                     )}
@@ -353,28 +356,28 @@ const NotificationsPanel = ({ notifications, onMarkAsRead, isOpen, onClose, onNo
                 <div className="overflow-y-auto max-h-[60vh] custom-scrollbar">
                     {notifications.length === 0 ? (
                         <div className="p-12 text-center">
-                            <div className="w-16 h-16 bg-white/5 rounded-full flex items-center justify-center mx-auto mb-4">
-                                <span className="material-icons text-slate-600 text-3xl">notifications_off</span>
+                            <div className="w-16 h-16 tjpr-bg-alt rounded-full flex items-center justify-center mx-auto mb-4">
+                                <span className="material-icons tjpr-text-dim text-3xl">notifications_off</span>
                             </div>
-                            <p className="text-sm font-bold text-slate-500 uppercase tracking-widest">Vazio</p>
+                            <p className="text-sm font-bold tjpr-text-dim uppercase tracking-widest">Vazio</p>
                         </div>
                     ) : (
-                        <div className="divide-y divide-white/5">
+                        <div className="divide-y tjpr-border-main">
                             {notifications.map(notif => (
                                 <div
                                     key={notif.id}
                                     onClick={() => onNotificationClick && onNotificationClick(notif)}
-                                    className={`p-5 hover:bg-white/5 transition-all cursor-pointer group ${!notif.read ? 'bg-indigo-500/[0.03]' : ''}`}
+                                    className={`p-5 hover:tjpr-bg-alt transition-all cursor-pointer group ${!notif.read ? 'bg-primary/[0.03]' : ''}`}
                                 >
                                     <div className="flex gap-4">
-                                        <div className={`mt-1.5 w-2 h-2 rounded-full flex-shrink-0 transition-transform group-hover:scale-150 ${!notif.read ? 'bg-indigo-500 shadow-[0_0_8px_rgba(79,70,229,0.5)]' : 'bg-transparent'}`}></div>
+                                        <div className={`mt-1.5 w-2 h-2 rounded-full flex-shrink-0 transition-transform group-hover:scale-150 ${!notif.read ? 'bg-primary shadow-[0_0_8px_rgba(79,70,229,0.5)]' : 'bg-transparent'}`}></div>
                                         <div className="flex-1">
-                                            <p className={`text-sm font-medium leading-relaxed ${!notif.read ? 'text-white' : 'text-slate-400'}`}>
+                                             <p className={`text-sm font-medium leading-relaxed ${!notif.read ? 'tjpr-text-main' : 'tjpr-text-dim'}`}>
                                                 {notif.message}
-                                            </p>
-                                            <p className="text-[10px] font-bold text-slate-600 uppercase mt-2 tracking-tighter">
+                                             </p>
+                                             <p className="text-[10px] font-bold tjpr-text-dim uppercase mt-2 tracking-tighter">
                                                 {formatarData(notif.createdAt ? new Date(notif.createdAt) : null)}
-                                            </p>
+                                             </p>
                                         </div>
                                     </div>
                                 </div>
@@ -404,17 +407,17 @@ const TJPRToast = ({ message, type = 'info', onClose, duration = 5000 }) => {
     };
 
     const colors = {
-        info: 'border-indigo-500/50 bg-slate-900/90 text-indigo-400',
-        success: 'border-emerald-500/50 bg-slate-900/90 text-emerald-400',
-        warning: 'border-amber-500/50 bg-slate-900/90 text-amber-400',
-        error: 'border-rose-500/50 bg-slate-900/90 text-rose-400'
+        info: 'border-primary/50 tjpr-bg-main text-primary',
+        success: 'border-emerald-500/50 tjpr-bg-main text-emerald-500',
+        warning: 'border-amber-500/50 tjpr-bg-main text-amber-500',
+        error: 'border-rose-500/50 tjpr-bg-main text-rose-500'
     };
 
     return (
-        <div className={`flex items-center gap-4 px-6 py-4 rounded-2xl border backdrop-blur-xl shadow-2xl animate-in slide-in-from-right-full duration-500 mb-3 min-w-[300px] max-w-md ${colors[type]}`}>
+         <div className={`flex items-center gap-4 px-6 py-4 rounded-2xl border backdrop-blur-xl shadow-2xl animate-in slide-in-from-right-full duration-500 mb-3 min-w-[300px] max-w-md ${colors[type]}`}>
             <span className="material-icons">{icons[type]}</span>
             <p className="text-xs font-black uppercase tracking-widest flex-1">{message}</p>
-            <button onClick={onClose} className="text-slate-500 hover:text-white transition-colors">
+            <button onClick={onClose} className="tjpr-text-dim hover:tjpr-text-main transition-colors">
                 <span className="material-icons text-sm">close</span>
             </button>
         </div>
@@ -462,7 +465,7 @@ const TJPRConfirmModal = ({ isOpen, onClose, onConfirm, title, message, confirmT
             maxWidth="sm"
         >
             <div className="space-y-6 text-center py-4">
-                <p className="text-slate-400 text-sm font-bold uppercase tracking-widest leading-relaxed">
+                <p className="tjpr-text-dim text-sm font-bold uppercase tracking-widest leading-relaxed">
                     {message}
                 </p>
                 <div className="flex gap-4 pt-4">
@@ -509,7 +512,6 @@ const CookieConsent = () => {
     useEffect(() => {
         const consent = localStorage.getItem('tjpr_cookie_consent');
         if (!consent) {
-            // Pequeno delay para não impactar o LCP imediatamente
             const timer = setTimeout(() => setIsVisible(true), 1000);
             return () => clearTimeout(timer);
         }
@@ -524,26 +526,26 @@ const CookieConsent = () => {
 
     return (
         <div className="fixed bottom-6 left-6 right-6 lg:left-auto lg:max-w-md z-[200] animate-in slide-in-from-bottom-10 duration-700">
-            <div className="bg-slate-900/90 backdrop-blur-xl border border-white/10 rounded-[2rem] p-8 shadow-[0_20px_50px_rgba(0,0,0,0.5)]">
+            <div className="tjpr-bg-main backdrop-blur-xl border tjpr-border-main rounded-[2rem] p-8 shadow-[0_20px_50px_rgba(0,0,0,0.1)] dark:shadow-[0_20px_50px_rgba(0,0,0,0.5)]">
                 <div className="flex items-start gap-5">
-                    <div className="w-12 h-12 rounded-2xl bg-indigo-500/10 flex items-center justify-center flex-shrink-0">
-                        <span className="material-icons text-indigo-400">cookie</span>
+                    <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center flex-shrink-0">
+                        <span className="material-icons text-primary">cookie</span>
                     </div>
                     <div className="flex-1">
-                        <h4 className="text-sm font-black text-white uppercase tracking-widest mb-2">Privacidade & Cookies</h4>
-                        <p className="text-[11px] font-medium text-slate-400 leading-relaxed mb-6">
+                        <h4 className="text-sm font-black tjpr-text-main uppercase tracking-widest mb-2">Privacidade & Cookies</h4>
+                        <p className="text-[11px] font-medium tjpr-text-dim leading-relaxed mb-6">
                             Utilizamos cookies e tecnologias similares para garantir a melhor experiência em nossa plataforma monolítica, em conformidade com a LGPD e diretrizes de segurança do TJPR.
                         </p>
                         <div className="flex gap-3">
                             <button 
                                 onClick={handleAccept} 
-                                className="flex-1 px-4 py-3 bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow-lg shadow-indigo-500/20"
+                                className="tjpr-button-primary flex-1 !px-4 !py-3 !text-[10px]"
                             >
                                 Aceitar Termos
                             </button>
                             <button 
                                 onClick={() => setIsVisible(false)} 
-                                className="px-4 py-3 bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all"
+                                className="px-4 py-3 bg-white/5 hover:bg-white/10 tjpr-text-dim hover:tjpr-text-main text-[10px] font-black uppercase tracking-widest rounded-xl transition-all"
                             >
                                 Fechar
                             </button>

@@ -153,20 +153,23 @@ const CalendarioAdminPage = () => {
         }
     };
 
-    const handleInputChange = (e) => {
+    // Handler dedicado para o formulário de NOVA entrada
+    const handleNovaEntradaChange = (e) => {
         const { name, value } = e.target;
-        if (editando) {
-            setEditando(prev => ({ ...prev, [name]: value }));
-        } else {
-            setNovaEntrada(prev => ({ ...prev, [name]: value }));
-        }
+        setNovaEntrada(prev => ({ ...prev, [name]: value }));
+    };
+
+    // Handler dedicado para o modal de EDIÇÃO
+    const handleEditandoChange = (e) => {
+        const { name, value } = e.target;
+        setEditando(prev => ({ ...prev, [name]: value }));
     };
 
     if (loading && !config) {
         return (
             <div className="flex flex-col items-center justify-center py-24">
-                <div className="w-12 h-12 rounded-full border-4 border-white/10 border-t-indigo-500 animate-spin mb-4"></div>
-                <p className="text-slate-500 font-black uppercase tracking-widest text-[10px]">Acessando Registros do Calendário...</p>
+                <div className="w-12 h-12 rounded-full border-4 tjpr-border-main border-t-primary animate-spin mb-4"></div>
+                <p className="tjpr-text-dim font-black uppercase tracking-widest text-[10px]">Acessando Registros do Calendário...</p>
             </div>
         );
     }
@@ -182,14 +185,14 @@ const CalendarioAdminPage = () => {
                             type="date"
                             name="data"
                             value={novaEntrada.data}
-                            onChange={handleInputChange}
+                            onChange={handleNovaEntradaChange}
                             icon="calendar_today"
                         />
                         <TJPRInput
                             label="Descrição / Motivo"
                             name="motivo"
                             value={novaEntrada.motivo}
-                            onChange={handleInputChange}
+                            onChange={handleNovaEntradaChange}
                             placeholder="Ex: Feriado Estadual"
                             icon="description"
                         />
@@ -197,7 +200,7 @@ const CalendarioAdminPage = () => {
                             label="URL do Decreto (Opcional)"
                             name="link"
                             value={novaEntrada.link}
-                            onChange={handleInputChange}
+                            onChange={handleNovaEntradaChange}
                             placeholder="https://diario.tjpr.jus.br/..."
                             icon="link"
                         />
@@ -206,24 +209,24 @@ const CalendarioAdminPage = () => {
                             <label className="tjpr-label">Categoria do Evento</label>
                             <div className="grid grid-cols-1 gap-2">
                                 {[
-                                    { id: 'feriado', label: 'Feriado Nacional', icon: 'flag', color: 'text-indigo-400' },
-                                    { id: 'decreto', label: 'Decreto Judiciário', icon: 'gavel', color: 'text-rose-400' },
-                                    { id: 'instabilidade', label: 'Instabilidade Técnica', icon: 'bolt', color: 'text-amber-400' }
+                                    { id: 'feriado', label: 'Feriado Nacional', icon: 'flag', color: 'tjpr-text-primary' },
+                                    { id: 'decreto', label: 'Decreto Judiciário', icon: 'gavel', color: 'tjpr-text-error' },
+                                    { id: 'instabilidade', label: 'Instabilidade Técnica', icon: 'bolt', color: 'tjpr-text-warning' }
                                 ].map(cat => (
                                     <button
                                         key={cat.id}
                                         type="button"
-                                        onClick={() => handleInputChange({ target: { name: 'tipo', value: cat.id } })}
-                                        className={`flex items-center gap-4 p-4 rounded-2xl border transition-all ${novaEntrada.tipo === cat.id ? 'bg-indigo-500/10 border-indigo-500/50' : 'bg-slate-950/20 border-white/5 hover:bg-slate-950/40'}`}
+                                        onClick={() => handleNovaEntradaChange({ target: { name: 'tipo', value: cat.id } })}
+                                        className={`flex items-center gap-4 p-4 rounded-2xl border transition-all ${novaEntrada.tipo === cat.id ? 'tjpr-bg-primary/10 tjpr-border-primary/50' : 'tjpr-bg-alt tjpr-border-main tjpr-bg-hover'}`}
                                     >
-                                        <span className={`material-icons ${novaEntrada.tipo === cat.id ? 'text-white' : cat.color}`}>{cat.icon}</span>
-                                        <span className={`text-xs font-black uppercase tracking-widest ${novaEntrada.tipo === cat.id ? 'text-white' : 'text-slate-400'}`}>{cat.label}</span>
+                                        <span className={`material-icons ${novaEntrada.tipo === cat.id ? 'tjpr-text-primary' : cat.color}`}>{cat.icon}</span>
+                                        <span className={`text-xs font-black uppercase tracking-widest ${novaEntrada.tipo === cat.id ? 'tjpr-text-primary' : 'tjpr-text-dim'}`}>{cat.label}</span>
                                     </button>
                                 ))}
                             </div>
                         </div>
 
-                        {error && <p className="text-rose-400 text-[10px] font-black uppercase text-center">{error}</p>}
+                        {error && <p className="tjpr-text-error text-[10px] font-black uppercase text-center">{error}</p>}
 
                         <TJPRButton
                             onClick={handleSave}
@@ -240,17 +243,22 @@ const CalendarioAdminPage = () => {
             {/* Coluna de Listagem */}
             <div className="flex-1 space-y-8">
                 {/* Year Selection Tabs */}
-                <div className="flex flex-wrap items-center justify-center sm:justify-start gap-3 p-2 bg-slate-950/40 border border-white/5 rounded-[2.5rem] w-full sm:w-fit backdrop-blur-md shadow-2xl mx-auto sm:mx-0">
+                <div className="flex flex-wrap items-center justify-center sm:justify-start gap-3 p-2 tjpr-bg-main border tjpr-border-main rounded-[2.5rem] w-full sm:w-fit backdrop-blur-md shadow-xl dark:shadow-2xl mx-auto sm:mx-0">
                     {(() => {
-                        const anosDisponiveis = [String(new Date().getFullYear()), String(new Date().getFullYear() + 1)];
-                        const anosNosDados = [...new Set(allEntries.map(e => e.data.split('-')[0]))].sort();
-                        const anosParaMostrar = [...new Set([...anosNosDados, ...anosDisponiveis])].sort();
+                        const anoAtual = new Date().getFullYear();
+                        const anosDisponiveis = [String(anoAtual - 1), String(anoAtual), String(anoAtual + 1)];
+                        const anosNosDados = [...new Set(
+                            allEntries
+                                .map(e => e.data && e.data.split('-')[0])
+                                .filter(Boolean)
+                        )].sort();
+                        const anosParaMostrar = [...new Set([...anosNosDados, ...anosDisponiveis])].filter(Boolean).sort();
 
                         return anosParaMostrar.map(ano => (
                             <button
                                 key={ano}
                                 onClick={() => setSelectedYear(ano)}
-                                className={`px-6 sm:px-10 py-3 sm:py-4 rounded-2xl text-[9px] sm:text-[10px] font-black uppercase tracking-[0.2em] transition-all duration-500 border ${selectedYear === ano ? 'bg-indigo-600 border-indigo-500 text-white shadow-[0_10px_30px_-10px_rgba(79,70,229,0.5)] scale-105' : 'bg-transparent border-transparent text-slate-500 hover:text-slate-300 hover:bg-white/5'}`}
+                                className={`px-6 sm:px-10 py-3 sm:py-4 rounded-2xl text-[9px] sm:text-[10px] font-black uppercase tracking-[0.2em] transition-all duration-500 border ${selectedYear === ano ? 'bg-primary border-primary/50 text-white shadow-[0_10px_30px_-10px_rgba(var(--tjpr-primary-rgb),0.5)] scale-105' : 'bg-transparent border-transparent tjpr-text-dim tjpr-bg-hover hover:tjpr-text-main'}`}
                             >
                                 Exercício {ano}
                             </button>
@@ -261,44 +269,44 @@ const CalendarioAdminPage = () => {
                 {/* Categorized Lists */}
                 <div className="space-y-6">
                     {[
-                        { id: 'feriado', label: 'Feriados & Pontos Facultativos', icon: 'event_available', color: 'text-indigo-400', glow: 'bg-indigo-500' },
-                        { id: 'decreto', label: 'Decretos de Suspensão', icon: 'gavel', color: 'text-rose-400', glow: 'bg-rose-500' },
-                        { id: 'instabilidade', label: 'Relatórios de Instabilidade', icon: 'report_problem', color: 'text-amber-400', glow: 'bg-amber-500' }
+                        { id: 'feriado', label: 'Feriados & Pontos Facultativos', icon: 'event_available', color: 'tjpr-text-primary', glow: 'tjpr-bg-primary' },
+                        { id: 'decreto', label: 'Decretos de Suspensão', icon: 'gavel', color: 'tjpr-text-error', glow: 'tjpr-bg-error' },
+                        { id: 'instabilidade', label: 'Relatórios de Instabilidade', icon: 'report_problem', color: 'tjpr-text-warning', glow: 'tjpr-bg-warning' }
                     ].map(cat => {
                         const items = allEntries.filter(item => item.tipo === cat.id && item.data.startsWith(selectedYear));
                         if (items.length === 0) return null;
 
                         return (
-                            <div key={cat.id} className="tjpr-card group hover:bg-slate-900/40 transition-all duration-500">
+                            <div key={cat.id} className="tjpr-card group tjpr-bg-hover transition-all duration-500 overflow-hidden">
                                 <div className={`absolute top-0 left-0 w-1 h-full ${cat.glow}`}></div>
-                                <div className="px-8 py-6 border-b border-white/5 bg-slate-950/20 flex flex-col sm:flex-row justify-between items-center gap-4">
+                                <div className="px-8 py-6 border-b tjpr-border-main tjpr-bg-alt flex flex-col sm:flex-row justify-between items-center gap-4">
                                     <div className="flex items-center gap-4">
                                         <span className={`material-icons ${cat.color}`}>{cat.icon}</span>
-                                        <h3 className="text-sm font-black text-white uppercase tracking-[0.2em]">{cat.label}</h3>
+                                        <h3 className="text-sm font-black tjpr-text-main uppercase tracking-[0.2em]">{cat.label}</h3>
                                     </div>
-                                    <span className="px-3 py-1 rounded-full bg-white/5 border border-white/10 text-[10px] font-black text-slate-400 uppercase">
+                                    <span className="px-3 py-1 rounded-full tjpr-bg-alt border tjpr-border-main text-[10px] font-black tjpr-text-dim uppercase">
                                         {items.length} {items.length === 1 ? 'Evento' : 'Eventos'}
                                     </span>
                                 </div>
-                                <div className="divide-y divide-white/5">
+                                <div className="divide-y tjpr-border-main">
                                     {items.map(item => (
-                                        <div key={item.id} className="group px-8 py-5 flex items-center justify-between hover:bg-slate-950/40 transition-all">
+                                        <div key={item.id} className="group px-8 py-5 flex items-center justify-between tjpr-bg-hover transition-all">
                                             <div className="flex items-center gap-8">
                                                 {/* Calendar Leaf UI */}
-                                                <div className="w-16 h-16 bg-slate-950 border border-white/10 rounded-2xl flex flex-col items-center justify-center shadow-inner group-hover:border-white/20 transition-all">
-                                                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-tighter mb-0.5">
+                                                <div className="w-16 h-16 tjpr-bg-alt border tjpr-border-main rounded-2xl flex flex-col items-center justify-center shadow-inner group-hover:tjpr-border-main transition-all">
+                                                    <span className="text-[10px] font-black tjpr-text-dim uppercase tracking-tighter mb-0.5">
                                                         {new Date(item.data + 'T00:00:00').toLocaleString('pt-BR', { month: 'short' }).replace('.', '')}
                                                     </span>
-                                                    <span className="text-xl font-black text-white leading-none">
+                                                    <span className="text-xl font-black tjpr-text-main leading-none">
                                                         {new Date(item.data + 'T00:00:00').getDate()}
                                                     </span>
                                                 </div>
                                                 <div>
-                                                    <p className="text-sm font-bold text-white group-hover:text-indigo-300 transition-colors">{item.motivo}</p>
+                                                    <p className="text-sm font-bold tjpr-text-main group-hover:tjpr-text-primary transition-colors">{item.motivo}</p>
                                                     <div className="flex items-center gap-3 mt-1.5">
-                                                        <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">{item.isRecurring ? 'Recorrência Anual' : 'Ajuste Pontual'}</span>
+                                                        <span className="text-[9px] font-black tjpr-text-dim uppercase tracking-widest">{item.isRecurring ? 'Recorrência Anual' : 'Ajuste Pontual'}</span>
                                                         {item.link && (
-                                                            <a href={item.link} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[9px] font-black text-indigo-400 hover:text-indigo-300 uppercase tracking-widest border-b border-indigo-400/20">
+                                                            <a href={item.link} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[9px] font-black text-primary hover:tjpr-text-main transition-all uppercase tracking-widest border-b border-primary/20">
                                                                 <span className="material-icons text-[10px]">open_in_new</span>
                                                                 Ver Decreto
                                                             </a>
@@ -307,10 +315,10 @@ const CalendarioAdminPage = () => {
                                                 </div>
                                             </div>
                                             <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-all translate-x-4 group-hover:translate-x-0">
-                                                <button onClick={() => setEditando(item)} className="w-10 h-10 rounded-xl bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white transition-all flex items-center justify-center">
+                                                <button onClick={() => setEditando(item)} className="w-10 h-10 rounded-xl tjpr-bg-alt tjpr-text-dim tjpr-bg-hover hover:tjpr-text-main transition-all flex items-center justify-center">
                                                     <span className="material-icons text-lg">edit</span>
                                                 </button>
-                                                <button onClick={() => setEntryToDelete(item)} className="w-10 h-10 rounded-xl bg-rose-500/10 text-rose-400 hover:bg-rose-500 hover:text-white transition-all flex items-center justify-center">
+                                                <button onClick={() => setEntryToDelete(item)} className="w-10 h-10 rounded-xl bg-error/10 text-error hover:bg-error hover:text-white transition-all flex items-center justify-center">
                                                     <span className="material-icons text-lg">delete_outline</span>
                                                 </button>
                                             </div>
@@ -336,14 +344,14 @@ const CalendarioAdminPage = () => {
                         label="Motivo / Descrição"
                         name="motivo"
                         value={editando?.motivo || ''}
-                        onChange={handleInputChange}
+                        onChange={handleEditandoChange}
                         icon="edit"
                     />
                     <TJPRInput
                         label="URL do Decreto"
                         name="link"
                         value={editando?.link || ''}
-                        onChange={handleInputChange}
+                        onChange={handleEditandoChange}
                         icon="link"
                     />
                     <div className="flex justify-end gap-4 mt-8">
@@ -357,24 +365,24 @@ const CalendarioAdminPage = () => {
             
             {/* Modal de Confirmação de Exclusão (Layout Clássico Elite) */}
             {entryToDelete && (
-                <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/90 backdrop-blur-md p-4 animate-in fade-in duration-300" onClick={() => setEntryToDelete(null)}>
-                    <div className="w-full max-w-md bg-slate-900 border border-white/10 rounded-[2.5rem] overflow-hidden shadow-2xl animate-in zoom-in-95 duration-300" onClick={e => e.stopPropagation()}>
+                <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/60 dark:bg-slate-950/90 backdrop-blur-md p-4 animate-in fade-in duration-300" onClick={() => setEntryToDelete(null)}>
+                    <div className="w-full max-w-md tjpr-bg-main border tjpr-border-main rounded-[2.5rem] overflow-hidden shadow-2xl animate-in zoom-in-95 duration-300" onClick={e => e.stopPropagation()}>
                         <div className="p-10 text-center">
-                            <div className="w-20 h-20 bg-rose-500/10 text-rose-500 rounded-full flex items-center justify-center mx-auto mb-6 border border-rose-500/20 shadow-[0_0_40px_-10px_rgba(244,63,94,0.3)]">
+                            <div className="w-20 h-20 bg-error/10 tjpr-text-error rounded-full flex items-center justify-center mx-auto mb-6 border border-error/20" style={{boxShadow: '0 0 40px -10px var(--tjpr-error-glow)'}}>
                                 <span className="material-icons text-4xl">delete_forever</span>
                             </div>
-                            <h3 className="text-2xl font-black text-white mb-2 uppercase tracking-tight">Excluir Evento?</h3>
-                            <p className="text-sm text-slate-400 font-medium leading-relaxed">
+                            <h3 className="text-2xl font-black tjpr-text-main mb-2 uppercase tracking-tight">Excluir Evento?</h3>
+                            <p className="text-sm tjpr-text-dim font-medium leading-relaxed">
                                 Tem certeza que deseja excluir o evento <br/>
-                                <span className="text-white font-bold">"{entryToDelete.motivo}"</span> de <span className="text-white font-bold">{entryToDelete.data.split('-').reverse().join('/')}</span>?<br/>
+                                <span className="tjpr-text-main font-bold">"{entryToDelete.motivo}"</span> de <span className="tjpr-text-main font-bold">{entryToDelete.data.split('-').reverse().join('/')}</span>?<br/>
                                 Esta ação não pode ser desfeita.
                             </p>
                         </div>
-                        <div className="flex border-t border-white/5 bg-slate-950/20">
-                            <button onClick={() => setEntryToDelete(null)} className="flex-1 px-8 py-6 text-xs font-black uppercase tracking-widest text-slate-500 hover:text-white hover:bg-white/5 transition-all">
+                        <div className="flex border-t tjpr-border-main tjpr-bg-alt">
+                            <button onClick={() => setEntryToDelete(null)} className="flex-1 px-8 py-6 text-xs font-black uppercase tracking-widest tjpr-text-dim hover:tjpr-text-main tjpr-bg-hover transition-all">
                                 Cancelar
                             </button>
-                            <button onClick={executeDelete} className="flex-1 px-8 py-6 bg-rose-600 hover:bg-rose-500 text-white text-xs font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2">
+                            <button onClick={executeDelete} className="flex-1 px-8 py-6 bg-error hover:bg-error/80 text-white text-xs font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 shadow-inner">
                                 <span className="material-icons text-sm">delete</span>
                                 Confirmar
                             </button>

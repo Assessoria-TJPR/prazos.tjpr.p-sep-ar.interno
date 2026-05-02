@@ -4,7 +4,7 @@ const {
     TJPRCard, TJPRButton, TJPRInput, TJPRHeader, TJPRBadge, 
     TJPRModal, NotificationsPanel, CookieConsent, TJPRFormGroup,
     MinutasAdminPage, CalendarAdminPage, BugReportsPage,
-    TJPRLoginPage
+    TJPRLoginPage, MinutaPreparoPage
 } = window;
 const usePagination = (data, itemsPerPage) => {
     const [currentPage, setCurrentPage] = useState(1);
@@ -23,9 +23,9 @@ const usePagination = (data, itemsPerPage) => {
 
     const paginationControls = totalPages > 1 ? (
         <div className="flex justify-between items-center mt-4 text-sm p-4">
-            <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage <= 1} className="px-3 py-1 rounded-md bg-slate-200 dark:bg-slate-700 disabled:opacity-50">Anterior</button>
+            <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage <= 1} className="px-3 py-1 rounded-md tjpr-bg-alt disabled:opacity-50">Anterior</button>
             <span>Página {currentPage} de {totalPages}</span>
-            <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage >= totalPages} className="px-3 py-1 rounded-md bg-slate-200 dark:bg-slate-700 disabled:opacity-50">Próxima</button>
+            <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage >= totalPages} className="px-3 py-1 rounded-md tjpr-bg-alt disabled:opacity-50">Próxima</button>
         </div>
     ) : null;
 
@@ -51,12 +51,26 @@ const UserUsageCharts = ({ userData }) => {
         return stats;
     }, [userData]);
 
-    const chartData = { labels: ['Mês Anterior', 'Mês Atual'], datasets: [{ label: 'Calculadora', data: [monthlyUsage.last.calculadora, monthlyUsage.current.calculadora], backgroundColor: '#6366F1' }, { label: 'Consulta DJEN', data: [monthlyUsage.last.djen_consulta, monthlyUsage.current.djen_consulta], backgroundColor: '#F59E0B' }] };
+    const chartData = { 
+        labels: ['Mês Anterior', 'Mês Atual'], 
+        datasets: [
+            { 
+                label: 'Calculadora', 
+                data: [monthlyUsage.last.calculadora, monthlyUsage.current.calculadora], 
+                backgroundColor: '#4f46e5' // var(--tjpr-primary)
+            }, 
+            { 
+                label: 'Consulta DJEN', 
+                data: [monthlyUsage.last.djen_consulta, monthlyUsage.current.djen_consulta], 
+                backgroundColor: '#f59e0b' // var(--tjpr-warning)
+            }
+        ] 
+    };
     const chartOptions = { responsive: true, maintainAspectRatio: false, scales: { yAxes: [{ ticks: { beginAtZero: true, stepSize: 1 } }] } };
 
     return (
-        <div className="p-4 bg-slate-100/70 dark:bg-slate-900/50 rounded-lg shadow-sm h-64">
-            <h3 className="font-semibold text-center mb-2">Uso Mensal (Mês Atual vs. Anterior)</h3>
+        <div className="p-4 tjpr-bg-alt/50 rounded-lg shadow-sm h-64 border tjpr-border-main">
+            <h3 className="font-semibold text-center mb-2 tjpr-text-dim">Uso Mensal (Mês Atual vs. Anterior)</h3>
             <Bar data={chartData} options={chartOptions} />
         </div>
     );
@@ -65,13 +79,13 @@ const UserUsageCharts = ({ userData }) => {
 // Premium UI Components
 const SkeletonLoader = () => (
     <div className="animate-pulse space-y-4 w-full">
-        <div className="h-10 bg-slate-200 dark:bg-slate-700/50 rounded-lg w-full"></div>
+        <div className="h-10 bg-tjpr-alt/50 rounded-lg w-full"></div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="h-32 bg-slate-200 dark:bg-slate-700/50 rounded-2xl"></div>
-            <div className="h-32 bg-slate-200 dark:bg-slate-700/50 rounded-2xl"></div>
-            <div className="h-32 bg-slate-200 dark:bg-slate-700/50 rounded-2xl"></div>
+            <div className="h-32 bg-tjpr-alt/50 rounded-2xl"></div>
+            <div className="h-32 bg-tjpr-alt/50 rounded-2xl"></div>
+            <div className="h-32 bg-tjpr-alt/50 rounded-2xl"></div>
         </div>
-        <div className="h-64 bg-slate-200 dark:bg-slate-700/50 rounded-2xl"></div>
+        <div className="h-64 bg-tjpr-alt/50 rounded-2xl"></div>
     </div>
 );
 
@@ -182,10 +196,22 @@ const SettingsProvider = ({ children }) => {
     }, [user, fetchCalendarData]);
 
     useEffect(() => {
-        // Aplica o tema
         const root = window.document.documentElement;
-        const isDark = settings.theme === 'dark' || (settings.theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
-        root.classList.toggle('dark', isDark);
+        const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+        
+        const applyTheme = () => {
+            const isDark = settings.theme === 'dark' || 
+                          (settings.theme === 'system' && mediaQuery.matches);
+            root.classList.toggle('dark', isDark);
+        };
+
+        applyTheme();
+
+        if (settings.theme === 'system') {
+            const listener = () => applyTheme();
+            mediaQuery.addEventListener('change', listener);
+            return () => mediaQuery.removeEventListener('change', listener);
+        }
     }, [settings.theme]);
 
     const value = { settings, updateSettings, refreshCalendar: fetchCalendarData };
@@ -197,6 +223,15 @@ const AuthProvider = ({ children }) => {
     const [userData, setUserData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [currentArea, setCurrentArea] = useState('Calculadora');
+
+    useEffect(() => {
+        if (userData) {
+            const hasCalculadora = userData.role === 'admin' || userData.role === 'setor_admin' || userData.role === 'intermediate';
+            if (!hasCalculadora && currentArea === 'Calculadora') {
+                setCurrentArea('Minuta');
+            }
+        }
+    }, [userData]);
 
     const updateUserAndAdminStatus = async (supabaseUser) => {
         if (supabaseUser) {
@@ -338,12 +373,12 @@ const ConsultaAssistidaPJE = ({ numeroProcesso, setNumeroProcesso }) => {
 
     return (
         <div className="tjpr-card p-8 sm:p-10 mb-8 relative overflow-hidden group">
-            <div className="flex items-start gap-4 mb-8 border-b border-white/5 pb-8 relative z-10">
+            <div className="flex items-start gap-4 mb-8 border-b border-slate-200 dark:border-white/5 pb-8 relative z-10">
                 <div className="w-12 h-12 rounded-2xl bg-indigo-600/10 flex items-center justify-center border border-indigo-600/20 shadow-inner">
-                    <span className="material-icons text-indigo-400">search</span>
+                    <span className="material-icons text-indigo-500">search</span>
                 </div>
                 <div className="text-left">
-                    <h2 className="text-2xl font-black text-white mb-1 tracking-tight">Consulta de Processo</h2>
+                    <h2 className="text-2xl font-black text-slate-800 dark:text-white mb-1 tracking-tight">Consulta de Processo</h2>
                     <p className="text-slate-500 font-medium text-sm">Localize a intimação no Diário de Justiça Eletrônico Nacional.</p>
                 </div>
             </div>
@@ -1440,13 +1475,13 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
 
     return (
         <div className="tjpr-card p-8 sm:p-10 mb-8 relative overflow-hidden group">
-            <div className="flex items-start gap-4 mb-8 border-b border-white/5 pb-8 relative z-10">
-                <div className="w-12 h-12 rounded-2xl bg-indigo-600/10 flex items-center justify-center border border-indigo-600/20 shadow-inner">
-                    <span className="material-icons text-indigo-400 text-3xl">calculate</span>
+            <div className="flex items-start gap-4 mb-8 border-b tjpr-border-main pb-8 relative z-10">
+                <div className="w-12 h-12 rounded-2xl tjpr-bg-alt flex items-center justify-center border tjpr-border-main shadow-inner">
+                    <span className="material-icons tjpr-text-primary text-3xl">calculate</span>
                 </div>
                 <div className="text-left">
-                    <h2 className="text-2xl font-black text-white mb-1 tracking-tight">Calculadora de Prazos</h2>
-                    <p className="text-slate-500 font-medium text-sm">Contagem automática de prazos processuais.</p>
+                    <h2 className="text-2xl font-black tjpr-text-main mb-1 tracking-tight">Calculadora de Prazos</h2>
+                    <p className="tjpr-text-dim font-medium text-sm">Contagem automática de prazos processuais.</p>
                 </div>
             </div>
 
@@ -1454,17 +1489,17 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
                 <TJPRFormGroup cols={1}>
                     {/* Configurações de Matéria */}
                     <div className="space-y-3">
-                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] ml-1">Matéria Processual</label>
+                        <label className="text-[10px] font-black tjpr-text-dim uppercase tracking-[0.2em] ml-1">Matéria Processual</label>
                         <div className="flex flex-wrap gap-3">
                             <button 
                                 onClick={() => setTipoPrazo('civel')} 
-                                className={`flex-1 py-3 px-4 rounded-xl text-xs font-black uppercase tracking-widest transition-all duration-300 border ${tipoPrazo === 'civel' ? 'bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-600/20' : 'bg-white/5 border-white/5 text-slate-500 hover:text-slate-300 hover:bg-white/10'}`}
+                                className={`flex-1 py-3 px-4 rounded-xl text-xs font-black uppercase tracking-widest transition-all duration-300 border ${tipoPrazo === 'civel' ? 'tjpr-bg-primary tjpr-border-primary text-white tjpr-shadow-primary' : 'tjpr-bg-alt tjpr-border-main tjpr-text-dim hover:tjpr-text-main'}`}
                             >
                                 Matéria Cível
                             </button>
                             <button 
                                 onClick={() => setTipoPrazo('crime')} 
-                                className={`flex-1 py-3 px-4 rounded-xl text-xs font-black uppercase tracking-widest transition-all duration-300 border ${tipoPrazo === 'crime' ? 'bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-600/20' : 'bg-white/5 border-white/5 text-slate-500 hover:text-slate-300 hover:bg-white/10'}`}
+                                className={`flex-1 py-3 px-4 rounded-xl text-xs font-black uppercase tracking-widest transition-all duration-300 border ${tipoPrazo === 'crime' ? 'tjpr-bg-primary tjpr-border-primary text-white tjpr-shadow-primary' : 'tjpr-bg-alt tjpr-border-main tjpr-text-dim hover:tjpr-text-main'}`}
                             >
                                 Matéria Criminal
                             </button>
@@ -1473,13 +1508,13 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
 
                     {/* Tempo do Prazo */}
                     <div className="space-y-3">
-                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] ml-1">Tempo do Prazo (Dias)</label>
+                        <label className="text-[10px] font-black tjpr-text-dim uppercase tracking-[0.2em] ml-1">Tempo do Prazo (Dias)</label>
                         <div className="flex flex-wrap gap-3">
                             {(tipoPrazo === 'civel' ? [5, 15] : [5, 15, 30]).map(p => (
                                 <button 
                                     key={p}
                                     onClick={() => { setPrazoSelecionado(p); setShowManualPrazoInput(false); }} 
-                                    className={`w-16 h-12 rounded-xl text-xs font-black transition-all duration-300 border ${prazoSelecionado == p && !showManualPrazoInput ? 'bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-600/20' : 'bg-white/5 border-white/5 text-slate-500 hover:text-slate-300 hover:bg-white/10 hover:border-white/10'}`}
+                                    className={`w-16 h-12 rounded-xl text-xs font-black transition-all duration-300 border ${prazoSelecionado == p && !showManualPrazoInput ? 'tjpr-bg-primary tjpr-border-primary text-white tjpr-shadow-primary' : 'tjpr-bg-alt tjpr-border-main tjpr-text-dim hover:tjpr-text-main'}`}
                                 >
                                     {p} DIAS
                                 </button>
@@ -1487,7 +1522,7 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
                             {tipoPrazo === 'crime' && (
                                 <button 
                                     onClick={() => setShowManualPrazoInput(!showManualPrazoInput)}
-                                    className={`flex-1 h-12 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all duration-300 border ${showManualPrazoInput ? 'bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-600/20' : 'bg-white/5 border-white/5 text-slate-500 hover:text-slate-300 hover:bg-white/10'}`}
+                                    className={`flex-1 h-12 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all duration-300 border ${showManualPrazoInput ? 'tjpr-bg-primary tjpr-border-primary text-white tjpr-shadow-primary' : 'tjpr-bg-alt tjpr-border-main tjpr-text-dim hover:tjpr-text-main'}`}
                                 >
                                     {showManualPrazoInput ? 'Fechar' : 'Personalizado'}
                                 </button>
@@ -1548,46 +1583,46 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
             )}
 
             {resultado && (
-                <div ref={resultRef} className="mt-12 border-t border-white/5 pt-12 animate-in fade-in slide-in-from-bottom-8 duration-1000 scroll-mt-8">
+                <div ref={resultRef} className="mt-12 border-t tjpr-border-main pt-12 animate-in fade-in slide-in-from-bottom-8 duration-1000 scroll-mt-8">
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
-                        <div className="bg-white/5 border border-white/10 p-8 rounded-[2rem] backdrop-blur-xl relative overflow-hidden group shadow-2xl">
+                        <div className="tjpr-bg-alt border tjpr-border-main p-8 rounded-[2rem] backdrop-blur-xl relative overflow-hidden group shadow-2xl">
                             <div className="absolute top-0 left-0 w-2 h-full bg-slate-700"></div>
-                            <span className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] block mb-3">Publicação (D1)</span>
-                            <p className="text-3xl font-black text-white group-hover:text-indigo-400 transition-colors">{formatarData(resultado.dataPublicacao)}</p>
+                            <span className="text-[10px] font-black tjpr-text-dim uppercase tracking-[0.2em] block mb-3">Publicação (D1)</span>
+                            <p className="text-3xl font-black tjpr-text-main group-hover:tjpr-text-primary transition-colors">{formatarData(resultado.dataPublicacao)}</p>
                         </div>
-                        <div className="bg-white/5 border border-white/10 p-8 rounded-[2rem] backdrop-blur-xl relative overflow-hidden group shadow-2xl">
-                            <div className="absolute top-0 left-0 w-2 h-full bg-indigo-500"></div>
-                            <span className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] block mb-3">Início do Prazo</span>
-                            <p className="text-3xl font-black text-white group-hover:text-indigo-400 transition-colors">{formatarData(resultado.inicioPrazo)}</p>
+                        <div className="tjpr-bg-alt border tjpr-border-main p-8 rounded-[2rem] backdrop-blur-xl relative overflow-hidden group shadow-2xl">
+                            <div className="absolute top-0 left-0 w-2 h-full tjpr-bg-primary"></div>
+                            <span className="text-[10px] font-black tjpr-text-dim uppercase tracking-[0.2em] block mb-3">Início do Prazo</span>
+                            <p className="text-3xl font-black tjpr-text-main group-hover:tjpr-text-primary transition-colors">{formatarData(resultado.inicioPrazo)}</p>
                         </div>
-                        <div className="bg-indigo-600/10 border border-indigo-600/30 p-8 rounded-[2rem] backdrop-blur-xl relative overflow-hidden group shadow-[0_20px_50px_-10px_rgba(79,70,229,0.3)]">
-                            <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-600/20 blur-3xl rounded-full -mr-16 -mt-16 group-hover:scale-150 transition-transform duration-1000"></div>
-                            <span className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.2em] block mb-3">Total de Dias</span>
+                        <div className="tjpr-bg-primary-glow border tjpr-border-primary p-8 rounded-[2rem] backdrop-blur-xl relative overflow-hidden group shadow-[0_20px_50px_-10px_rgba(79,70,229,0.3)]">
+                            <div className="absolute top-0 right-0 w-32 h-32 tjpr-bg-primary-glow blur-3xl rounded-full -mr-16 -mt-16 group-hover:scale-150 transition-transform duration-1000"></div>
+                            <span className="text-[10px] font-black tjpr-text-primary uppercase tracking-[0.2em] block mb-3">Total de Dias</span>
                             <div className="flex items-baseline gap-2">
-                                <p className="text-3xl font-black text-white">{resultado.prazo}</p>
-                                <span className="text-[10px] font-black text-indigo-300/60 uppercase tracking-widest">{resultado.tipo === 'crime' ? 'Dias Corridos' : 'Dias Úteis'}</span>
+                                <p className="text-3xl font-black tjpr-text-main">{resultado.prazo}</p>
+                                <span className="text-[10px] font-black tjpr-text-primary opacity-80 uppercase tracking-widest">{resultado.tipo === 'crime' ? 'Dias Corridos' : 'Dias Úteis'}</span>
                             </div>
                         </div>
                     </div>
 
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                         {/* Cenário 1: Base */}
-                        <div className="bg-slate-900/50 border border-white/5 rounded-3xl p-8 relative group">
+                        <div className="tjpr-bg-alt border tjpr-border-main rounded-3xl p-8 relative group">
                             <div className="flex items-center justify-between mb-8">
-                                <h3 className="text-sm font-black text-slate-400 uppercase tracking-[0.2em]">Cenário Padrão</h3>
-                                <div className="px-3 py-1 rounded-full bg-slate-800 border border-slate-700 text-[10px] font-black text-slate-500 uppercase tracking-widest">Sem Decretos</div>
+                                <h3 className="text-sm font-black tjpr-text-dim uppercase tracking-[0.2em]">Cenário Padrão</h3>
+                                <div className="px-3 py-1 rounded-full tjpr-bg-main border tjpr-border-main text-[10px] font-black tjpr-text-dim uppercase tracking-widest">Sem Decretos</div>
                             </div>
                             
                             <div className="text-center py-6">
-                                <p className="text-[10px] font-black text-slate-600 uppercase tracking-widest mb-2">Data Vencimento</p>
-                                <p className="text-5xl font-black text-white tracking-tighter drop-shadow-2xl">
+                                <p className="text-[10px] font-black tjpr-text-dim uppercase tracking-widest mb-2">Data Vencimento</p>
+                                <p className="text-5xl font-black tjpr-text-main tracking-tighter drop-shadow-2xl">
                                     {formatarData(resultado.semDecreto.prazoFinalProrrogado || resultado.semDecreto.prazoFinal)}
                                 </p>
                             </div>
 
                             {resultado.semDecreto.diasNaoUteis.length > 0 && (
                                 <div className="mt-8 space-y-3">
-                                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] border-b border-white/5 pb-2">Suspensões Automáticas</p>
+                                    <p className="text-[10px] font-black tjpr-text-dim uppercase tracking-[0.2em] border-b tjpr-border-main pb-2">Suspensões Automáticas</p>
                                     <div className="space-y-1.5 max-h-[400px] overflow-y-auto custom-scrollbar pr-2 overscroll-contain">
                                         <GroupedDiasNaoUteis dias={resultado.semDecreto.diasNaoUteis} />
                                     </div>
@@ -1596,19 +1631,19 @@ const CalculadoraDePrazo = ({ numeroProcesso }) => {
                         </div>
 
                         {/* Cenário 2: Comprovado */}
-                        <div className={`rounded-3xl p-8 relative overflow-hidden transition-all duration-700 border ${resultado.suspensoesComprovaveis.length > 0 ? 'bg-gradient-to-br from-indigo-950/40 to-slate-900/40 border-indigo-500/30 shadow-2xl shadow-indigo-500/10' : 'bg-slate-900/50 border-white/5 opacity-50 grayscale hover:grayscale-0 transition-all cursor-not-allowed'}`}>
+                        <div className={`rounded-3xl p-8 relative overflow-hidden transition-all duration-700 border ${resultado.suspensoesComprovaveis.length > 0 ? 'tjpr-bg-primary-glow border-indigo-500/30 shadow-2xl shadow-indigo-500/10' : 'tjpr-bg-alt tjpr-border-main opacity-50 grayscale hover:grayscale-0 transition-all cursor-not-allowed'}`}>
                             <div className="absolute top-0 right-0 p-4">
-                                <span className="material-icons text-indigo-400 animate-pulse">verified</span>
+                                <span className="material-icons tjpr-text-primary animate-pulse">verified</span>
                             </div>
 
                             <div className="flex items-center justify-between mb-8">
-                                <h3 className="text-sm font-black text-indigo-400 uppercase tracking-[0.2em]">Cenário Comprovado</h3>
-                                <div className="px-3 py-1 rounded-full bg-indigo-600/20 border border-indigo-600/30 text-[10px] font-black text-indigo-300 uppercase tracking-widest">Com Decretos</div>
+                                <h3 className="text-sm font-black tjpr-text-primary uppercase tracking-[0.2em]">Cenário Comprovado</h3>
+                                <div className="px-3 py-1 rounded-full tjpr-bg-primary-glow border tjpr-border-primary text-[10px] font-black tjpr-text-primary uppercase tracking-widest">Com Decretos</div>
                             </div>
 
                             <div className="text-center py-6">
-                                <p className="text-[10px] font-black text-indigo-400/60 uppercase tracking-widest mb-2">Data Vencimento (Recalculada)</p>
-                                <p className="text-5xl font-black text-white tracking-tighter drop-shadow-2xl">
+                                <p className="text-[10px] font-black tjpr-text-primary opacity-60 uppercase tracking-widest mb-2">Data Vencimento (Recalculada)</p>
+                                <p className="text-5xl font-black tjpr-text-main tracking-tighter drop-shadow-2xl">
                                     {formatarData(resultado.comDecreto.prazoFinalProrrogado || resultado.comDecreto.prazoFinal)}
                                 </p>
                             </div>
@@ -1846,15 +1881,15 @@ const DiaNaoUtilItem = ({ dia, as = 'li' }) => {
     }
 
     return (
-        <Tag className="flex items-center justify-between p-4 bg-white/[0.03] border border-white/5 rounded-2xl text-slate-400 group hover:bg-white/[0.06] transition-all duration-300 shadow-sm">
+        <Tag className="flex items-center justify-between p-4 tjpr-bg-alt border tjpr-border-main rounded-2xl tjpr-text-dim group hover:tjpr-bg-hover transition-all duration-300 shadow-sm">
             <div className="flex-grow">
                 {dia.tipo === 'recesso_grouped'
-                    ? <span className="text-sm font-black text-slate-200 tracking-tight">{dia.motivo}</span>
+                    ? <span className="text-sm font-black tjpr-text-main tracking-tight">{dia.motivo}</span>
                     : <span className="text-xs font-medium flex items-center flex-wrap gap-y-1">
-                        <strong className="font-black text-white mr-3 py-1 px-2.5 bg-white/5 rounded-lg border border-white/5">{formatarData(dia.data)}</strong> 
-                        <span className="text-slate-600 mr-3 hidden sm:inline">—</span> 
-                        <span className="text-slate-300 font-bold">{dia.motivo}</span>
-                        {dia.link && <a href={dia.link} target="_blank" rel="noopener noreferrer" className="ml-4 text-indigo-400 hover:text-indigo-300 text-[10px] font-black uppercase tracking-widest border-b border-indigo-400/30 hover:border-indigo-300 transition-all">Decreto</a>}
+                        <strong className="font-black tjpr-text-main mr-3 py-1 px-2.5 tjpr-bg-main rounded-lg border tjpr-border-main">{formatarData(dia.data)}</strong> 
+                        <span className="tjpr-text-dim mr-3 hidden sm:inline">—</span> 
+                        <span className="tjpr-text-main font-bold">{dia.motivo}</span>
+                        {dia.link && <a href={dia.link} target="_blank" rel="noopener noreferrer" className="ml-4 text-indigo-500 hover:text-indigo-400 text-[10px] font-black uppercase tracking-widest border-b border-indigo-400/30 hover:border-indigo-300 transition-all">Decreto</a>}
                     </span>}
             </div>
             {labelText && <span className={`ml-4 flex-shrink-0 text-[9px] font-black px-3 py-1 rounded-full border uppercase tracking-widest ${labelClasses}`}>{labelText}</span>}
@@ -2031,8 +2066,8 @@ const CalendarioModal = ({ onClose }) => {
         >
             <div className="space-y-8">
                 {/* Seleção de Ano Elite */}
-                <div className="flex flex-col items-center gap-4 border-b border-white/5 pb-8">
-                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Selecione o Ano</p>
+                <div className="flex flex-col items-center gap-4 border-b tjpr-border-main pb-8">
+                    <p className="text-[10px] font-black tjpr-text-dim uppercase tracking-[0.2em]">Selecione o Ano</p>
                     <div className="flex flex-wrap justify-center gap-2">
                         {availableYears.map(year => (
                             <button
@@ -2041,7 +2076,7 @@ const CalendarioModal = ({ onClose }) => {
                                 className={`px-6 py-2.5 rounded-xl text-sm font-bold transition-all duration-300 ${
                                     selectedYear === year
                                         ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20'
-                                        : 'bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white'
+                                        : 'tjpr-bg-alt tjpr-text-dim tjpr-bg-hover hover:tjpr-text-main border tjpr-border-main'
                                 }`}
                             >
                                 {year}
@@ -2050,13 +2085,13 @@ const CalendarioModal = ({ onClose }) => {
                     </div>
                 </div>
 
-                {/* Recesso Forense Elite Box */}
-                <div className="bg-slate-900/40 border border-white/5 rounded-2xl p-6 backdrop-blur-md">
+                {/* Recesso Forense */}
+                <div className="tjpr-bg-alt border tjpr-border-main rounded-2xl p-6">
                     <div className="flex items-center gap-3 mb-4">
                         <div className="w-8 h-8 rounded-lg bg-indigo-500/10 flex items-center justify-center">
                             <span className="material-icons text-indigo-400 text-sm">ac_unit</span>
                         </div>
-                        <h3 className="text-lg font-black text-white tracking-tight">Recesso Forense {selectedYear}</h3>
+                        <h3 className="text-lg font-black tjpr-text-main tracking-tight">Recesso Forense {selectedYear}</h3>
                     </div>
                     <ul className="space-y-3">
                         <DiaNaoUtilItem dia={{ tipo: 'recesso_grouped', motivo: `Suspensão/Recesso de 01/01/${selectedYear} até 20/01/${selectedYear}` }} />
@@ -2071,16 +2106,16 @@ const CalendarioModal = ({ onClose }) => {
                         <p className="text-sm font-bold text-slate-500 uppercase tracking-widest">Sincronizando Dados...</p>
                     </div>
                 ) : Object.keys(diasAgrupadosPorMes).length === 0 ? (
-                    <div className="py-12 text-center bg-white/5 rounded-2xl border border-dashed border-white/10">
-                        <span className="material-icons text-slate-600 text-4xl mb-3">event_busy</span>
-                        <p className="text-sm font-bold text-slate-500 uppercase tracking-widest">Nenhuma suspensão em {selectedYear}</p>
+                    <div className="py-12 text-center tjpr-bg-alt rounded-2xl border border-dashed tjpr-border-main">
+                        <span className="material-icons tjpr-text-dim text-4xl mb-3">event_busy</span>
+                        <p className="text-sm font-bold tjpr-text-dim uppercase tracking-widest">Nenhuma suspensão em {selectedYear}</p>
                     </div>
                 ) : (
                     <div className="space-y-10">
                         {Object.entries(diasAgrupadosPorMes).map(([mes, dias]) => (
                             <div key={mes} className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-                                <div className="sticky top-0 z-10 py-3 bg-slate-900/90 backdrop-blur-md -mx-6 px-6 mb-4 border-y border-white/5">
-                                    <h3 className="text-lg font-black text-white uppercase tracking-tight flex items-center gap-3">
+                                <div className="sticky top-0 z-10 py-3 tjpr-bg-main backdrop-blur-md -mx-6 px-6 mb-4 border-y tjpr-border-main">
+                                    <h3 className="text-lg font-black tjpr-text-main uppercase tracking-tight flex items-center gap-3">
                                         <span className="w-1.5 h-6 bg-indigo-500 rounded-full"></span>
                                         {mes}
                                     </h3>
@@ -3021,11 +3056,11 @@ const AdminPage = ({ setCurrentArea, initialSection }) => {
     return (
         <div className="space-y-8">
             <div className="tjpr-card p-6 sm:p-8">
-                <h2 className="text-2xl font-black text-white tracking-tight">Painel Administrativo</h2>
-                <div className="flex items-center gap-2 mt-4 border-b border-slate-200 dark:border-slate-700 pb-4">
+                <h2 className="text-2xl font-black tjpr-text-main tracking-tight">Painel Administrativo</h2>
+                <div className="flex items-center gap-2 mt-4 border-b tjpr-border-main pb-4">
                     <button 
                         onClick={() => setAdminSection('stats')} 
-                        className={`flex items-center gap-2 px-6 py-3 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all duration-300 ${adminSection === 'stats' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/40 scale-105' : 'bg-white/5 text-slate-500 hover:text-slate-300 hover:bg-white/10'}`}
+                        className={`flex items-center gap-2 px-6 py-3 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all duration-300 ${adminSection === 'stats' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/40 scale-105' : 'tjpr-bg-alt tjpr-text-dim hover:tjpr-text-main tjpr-bg-hover'}`}
                     >
                         <span className="material-icons text-sm">insights</span>
                         Estatísticas
@@ -3033,7 +3068,7 @@ const AdminPage = ({ setCurrentArea, initialSection }) => {
                     
                     <button 
                         onClick={() => setAdminSection('users')} 
-                        className={`flex items-center gap-2 px-6 py-3 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all duration-300 ${adminSection === 'users' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/40 scale-105' : 'bg-white/5 text-slate-500 hover:text-slate-300 hover:bg-white/10'}`}
+                        className={`flex items-center gap-2 px-6 py-3 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all duration-300 ${adminSection === 'users' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/40 scale-105' : 'tjpr-bg-alt tjpr-text-dim hover:tjpr-text-main tjpr-bg-hover'}`}
                     >
                         <span className="material-icons text-sm">people</span>
                         {adminUserData?.role === 'setor_admin' ? 'Usuários' : 'Gestão de Acesso'}
@@ -3042,7 +3077,7 @@ const AdminPage = ({ setCurrentArea, initialSection }) => {
                     {(adminUserData?.role === 'admin' || adminUserData?.role === 'setor_admin') && (
                         <button 
                             onClick={() => setAdminSection('minutas')} 
-                            className={`flex items-center gap-2 px-6 py-3 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all duration-300 ${adminSection === 'minutas' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/40 scale-105' : 'bg-white/5 text-slate-500 hover:text-slate-300 hover:bg-white/10'}`}
+                            className={`flex items-center gap-2 px-6 py-3 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all duration-300 ${adminSection === 'minutas' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/40 scale-105' : 'tjpr-bg-alt tjpr-text-dim hover:tjpr-text-main tjpr-bg-hover'}`}
                         >
                             <span className="material-icons text-sm">description</span>
                             Minutas
@@ -3053,7 +3088,7 @@ const AdminPage = ({ setCurrentArea, initialSection }) => {
                         <>
                             <button 
                                 onClick={() => setAdminSection('calendar')} 
-                                className={`flex items-center gap-2 px-6 py-3 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all duration-300 ${adminSection === 'calendar' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/40 scale-105' : 'bg-white/5 text-slate-500 hover:text-slate-300 hover:bg-white/10'}`}
+                                className={`flex items-center gap-2 px-6 py-3 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all duration-300 ${adminSection === 'calendar' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/40 scale-105' : 'tjpr-bg-alt tjpr-text-dim hover:tjpr-text-main tjpr-bg-hover'}`}
                             >
                                 <span className="material-icons text-sm">event</span>
                                 Calendário
@@ -3061,7 +3096,7 @@ const AdminPage = ({ setCurrentArea, initialSection }) => {
                             
                             <button 
                                 onClick={() => setAdminSection('chamados')} 
-                                className={`flex items-center gap-2 px-6 py-3 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all duration-300 ${adminSection === 'chamados' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/40 scale-105' : 'bg-white/5 text-slate-500 hover:text-slate-300 hover:bg-white/10'}`}
+                                className={`flex items-center gap-2 px-6 py-3 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all duration-300 ${adminSection === 'chamados' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/40 scale-105' : 'tjpr-bg-alt tjpr-text-dim hover:tjpr-text-main tjpr-bg-hover'}`}
                             >
                                 <span className="material-icons text-sm">confirmation_number</span>
                                 Chamados
@@ -3069,7 +3104,7 @@ const AdminPage = ({ setCurrentArea, initialSection }) => {
                             
                             <button 
                                 onClick={() => setAdminSection('broadcast')} 
-                                className={`flex items-center gap-2 px-6 py-3 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all duration-300 ${adminSection === 'broadcast' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/40 scale-105' : 'bg-white/5 text-slate-500 hover:text-slate-300 hover:bg-white/10'}`}
+                                className={`flex items-center gap-2 px-6 py-3 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all duration-300 ${adminSection === 'broadcast' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/40 scale-105' : 'tjpr-bg-alt tjpr-text-dim hover:tjpr-text-main tjpr-bg-hover'}`}
                             >
                                 <span className="material-icons text-sm">campaign</span>
                                 Aviso Global
@@ -3081,30 +3116,30 @@ const AdminPage = ({ setCurrentArea, initialSection }) => {
             </div>
 
             {adminSection === 'stats' && (
-                <div className="space-y-8 animate-fade-in text-white">
+                <div className="space-y-8 animate-fade-in">
 
                     {/* 1. Header & Filters Toolbar */}
                     <div className="tjpr-card p-6">
                         <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
                             <div>
-                                <h3 className="text-xl font-black text-white tracking-tight">Visão Geral de Uso</h3>
-                                <p className="text-sm text-slate-400 font-medium">Analise o desempenho e engajamento da ferramenta.</p>
+                                <h3 className="text-xl font-black tjpr-text-main tracking-tight">Visão Geral de Uso</h3>
+                                <p className="text-sm tjpr-text-dim font-medium">Analise o desempenho e engajamento da ferramenta.</p>
                             </div>
-                            <div className="flex bg-white/5 p-1 rounded-xl border border-white/10">
-                                <button onClick={() => setStatsView('calculadora')} className={`px-6 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all ${statsView === 'calculadora' ? 'bg-indigo-600 shadow-lg shadow-indigo-600/20 text-white' : 'text-slate-500 hover:text-slate-300'}`}>Calculadora</button>
-                                <button onClick={() => setStatsView('djen_consulta')} className={`px-6 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all ${statsView === 'djen_consulta' ? 'bg-indigo-600 shadow-lg shadow-indigo-600/20 text-white' : 'text-slate-500 hover:text-slate-300'}`}>Consulta DJEN</button>
+                            <div className="flex tjpr-bg-alt p-1 rounded-xl border tjpr-border-main">
+                                <button onClick={() => setStatsView('calculadora')} className={`px-6 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all ${statsView === 'calculadora' ? 'bg-indigo-600 shadow-lg shadow-indigo-600/20 text-white' : 'tjpr-text-dim hover:tjpr-text-main'}`}>Calculadora</button>
+                                <button onClick={() => setStatsView('djen_consulta')} className={`px-6 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all ${statsView === 'djen_consulta' ? 'bg-indigo-600 shadow-lg shadow-indigo-600/20 text-white' : 'tjpr-text-dim hover:tjpr-text-main'}`}>Consulta DJEN</button>
                             </div>
                         </div>
 
                         {/* Filters Grid */}
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
-                            <div><label className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mb-2 ml-1 block">Data Inicial</label><input type="date" name="startDate" value={filters.startDate} onChange={handleFilterChange} className="w-full h-12 bg-white/5 border border-white/10 rounded-xl px-4 text-xs font-bold text-slate-200 focus:border-indigo-500/50 outline-none transition-all" /></div>
-                            <div><label className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mb-2 ml-1 block">Data Final</label><input type="date" name="endDate" value={filters.endDate} onChange={handleFilterChange} className="w-full h-12 bg-white/5 border border-white/10 rounded-xl px-4 text-xs font-bold text-slate-200 focus:border-indigo-500/50 outline-none transition-all" /></div>
+                            <div><label className="text-[10px] font-black tjpr-text-dim uppercase tracking-[0.2em] mb-2 ml-1 block">Data Inicial</label><input type="date" name="startDate" value={filters.startDate} onChange={handleFilterChange} className="w-full h-12 tjpr-bg-alt border tjpr-border-main rounded-xl px-4 text-xs font-bold tjpr-text-main focus:border-indigo-500/50 outline-none transition-all" /></div>
+                            <div><label className="text-[10px] font-black tjpr-text-dim uppercase tracking-[0.2em] mb-2 ml-1 block">Data Final</label><input type="date" name="endDate" value={filters.endDate} onChange={handleFilterChange} className="w-full h-12 tjpr-bg-alt border tjpr-border-main rounded-xl px-4 text-xs font-bold tjpr-text-main focus:border-indigo-500/50 outline-none transition-all" /></div>
 
                             {statsView === 'calculadora' ? (
                                 <>
-                                    <div><label className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mb-2 ml-1 block">Matéria</label><select name="materia" value={filters.materia} onChange={handleFilterChange} className="w-full h-12 bg-white/5 border border-white/10 rounded-xl px-4 text-xs font-bold text-slate-200 appearance-none focus:border-indigo-500/50 outline-none transition-all cursor-pointer"><option value="todos">Todas</option><option value="civel">Matéria Cível</option><option value="crime">Matéria Criminal</option></select></div>
-                                    <div><label className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mb-2 ml-1 block">Prazo</label><select name="prazo" value={filters.prazo} onChange={handleFilterChange} className="w-full h-12 bg-white/5 border border-white/10 rounded-xl px-4 text-xs font-bold text-slate-200 appearance-none focus:border-indigo-500/50 outline-none transition-all cursor-pointer"><option value="todos">Todos</option><option value="5">5 Dias</option><option value="15">15 Dias</option></select></div>
+                                    <div><label className="text-[10px] font-black tjpr-text-dim uppercase tracking-[0.2em] mb-2 ml-1 block">Matéria</label><select name="materia" value={filters.materia} onChange={handleFilterChange} className="w-full h-12 tjpr-bg-alt border tjpr-border-main rounded-xl px-4 text-xs font-bold tjpr-text-main appearance-none focus:border-indigo-500/50 outline-none transition-all cursor-pointer"><option value="todos">Todas</option><option value="civel">Matéria Cível</option><option value="crime">Matéria Criminal</option></select></div>
+                                    <div><label className="text-[10px] font-black tjpr-text-dim uppercase tracking-[0.2em] mb-2 ml-1 block">Prazo</label><select name="prazo" value={filters.prazo} onChange={handleFilterChange} className="w-full h-12 tjpr-bg-alt border tjpr-border-main rounded-xl px-4 text-xs font-bold tjpr-text-main appearance-none focus:border-indigo-500/50 outline-none transition-all cursor-pointer"><option value="todos">Todos</option><option value="5">5 Dias</option><option value="15">15 Dias</option></select></div>
                                 </>
                             ) : (
                                 <div className="lg:col-span-2 hidden lg:block"></div>
@@ -3345,20 +3380,20 @@ const AdminPage = ({ setCurrentArea, initialSection }) => {
                     {adminUserData.role === 'admin' && (
                         <div className="xl:w-1/3 space-y-8">
                             <div className="tjpr-card p-8">
-                                <h3 className="text-xl font-black text-white mb-6 tracking-tight flex items-center gap-2">
+                                <h3 className="text-xl font-black tjpr-text-main mb-6 tracking-tight flex items-center gap-2">
                                     <span className="material-icons text-blue-400">category</span>
                                     Gerenciar Setores
                                 </h3>
                                 <form onSubmit={handleAddSector} className="space-y-4">
                                     <div className="space-y-2">
-                                        <label className="block text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] ml-1">Novo Setor</label>
+                                        <label className="block text-[10px] font-black tjpr-text-dim uppercase tracking-[0.2em] ml-1">Novo Setor</label>
                                         <div className="flex flex-col sm:flex-row gap-3">
                                             <input
                                                 type="text"
                                                 placeholder="Nome do setor..."
                                                 value={newSectorName}
                                                 onChange={e => setNewSectorName(e.target.value)}
-                                                className="flex-grow px-4 py-3 bg-slate-950/50 border border-white/5 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition text-sm text-white placeholder:text-slate-600"
+                                                className="flex-grow px-4 py-3 tjpr-bg-alt border tjpr-border-main rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition text-sm tjpr-text-main placeholder:tjpr-text-dim"
                                             />
                                             <button type="submit" className="sm:px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl transition-all shadow-lg shadow-indigo-600/20 active:scale-95 flex items-center justify-center">
                                                 <span className="material-icons">add</span>
@@ -3370,8 +3405,8 @@ const AdminPage = ({ setCurrentArea, initialSection }) => {
                             </div>
 
                             <div className="tjpr-card overflow-hidden">
-                                <div className="px-6 py-4 border-b border-white/5 bg-white/5">
-                                    <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Setores Existentes</h3>
+                                <div className="px-6 py-4 border-b tjpr-border-main tjpr-bg-alt">
+                                    <h3 className="text-[10px] font-black tjpr-text-dim uppercase tracking-[0.2em]">Setores Existentes</h3>
                                 </div>
                                 <div className="max-h-[500px] overflow-y-auto divide-y divide-white/5">
                                     {setores.map(setor => {
@@ -3403,14 +3438,14 @@ const AdminPage = ({ setCurrentArea, initialSection }) => {
                     <div className={`${adminUserData.role === 'admin' ? 'xl:w-2/3' : 'w-full'} space-y-8`}>
                         <div className="tjpr-card p-8">
                             <div className="flex flex-col sm:flex-row justify-between items-center gap-6 mb-8">
-                                <h2 className="text-2xl font-black text-white tracking-tight">Gestão de Usuários</h2>
+                                <h2 className="text-2xl font-black tjpr-text-main tracking-tight">Gestão de Usuários</h2>
                                 <div className="relative w-full sm:w-72 group">
                                     <input
                                         type="text"
                                         placeholder="Buscar usuário..."
                                         value={userSearchTerm}
                                         onChange={e => setUserSearchTerm(e.target.value)}
-                                        className="w-full pl-12 pr-4 py-3 bg-slate-950/50 border border-white/5 rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none transition text-sm text-white placeholder:text-slate-600"
+                                        className="w-full pl-12 pr-4 py-3 tjpr-bg-alt border tjpr-border-main rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none transition text-sm tjpr-text-main placeholder:tjpr-text-dim"
                                     />
                                     <span className="material-icons absolute left-4 top-1/2 -translate-y-1/2 text-slate-600 group-focus-within:text-indigo-400 transition-colors">search</span>
                                 </div>
@@ -3444,20 +3479,20 @@ const AdminPage = ({ setCurrentArea, initialSection }) => {
                                         const isExpanded = expandedUserSectors.has(sectorId) || userSearchTerm.length > 0;
 
                                         return (
-                                            <div key={sectorId} className="bg-slate-950/30 border border-white/5 rounded-[2rem] overflow-hidden">
+                                            <div key={sectorId} className="tjpr-card overflow-hidden">
                                                 <div
-                                                    className="px-6 py-4 flex justify-between items-center cursor-pointer hover:bg-white/5 transition-colors"
+                                                    className="px-6 py-4 flex justify-between items-center cursor-pointer tjpr-bg-hover transition-colors"
                                                     onClick={() => toggleUserSectorExpansion(sectorId)}
                                                 >
                                                     <div className="flex items-center gap-3">
                                                         <span className={`material-icons text-slate-600 transition-transform ${isExpanded ? 'rotate-90' : ''}`}>chevron_right</span>
-                                                        <h4 className="font-black text-white text-xs uppercase tracking-widest">{sectorName}</h4>
+                                                        <h4 className="font-black tjpr-text-main text-xs uppercase tracking-widest">{sectorName}</h4>
                                                     </div>
-                                                    <span className="text-[10px] font-black bg-white/5 px-2.5 py-1 rounded-full border border-white/5 text-slate-400">{users.length}</span>
+                                                    <span className="text-[10px] font-black tjpr-bg-alt px-2.5 py-1 rounded-full border tjpr-border-main tjpr-text-dim">{users.length}</span>
                                                 </div>
 
                                                 {isExpanded && (
-                                                    <div className="divide-y divide-white/5 bg-slate-950/20">
+                                                    <div className="divide-y tjpr-border-main tjpr-bg-alt">
                                                         {users.map(u => (
                                                             <div key={u.id} className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-white/[0.02] transition-colors">
                                                                 <div className="flex items-center gap-4">
@@ -3465,8 +3500,8 @@ const AdminPage = ({ setCurrentArea, initialSection }) => {
                                                                         {u.displayName ? u.displayName.charAt(0).toUpperCase() : u.email.charAt(0).toUpperCase()}
                                                                     </div>
                                                                     <div>
-                                                                        <p className="text-sm font-black text-white tracking-tight">{u.displayName || 'Sem Nome'}</p>
-                                                                        <p className="text-[10px] font-bold text-slate-500 tracking-wider">{u.email}</p>
+                                                                        <p className="text-sm font-black tjpr-text-main tracking-tight">{u.displayName || 'Sem Nome'}</p>
+                                                                        <p className="text-[10px] font-bold tjpr-text-dim tracking-wider">{u.email}</p>
                                                                     </div>
                                                                 </div>
 
@@ -3511,13 +3546,13 @@ const AdminPage = ({ setCurrentArea, initialSection }) => {
                             <span className="material-icons text-3xl">campaign</span>
                         </div>
                         <div>
-                            <h2 className="text-2xl font-black text-white tracking-tight uppercase">Aviso Global</h2>
-                            <p className="text-slate-500 text-xs font-bold tracking-widest uppercase mt-1">Comunicação direta com todos os usuários</p>
+                            <h2 className="text-2xl font-black tjpr-text-main tracking-tight uppercase">Aviso Global</h2>
+                            <p className="tjpr-text-dim text-xs font-bold tracking-widest uppercase mt-1">Comunicação direta com todos os usuários</p>
                         </div>
                     </div>
 
-                    <div className="space-y-8 bg-slate-950/40 p-8 rounded-[2rem] border border-white/5">
-                        <div className="flex items-center gap-4 p-4 bg-white/5 rounded-2xl border border-white/5">
+                    <div className="space-y-8 tjpr-bg-alt p-8 rounded-[2rem] border tjpr-border-main">
+                        <div className="flex items-center gap-4 p-4 tjpr-bg-main rounded-2xl border tjpr-border-main">
                             <label className="relative inline-flex items-center cursor-pointer">
                                 <input
                                     type="checkbox"
@@ -3525,18 +3560,18 @@ const AdminPage = ({ setCurrentArea, initialSection }) => {
                                     checked={broadcastMessage.ativo}
                                     onChange={e => setBroadcastMessage({ ...broadcastMessage, ativo: e.target.checked })}
                                 />
-                                <div className="w-12 h-6 bg-slate-800 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[4px] after:left-[4px] after:bg-slate-400 after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600 peer-checked:after:bg-white shadow-inner"></div>
-                                <span className="ml-4 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Exibir aviso na página inicial</span>
+                                <div className="w-12 h-6 tjpr-bg-main border tjpr-border-main rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[4px] after:left-[4px] after:bg-slate-400 after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600 peer-checked:after:bg-white shadow-inner"></div>
+                                <span className="ml-4 text-[10px] font-black tjpr-text-dim uppercase tracking-[0.2em]">Exibir aviso na página inicial</span>
                             </label>
                         </div>
 
                         <div className="space-y-3">
-                            <label className="block text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] ml-1">Conteúdo da Mensagem</label>
+                            <label className="block text-[10px] font-black tjpr-text-dim uppercase tracking-[0.2em] ml-1">Conteúdo da Mensagem</label>
                             <textarea
                                 value={broadcastMessage.mensagem}
                                 onChange={e => setBroadcastMessage({ ...broadcastMessage, mensagem: e.target.value })}
                                 rows="4"
-                                className="w-full p-6 bg-slate-950 border border-white/5 rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all text-white placeholder:text-slate-700 shadow-inner"
+                                className="w-full p-6 tjpr-bg-main border tjpr-border-main rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all tjpr-text-main placeholder:tjpr-text-dim shadow-inner"
                                 placeholder="Digite aqui a mensagem que será exibida para todos..."
                             ></textarea>
                         </div>
@@ -4005,7 +4040,7 @@ const ProfileModal = ({ user, userData, onClose, onUpdate }) => {
 
     return (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-xl flex items-center justify-center z-[100] p-4 animate-in fade-in duration-300" onClick={onClose}>
-            <div className="bg-slate-900 border border-white/10 w-full max-w-md rounded-[2.5rem] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-300 max-h-[90vh]" onClick={e => e.stopPropagation()}>
+            <div className="tjpr-bg-main border border-white/10 w-full max-w-md rounded-[2.5rem] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-300 max-h-[90vh]" onClick={e => e.stopPropagation()}>
 
                 <div className="flex justify-between items-center p-8 border-b border-white/5 bg-white/[0.02] flex-shrink-0">
                     <div>
@@ -4018,11 +4053,11 @@ const ProfileModal = ({ user, userData, onClose, onUpdate }) => {
                 </div>
 
                 <div className="flex border-b border-white/5 flex-shrink-0">
-                    {[{ id: 'perfil', label: 'Perfil', icon: 'person' }, { id: 'senha', label: 'Seguranca', icon: 'lock' }].map(tab => (
+                    {[{ id: 'perfil', label: 'Perfil', icon: 'person' }, { id: 'senha', label: 'Segurança', icon: 'lock' }].map(tab => (
                         <button
                             key={tab.id}
                             onClick={() => setActiveTab(tab.id)}
-                            className={`flex-1 flex items-center justify-center gap-2 py-4 text-xs font-black uppercase tracking-widest transition-all border-b-2 ${activeTab === tab.id ? 'text-indigo-400 border-indigo-500' : 'text-slate-500 border-transparent hover:text-slate-300'}`}
+                            className={`flex-1 flex items-center justify-center gap-2 py-4 text-xs font-black uppercase tracking-widest transition-all border-b-2 ${activeTab === tab.id ? 'text-tjpr-primary border-tjpr-primary' : 'text-slate-500 border-transparent hover:text-slate-300'}`}
                         >
                             <span className="material-icons text-sm">{tab.icon}</span>
                             {tab.label}
@@ -4036,7 +4071,7 @@ const ProfileModal = ({ user, userData, onClose, onUpdate }) => {
                         <>
                             <div className="flex flex-col items-center gap-5">
                                 <div className="relative group cursor-pointer" onClick={() => fileInputRef.current?.click()}>
-                                    <div className="absolute inset-0 bg-indigo-500/20 blur-2xl rounded-full opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                                    <div className="absolute inset-0 bg-tjpr-primary/20 blur-2xl rounded-full opacity-0 group-hover:opacity-100 transition-opacity"></div>
                                     <Avatar user={user} userData={previewUserData} size="h-28 w-28" />
                                     <div className="absolute inset-0 bg-black/50 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                                         <span className="material-icons text-white text-2xl">photo_camera</span>
@@ -4046,7 +4081,7 @@ const ProfileModal = ({ user, userData, onClose, onUpdate }) => {
                                 <div className="flex gap-2 flex-wrap justify-center">
                                     <button
                                         onClick={() => fileInputRef.current?.click()}
-                                        className="px-4 py-2 text-[10px] font-black uppercase tracking-widest text-indigo-400 border border-indigo-500/30 rounded-xl hover:bg-indigo-500/10 transition-all flex items-center gap-1.5"
+                                        className="px-4 py-2 text-[10px] font-black uppercase tracking-widest text-tjpr-primary border border-tjpr-primary/30 rounded-xl hover:bg-tjpr-primary/10 transition-all flex items-center gap-1.5"
                                     >
                                         <span className="material-icons text-sm">upload</span>
                                         Subir Foto
@@ -4079,7 +4114,7 @@ const ProfileModal = ({ user, userData, onClose, onUpdate }) => {
                                 />
                                 <div className="space-y-2">
                                     <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">E-mail Institucional</label>
-                                    <div className="w-full px-4 py-4 bg-slate-950/50 border border-white/5 rounded-xl text-slate-400 font-bold text-sm">{user.email}</div>
+                                    <div className="w-full px-4 py-4 tjpr-bg-alt/50 border border-white/5 rounded-xl text-slate-400 font-bold text-sm">{user.email}</div>
                                 </div>
                             </div>
 
@@ -4087,8 +4122,8 @@ const ProfileModal = ({ user, userData, onClose, onUpdate }) => {
                             {message && <p className="text-xs font-bold text-center text-emerald-500 uppercase tracking-widest">{message}</p>}
 
                             <div className="pt-2 space-y-3">
-                                <button onClick={handleSave} disabled={isSaving} className="w-full h-14 flex justify-center items-center bg-indigo-600 hover:bg-indigo-500 text-white font-black uppercase tracking-[0.2em] rounded-xl transition-all shadow-lg shadow-indigo-600/20 disabled:opacity-50">
-                                    {isSaving ? 'Salvando...' : 'Salvar Alteracoes'}
+                                <button onClick={handleSave} disabled={isSaving} className="w-full h-14 flex justify-center items-center bg-tjpr-primary hover:opacity-90 text-white font-black uppercase tracking-[0.2em] rounded-xl transition-all shadow-lg shadow-tjpr-primary/20 disabled:opacity-50">
+                                    {isSaving ? 'Salvando...' : 'Salvar Alterações'}
                                 </button>
                                 <button onClick={handleDeleteAccount} className="w-full py-3 flex justify-center items-center text-rose-500 hover:text-rose-400 text-[10px] font-black uppercase tracking-widest transition-all">
                                     Excluir Minha Conta
@@ -4106,21 +4141,21 @@ const ProfileModal = ({ user, userData, onClose, onUpdate }) => {
 
                             <div className="space-y-2">
                                 <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Senha Atual</label>
-                                <input type="password" value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} required placeholder="..." className="w-full px-4 py-3 bg-slate-950/50 border border-white/10 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition text-white placeholder:text-slate-600" />
+                                <input type="password" value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} required placeholder="..." className="w-full px-4 py-3 tjpr-bg-alt/50 border border-white/10 rounded-xl focus:ring-2 focus:ring-tjpr-primary outline-none transition text-white placeholder:text-slate-600" />
                             </div>
                             <div className="space-y-2">
                                 <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Nova Senha</label>
-                                <input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} required placeholder="Minimo 6 caracteres" className="w-full px-4 py-3 bg-slate-950/50 border border-white/10 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition text-white placeholder:text-slate-600" />
+                                <input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} required placeholder="Mínimo 6 caracteres" className="w-full px-4 py-3 tjpr-bg-alt/50 border border-white/10 rounded-xl focus:ring-2 focus:ring-tjpr-primary outline-none transition text-white placeholder:text-slate-600" />
                             </div>
                             <div className="space-y-2">
                                 <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Confirmar Nova Senha</label>
-                                <input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} required placeholder="Repita a nova senha" className="w-full px-4 py-3 bg-slate-950/50 border border-white/10 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition text-white placeholder:text-slate-600" />
+                                <input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} required placeholder="Repita a nova senha" className="w-full px-4 py-3 tjpr-bg-alt/50 border border-white/10 rounded-xl focus:ring-2 focus:ring-tjpr-primary outline-none transition text-white placeholder:text-slate-600" />
                             </div>
 
                             {pwError && <p className="text-xs font-bold text-center text-rose-500 uppercase tracking-widest">{pwError}</p>}
                             {pwMessage && <p className="text-xs font-bold text-center text-emerald-500 uppercase tracking-widest">{pwMessage}</p>}
 
-                            <button type="submit" disabled={isSavingPw} className="w-full h-14 flex justify-center items-center bg-indigo-600 hover:bg-indigo-500 text-white font-black uppercase tracking-[0.2em] rounded-xl transition-all shadow-lg shadow-indigo-600/20 disabled:opacity-50">
+                            <button type="submit" disabled={isSavingPw} className="w-full h-14 flex justify-center items-center bg-tjpr-primary hover:opacity-90 text-white font-black uppercase tracking-[0.2em] rounded-xl transition-all shadow-lg shadow-tjpr-primary/20 disabled:opacity-50">
                                 {isSavingPw ? 'Salvando...' : 'Alterar Senha'}
                             </button>
                         </form>
@@ -4152,13 +4187,18 @@ const ProfileModal = ({ user, userData, onClose, onUpdate }) => {
         </div>
     );
 };
-
 const Sidebar = ({ isOpen, setIsOpen, isCollapsed, toggleCollapse, deferredPrompt, onInstallClick }) => {
     const { user, userData, openCalendario, currentArea, setCurrentArea, isAdmin, isSetorAdmin } = useAuth();
     const { openBugReport } = useContext(BugReportContext);
 
     const menuItems = [
-        { id: 'Calculadora', label: 'Calculadora', icon: 'calculate' },
+        { 
+            id: 'Calculadora', 
+            label: 'Calculadora', 
+            icon: 'calculate',
+            condition: !!(isAdmin || isSetorAdmin || userData?.role === 'intermediate')
+        },
+        { id: 'Minuta', label: 'Minuta de Preparo', icon: 'description' },
         { id: 'Admin', label: 'Administração', icon: 'admin_panel_settings', condition: !!(isAdmin || isSetorAdmin) },
     ];
 
@@ -4168,42 +4208,42 @@ const Sidebar = ({ isOpen, setIsOpen, isCollapsed, toggleCollapse, deferredPromp
             {isOpen && <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-[55] lg:hidden" onClick={() => setIsOpen(false)}></div>}
 
             {/* Sidebar Container */}
-            <aside className={`fixed lg:static inset-y-0 left-0 z-[60] ${isCollapsed ? 'w-20' : 'w-72'} bg-slate-900 border-r border-white/5 transform transition-all duration-500 ease-in-out ${isOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0 flex flex-col shadow-2xl`}>
+            <aside className={`fixed lg:static inset-y-0 left-0 z-[60] ${isCollapsed ? 'w-20' : 'w-72'} tjpr-bg-main border-r tjpr-border-main transform transition-all duration-500 ease-in-out ${isOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0 flex flex-col shadow-2xl`}>
                 {/* Brand Section */}
                 <div className={`h-24 flex items-center ${isCollapsed ? 'justify-center' : 'px-8'} relative overflow-hidden`}>
-                    <div className="absolute inset-0 bg-gradient-to-br from-indigo-600/10 to-transparent pointer-events-none"></div>
+                    <div className="absolute inset-0 bg-gradient-to-br from-tjpr-primary-glow to-transparent pointer-events-none"></div>
                     
                     {!isCollapsed ? (
                         <div className="flex items-center gap-4 animate-in fade-in slide-in-from-left duration-500">
-                            <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center backdrop-blur-md">
-                                <img src="Logo.png" alt="Logo" className="h-6 w-auto filter brightness-0 invert" />
+                            <div className="w-10 h-10 rounded-xl tjpr-bg-alt border tjpr-border-main flex items-center justify-center backdrop-blur-md">
+                                <img src="Logo.png" alt="Logo" className="h-6 w-auto tjpr-logo" />
                             </div>
                             <div className="flex flex-col">
-                                <span className="text-sm font-black tracking-widest text-white">TJPR</span>
-                                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-tighter">Módulo de Prazos</span>
+                                <span className="text-sm font-black tracking-widest tjpr-text-main">TJPR</span>
+                                <span className="text-[10px] font-bold tjpr-text-dim uppercase tracking-tighter">Módulo de Prazos</span>
                             </div>
                         </div>
                     ) : (
-                        <img src="Logo.png" alt="Logo" className="h-6 w-auto filter brightness-0 invert animate-in zoom-in duration-500" />
+                        <img src="Logo.png" alt="Logo" className="h-6 w-auto tjpr-logo animate-in zoom-in duration-500" />
                     )}
                 </div>
 
                 {/* Navigation */}
                 <nav className="flex-1 px-4 py-8 space-y-2 overflow-y-auto custom-scrollbar">
-                    {!isCollapsed && <p className="px-4 text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mb-4">Principal</p>}
+                    {!isCollapsed && <p className="px-4 text-[10px] font-black tjpr-text-dim uppercase tracking-[0.2em] mb-4">Principal</p>}
                     
                     {menuItems.map(item => (
                         (item.condition !== false) && (
                             <button
                                 key={item.id}
                                 onClick={() => { setCurrentArea(item.id); setIsOpen(false); }}
-                                className={`w-full flex items-center ${isCollapsed ? 'justify-center' : 'px-4'} py-3.5 rounded-2xl transition-all duration-300 group relative ${currentArea === item.id ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}
+                                className={`w-full flex items-center ${isCollapsed ? 'justify-center' : 'px-4'} py-3.5 rounded-2xl transition-all duration-300 group relative ${currentArea === item.id ? 'tjpr-bg-primary text-white tjpr-shadow-primary' : 'tjpr-text-dim hover:tjpr-bg-alt hover:tjpr-text-main'}`}
                                 title={isCollapsed ? item.label : ''}
                             >
                                 {currentArea === item.id && (
                                     <div className="absolute left-0 top-1/4 bottom-1/4 w-1 bg-white rounded-full"></div>
                                 )}
-                                <span className={`material-icons ${isCollapsed ? '' : 'mr-4'} ${currentArea === item.id ? 'text-white' : 'text-slate-500 group-hover:text-indigo-400'}`}>
+                                <span className={`material-icons ${isCollapsed ? '' : 'mr-4'} ${currentArea === item.id ? 'text-white' : 'tjpr-text-dim group-hover:tjpr-text-primary'}`}>
                                     {item.icon}
                                 </span>
                                 {!isCollapsed && <span className="font-bold text-sm tracking-tight">{item.label}</span>}
@@ -4211,33 +4251,34 @@ const Sidebar = ({ isOpen, setIsOpen, isCollapsed, toggleCollapse, deferredPromp
                         )
                     ))}
 
-                    <div className="pt-8 mt-8 border-t border-white/5">
-                        {!isCollapsed && <p className="px-4 text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mb-4">Ferramentas</p>}
+                    <div className="pt-8 mt-8 border-t tjpr-border-main">
+                        {!isCollapsed && <p className="px-4 text-[10px] font-black tjpr-text-dim uppercase tracking-[0.2em] mb-4">Ferramentas</p>}
                         
-                        <button onClick={() => { openCalendario(); setIsOpen(false); }} className={`w-full flex items-center ${isCollapsed ? 'justify-center' : 'px-4'} py-3.5 text-slate-400 rounded-2xl hover:bg-white/5 hover:text-white transition-all duration-300 group`} title={isCollapsed ? 'Calendário' : ''}>
-                            <span className={`material-icons ${isCollapsed ? '' : 'mr-4'} text-slate-500 group-hover:text-indigo-400`}>calendar_today</span>
+                        <button onClick={() => { openCalendario(); setIsOpen(false); }} className={`w-full flex items-center ${isCollapsed ? 'justify-center' : 'px-4'} py-3.5 tjpr-text-dim rounded-2xl hover:tjpr-bg-alt hover:tjpr-text-main transition-all duration-300 group`} title={isCollapsed ? 'Calendário' : ''}>
+                            <span className={`material-icons ${isCollapsed ? '' : 'mr-4'} tjpr-text-dim group-hover:tjpr-text-primary`}>calendar_today</span>
                             {!isCollapsed && <span className="font-bold text-sm tracking-tight">Calendário</span>}
                         </button>
 
-                        <button onClick={() => { openBugReport(); setIsOpen(false); }} className={`w-full flex items-center ${isCollapsed ? 'justify-center' : 'px-4'} py-3.5 text-slate-400 rounded-2xl hover:bg-white/5 hover:text-white transition-all duration-300 group`} title={isCollapsed ? 'Reportar Problema' : ''}>
-                            <span className={`material-icons ${isCollapsed ? '' : 'mr-4'} text-slate-500 group-hover:text-rose-400`}>bug_report</span>
+                        <button onClick={() => { openBugReport(); setIsOpen(false); }} className={`w-full flex items-center ${isCollapsed ? 'justify-center' : 'px-4'} py-3.5 tjpr-text-dim rounded-2xl hover:tjpr-bg-alt hover:tjpr-text-main transition-all duration-300 group`} title={isCollapsed ? 'Reportar Problema' : ''}>
+                            <span className={`material-icons ${isCollapsed ? '' : 'mr-4'} tjpr-text-dim group-hover:tjpr-text-error`}>bug_report</span>
                             {!isCollapsed && <span className="font-bold text-sm tracking-tight">Reportar Erro</span>}
                         </button>
 
                         {deferredPrompt && (
-                            <button onClick={onInstallClick} className={`w-full flex items-center ${isCollapsed ? 'justify-center' : 'px-4'} py-3.5 text-indigo-400 rounded-2xl bg-indigo-500/5 hover:bg-indigo-500/10 transition-all duration-300 mt-4 border border-indigo-500/10 group`} title={isCollapsed ? 'Instalar App' : ''}>
-                                <span className={`material-icons ${isCollapsed ? '' : 'mr-4'} text-indigo-400`}>install_mobile</span>
+                            <button onClick={onInstallClick} className={`w-full flex items-center ${isCollapsed ? 'justify-center' : 'px-4'} py-3.5 text-tjpr-primary rounded-2xl bg-tjpr-primary/5 hover:bg-tjpr-primary/10 transition-all duration-300 mt-4 border border-tjpr-primary/10 group`} title={isCollapsed ? 'Instalar App' : ''}>
+                                <span className={`material-icons ${isCollapsed ? '' : 'mr-4'} text-tjpr-primary`}>install_mobile</span>
                                 {!isCollapsed && <span className="font-bold text-sm tracking-tight">Instalar App</span>}
                             </button>
                         )}
                     </div>
                 </nav>
 
-                {/* Footer Section */}
-                <div className={`p-6 border-t border-white/5 bg-slate-900/50 backdrop-blur-md`}>
-                    <button 
-                        onClick={toggleCollapse}
-                        className={`w-full flex items-center ${isCollapsed ? 'justify-center' : 'px-4'} py-3 rounded-xl bg-white/5 text-slate-400 hover:text-white transition-colors hidden lg:flex`}
+                {/* User Section / Collapse Toggle */}
+                <div className="p-4 border-t tjpr-border-main">
+                    <button
+                        onClick={() => toggleCollapse()}
+                        className={`w-full flex items-center ${isCollapsed ? 'justify-center' : 'justify-between px-4'} py-3 rounded-xl tjpr-text-dim hover:tjpr-text-main hover:tjpr-bg-alt transition-all group`}
+                        title={isCollapsed ? 'Expandir' : 'Recolher'}
                     >
                         <span className="material-icons text-sm">
                             {isCollapsed ? 'last_page' : 'first_page'}
@@ -4258,12 +4299,12 @@ const Sidebar = ({ isOpen, setIsOpen, isCollapsed, toggleCollapse, deferredPromp
 
 const TopBar = ({ onMenuClick, title }) => {
     return (
-        <header className="h-16 bg-white dark:bg-slate-800 shadow-sm flex items-center justify-between px-4 lg:px-8 relative z-20">
+        <header className="h-16 tjpr-bg-main shadow-sm flex items-center justify-between px-4 lg:px-8 relative z-20 border-b border-white/5">
             <div className="flex items-center">
-                <button onClick={onMenuClick} className="lg:hidden p-2 rounded-md text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700 mr-2">
+                <button onClick={onMenuClick} className="lg:hidden p-2 rounded-md tjpr-text-dim hover:tjpr-bg-alt mr-2">
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>
                 </button>
-                <h2 className="text-xl font-bold text-slate-800 dark:text-white">{title}</h2>
+                <h2 className="text-xl font-bold tjpr-text-main">{title}</h2>
             </div>
         </header>
     );
@@ -4808,7 +4849,12 @@ const App = () => {
 
 
     if (loading) {
-        return <div className="min-h-screen flex items-center justify-center"><p>A carregar...</p></div>;
+        return (
+            <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 dark:bg-slate-950 transition-colors duration-500">
+                <div className="w-12 h-12 border-4 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin mb-4"></div>
+                <p className="text-slate-500 dark:text-slate-400 font-black uppercase tracking-widest text-[10px] animate-pulse">Iniciando Sistema...</p>
+            </div>
+        );
     }
 
     // Se não houver usuário, exibe a página de login em tela cheia.
@@ -4826,7 +4872,7 @@ const App = () => {
 
     // Se o usuário estiver logado e verificado, exibe a aplicação principal.
     return (
-        <div id="app-wrapper" className="h-screen h-[100dvh] flex bg-slate-950 overflow-hidden text-slate-200">
+        <div id="app-wrapper" className="h-screen h-[100dvh] flex bg-slate-50 dark:bg-slate-950 overflow-hidden text-slate-900 dark:text-slate-200 transition-colors duration-500">
             <Sidebar
                 isOpen={isSidebarOpen}
                 setIsOpen={setIsSidebarOpen}
@@ -4849,10 +4895,11 @@ const App = () => {
                         }
                     }}
                     onToggleDarkMode={() => {
-                        const next = settings.theme === 'dark' ? 'light' : 'dark';
+                        const cycle = { 'light': 'dark', 'dark': 'system', 'system': 'light' };
+                        const next = cycle[settings.theme] || 'dark';
                         updateSettings({ theme: next });
                     }}
-                    isDarkMode={settings.theme === 'dark' || (settings.theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)}
+                    theme={settings.theme}
                     onOpenProfile={() => setShowProfile(true)}
                     currentArea={currentArea}
                     onNavigate={(area) => setCurrentArea(area)}
@@ -4871,9 +4918,11 @@ const App = () => {
 
                 <main className="flex-1 overflow-y-auto p-4 sm:p-8 lg:p-12 custom-scrollbar relative z-10">
                     <div className="max-w-7xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
-                        {currentArea === 'Calculadora' ? (
+                        {currentArea === 'Calculadora' && (isAdmin || isSetorAdmin || userData?.role === 'intermediate') ? (
                             <CalculatorApp />
-                        ) : currentArea === 'Admin' && (isAdmin || userData?.role === 'setor_admin') ? (
+                        ) : currentArea === 'Minuta' ? (
+                            <MinutaPreparoPage />
+                        ) : currentArea === 'Admin' && (isAdmin || isSetorAdmin) ? (
                             <AdminPage 
                                 setCurrentArea={setCurrentArea} 
                                 initialSection={adminInitialSection}
@@ -4883,7 +4932,12 @@ const App = () => {
                                 <span className="material-icons text-6xl text-slate-700 mb-4">explore_off</span>
                                 <h2 className="text-2xl font-black text-white mb-2">Área Desconhecida</h2>
                                 <p className="text-slate-500 max-w-md mx-auto">A página que você está tentando acessar não existe ou você não tem permissão para visualizá-la.</p>
-                                <button onClick={() => setCurrentArea('Calculadora')} className="mt-8 px-6 py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-colors">Voltar para a Calculadora</button>
+                                <button 
+                                    onClick={() => setCurrentArea(isAdmin || isSetorAdmin || userData?.role === 'intermediate' ? 'Calculadora' : 'Minuta')} 
+                                    className="mt-8 px-6 py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-colors"
+                                >
+                                    Voltar para o Início
+                                </button>
                             </div>
                         )}
                         

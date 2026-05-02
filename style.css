@@ -5,16 +5,20 @@
    =================================== */
 
 :root {
-    /* Monolith Elite Palette - Deep & Professional */
-    --tjpr-slate-950: #020617; /* The Void */
-    --tjpr-slate-900: #0f172a; /* Main Surface */
-    --tjpr-slate-800: #1e293b; /* Card Surface */
-    --tjpr-slate-700: #334155; /* Borders */
-    --tjpr-slate-400: #94a3b8; /* Secondary Text */
+    /* Monolith Elite Palette - Light & Professional */
+    --tjpr-slate-950: #f8fafc; /* slate-50 */
+    --tjpr-slate-900: #f1f5f9; /* slate-100 */
+    --tjpr-slate-800: #e2e8f0; /* slate-200 */
+    --tjpr-slate-700: #cbd5e1; /* slate-300 */
+    --tjpr-slate-600: #64748b; /* slate-500 - Improved Visibility */
+    --tjpr-slate-400: #475569; /* slate-600 - Improved Visibility */
+    --tjpr-foreground: #0f172a; /* slate-900 */
     
-    /* Brand Accents - Indigo Flame */
+    /* Brand Accents - Indigo Flame (Maintained for branding) */
     --tjpr-primary: #4f46e5;
-    --tjpr-primary-glow: rgba(79, 70, 229, 0.3);
+    --tjpr-primary-glow: rgba(79, 70, 229, 0.1);
+    --tjpr-secondary: #9333ea;
+    --tjpr-secondary-glow: rgba(147, 51, 234, 0.1);
     --tjpr-indigo-600: #4f46e5;
     --tjpr-indigo-500: #6366f1;
     --tjpr-violet-600: #7c3aed;
@@ -24,6 +28,10 @@
     --tjpr-success: #10b981;
     --tjpr-warning: #f59e0b;
     --tjpr-error: #ef4444;
+    
+    --tjpr-success-glow: rgba(16, 185, 129, 0.1);
+    --tjpr-warning-glow: rgba(245, 158, 11, 0.1);
+    --tjpr-error-glow: rgba(244, 63, 94, 0.1);
     
     /* Spacing & Layout */
     --spacing-unit: 4px;
@@ -41,6 +49,40 @@
     --radius-2xl: 24px;
     
     /* Elevation - Multi-tonal Depth */
+    --shadow-elite: 0 10px 30px -10px rgba(0, 0, 0, 0.1), 
+                    0 4px 6px -2px rgba(0, 0, 0, 0.05);
+    --shadow-glow: 0 0 20px rgba(79, 70, 229, 0.1);
+    
+    /* Glassmorphism Defaults */
+    --glass-bg: rgba(255, 255, 255, 0.8);
+    --glass-border: rgba(0, 0, 0, 0.08);
+    --glass-blur: 16px;
+    --calendar-filter: invert(0) opacity(0.5);
+
+    /* Semantic Mappings */
+    --tjpr-text-main: #0f172a;
+    --tjpr-text-dim: #64748b;
+    --tjpr-border: rgba(0, 0, 0, 0.08);
+    --tjpr-surface: #ffffff;
+    --tjpr-surface-alt: #f8fafc;
+}
+
+.dark {
+    /* Monolith Elite Palette - Deep & Professional */
+    --tjpr-slate-950: #020617; /* The Void */
+    --tjpr-slate-900: #0f172a; /* Main Surface */
+    --tjpr-slate-800: #1e293b; /* Card Surface */
+    --tjpr-slate-700: #334155; /* Borders */
+    --tjpr-slate-400: #94a3b8; /* Secondary Text */
+    --tjpr-foreground: #ffffff;
+    
+    /* Brand Accents */
+    --tjpr-primary-glow: rgba(79, 70, 229, 0.3);
+    --tjpr-success-glow: rgba(16, 185, 129, 0.2);
+    --tjpr-warning-glow: rgba(245, 158, 11, 0.2);
+    --tjpr-error-glow: rgba(244, 63, 94, 0.2);
+    
+    /* Elevation */
     --shadow-elite: 0 10px 30px -10px rgba(0, 0, 0, 0.5), 
                     0 4px 6px -2px rgba(0, 0, 0, 0.2);
     --shadow-glow: 0 0 20px rgba(79, 70, 229, 0.15);
@@ -48,8 +90,102 @@
     /* Glassmorphism Defaults */
     --glass-bg: rgba(15, 23, 42, 0.6);
     --glass-border: rgba(255, 255, 255, 0.08);
-    --glass-blur: 24px;
+    --calendar-filter: invert(1) opacity(0.5);
+
+    /* Semantic Mappings */
+    --tjpr-text-main: #ffffff;
+    --tjpr-text-dim: #94a3b8;
+    --tjpr-border: rgba(255, 255, 255, 0.08);
+    --tjpr-surface: #0f172a;
+    --tjpr-surface-alt: #020617;
 }
+
+/* Semantic Utility Classes */
+.tjpr-bg-main { background-color: var(--tjpr-surface); }
+.tjpr-bg-alt { background-color: var(--tjpr-surface-alt); }
+.tjpr-bg-hover:hover { background-color: var(--tjpr-slate-800); }
+.dark .tjpr-bg-hover:hover { background-color: var(--tjpr-slate-800); }
+.tjpr-text-main { color: var(--tjpr-text-main); }
+.tjpr-text-dim { color: var(--tjpr-text-dim); }
+.tjpr-border-main { border-color: var(--tjpr-border); }
+.tjpr-border-hover:hover { border-color: var(--tjpr-slate-700); }
+
+/* Logo utility */
+.tjpr-logo { filter: brightness(0); }
+.dark .tjpr-logo { filter: brightness(0) invert(1); }
+
+/* Semantic Status Utilities */
+.tjpr-text-primary { color: var(--tjpr-primary); }
+.tjpr-text-secondary { color: var(--tjpr-secondary); }
+.tjpr-text-success { color: var(--tjpr-success); }
+.tjpr-text-warning { color: var(--tjpr-warning); }
+.tjpr-text-error { color: var(--tjpr-error); }
+
+.tjpr-bg-primary { background-color: var(--tjpr-primary); }
+.tjpr-bg-primary-glow { background-color: var(--tjpr-primary-glow); }
+.tjpr-bg-secondary { background-color: var(--tjpr-secondary); }
+.tjpr-bg-secondary-glow { background-color: var(--tjpr-secondary-glow); }
+.tjpr-bg-secondary-hover:hover { background-color: #7e22ce; }
+.tjpr-bg-success { background-color: var(--tjpr-success); }
+.tjpr-bg-success-glow { background-color: var(--tjpr-success-glow); }
+.tjpr-bg-warning { background-color: var(--tjpr-warning); }
+.tjpr-bg-warning-glow { background-color: var(--tjpr-warning-glow); }
+.tjpr-bg-error { background-color: var(--tjpr-error); }
+.tjpr-bg-error-glow { background-color: var(--tjpr-error-glow); }
+
+.tjpr-border-primary { border-color: var(--tjpr-primary); }
+.tjpr-border-secondary { border-color: var(--tjpr-secondary); }
+.tjpr-border-success { border-color: var(--tjpr-success); }
+.tjpr-border-warning { border-color: var(--tjpr-warning); }
+.tjpr-border-error { border-color: var(--tjpr-error); }
+
+.tjpr-shadow-primary { box-shadow: 0 10px 25px -5px var(--tjpr-primary-glow); }
+.tjpr-shadow-secondary { box-shadow: 0 10px 25px -5px var(--tjpr-secondary-glow); }
+
+/* Badge System */
+.tjpr-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.25rem 0.75rem;
+    border-radius: 9999px;
+    font-size: 0.625rem;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.tjpr-badge-primary {
+    background-color: var(--tjpr-primary-glow);
+    color: var(--tjpr-primary);
+    border: 1px solid rgba(79, 70, 229, 0.2);
+}
+
+.tjpr-badge-secondary {
+    background-color: var(--tjpr-secondary-glow);
+    color: var(--tjpr-secondary);
+    border: 1px solid rgba(147, 51, 234, 0.2);
+}
+
+.tjpr-badge-success {
+    background-color: rgba(16, 185, 129, 0.1);
+    color: var(--tjpr-success);
+    border: 1px solid rgba(16, 185, 129, 0.2);
+}
+
+.tjpr-badge-warning {
+    background-color: rgba(245, 158, 11, 0.1);
+    color: var(--tjpr-warning);
+    border: 1px solid rgba(245, 158, 11, 0.2);
+}
+
+.tjpr-badge-error {
+    background-color: rgba(244, 63, 94, 0.1);
+    color: var(--tjpr-error);
+    border: 1px solid rgba(244, 63, 94, 0.2);
+}
+
+
 
 /* ===================================
    Base Styles - The Void Foundation
@@ -64,7 +200,7 @@ html, body, #root {
     margin: 0;
     padding: 0;
     background-color: var(--tjpr-slate-950);
-    color: var(--tjpr-white);
+    color: var(--tjpr-foreground);
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -86,8 +222,8 @@ body::before {
     width: 100%;
     height: 100%;
     background: 
-        radial-gradient(circle at 20% 30%, rgba(79, 70, 229, 0.05) 0%, transparent 50%),
-        radial-gradient(circle at 80% 70%, rgba(124, 58, 237, 0.05) 0%, transparent 50%);
+        radial-gradient(circle at 20% 30%, rgba(79, 70, 229, 0.03) 0%, transparent 50%),
+        radial-gradient(circle at 80% 70%, rgba(124, 58, 237, 0.03) 0%, transparent 50%);
     pointer-events: none;
     z-index: -1;
 }
@@ -109,9 +245,9 @@ body::before {
 }
 
 .tjpr-card:hover {
-    border-color: rgba(255, 255, 255, 0.15);
+    border-color: var(--tjpr-indigo-500);
     transform: translateY(-2px);
-    box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.6);
+    box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.2);
 }
 
 .tjpr-button-primary {
@@ -153,27 +289,26 @@ body::before {
 .tjpr-input {
     width: 100%;
     padding: 0.875rem 1.125rem;
-    background: rgba(255, 255, 255, 0.05);
-    border: 1px solid var(--tjpr-slate-700);
+    background: var(--tjpr-surface);
+    border: 1px solid var(--tjpr-border);
     border-radius: var(--radius-md);
-    color: white;
+    color: var(--tjpr-text-main);
     font-size: 0.9375rem;
     transition: all 0.2s ease;
     backdrop-filter: blur(4px);
-    color-scheme: dark;
 }
 
 input[type="date"].tjpr-input::-webkit-datetime-edit {
-    color: white;
+    color: var(--tjpr-foreground);
 }
 
 input[type="date"].tjpr-input::-webkit-datetime-edit-fields-wrapper {
-    color: white;
+    color: var(--tjpr-foreground);
 }
 
 input[type="date"].tjpr-input::-webkit-inner-spin-button,
 input[type="date"].tjpr-input::-webkit-calendar-picker-indicator {
-    filter: invert(1) opacity(0.5);
+    filter: var(--calendar-filter);
     cursor: pointer;
 }
 
@@ -195,10 +330,11 @@ input[type="date"].tjpr-input::-webkit-calendar-picker-indicator {
 }
 
 .tjpr-header {
-    background: rgba(2, 6, 23, 0.8);
+    background: var(--glass-bg);
     backdrop-filter: blur(20px);
-    border-bottom: 1px solid var(--glass-border);
-    color: white;
+    -webkit-backdrop-filter: blur(20px);
+    border-bottom: 1px solid var(--tjpr-border);
+    color: var(--tjpr-text-main);
     position: sticky;
     top: 0;
     z-index: 100;
@@ -221,9 +357,10 @@ input[type="date"].tjpr-input::-webkit-calendar-picker-indicator {
 
 /* Sidebar & Navigation Elite */
 .side-nav-elite {
-    background: rgba(15, 23, 42, 0.4);
-    border-right: 1px solid var(--glass-border);
+    background: var(--glass-bg);
+    border-right: 1px solid var(--tjpr-border);
     backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
 }
 
 .nav-item-active {
@@ -277,18 +414,7 @@ main.overflow-y-auto {
 }
 
 /* Fluid Custom Scrollbar for specific containers */
-html, body {
-    margin: 0;
-    padding: 0;
-    height: 100%;
-    width: 100%;
-    overflow: hidden;
-    font-family: 'Inter', sans-serif;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    scroll-behavior: smooth;
-    background-color: #020617; /* slate-950 */
-}
+/* End of base styles */
 
 .custom-scrollbar {
     scrollbar-width: thin;
@@ -380,7 +506,7 @@ html, body {
     font-weight: 700;
     font-size: 0.9375rem;
     margin-bottom: 0.25rem;
-    color: white;
+    color: var(--tjpr-foreground);
 }
 
 .tjpr-toast-message {

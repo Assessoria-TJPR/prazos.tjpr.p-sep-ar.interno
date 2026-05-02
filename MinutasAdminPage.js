@@ -12,6 +12,8 @@ const MinutasAdminPage = () => {
     const [minutaStyles, setMinutaStyles] = React.useState({});
     const [loading, setLoading] = React.useState(true);
     const [saving, setSaving] = React.useState(false);
+    const [flowConfig, setFlowConfig] = React.useState('');
+    const [isEditingFlow, setIsEditingFlow] = React.useState(false);
     
     // Estados para Modais Customizados
     const [isCreateModalOpen, setIsCreateModalOpen] = React.useState(false);
@@ -54,13 +56,39 @@ const MinutasAdminPage = () => {
 
         fetchTipos();
 
+        // Carregar fluxo de preparo
+        const fetchFlow = async () => {
+            try {
+                const { data, error } = await window._supabaseClient
+                    .from('configuracoes')
+                    .select('data')
+                    .eq('id', 'minuta_preparo_fluxo')
+                    .maybeSingle();
+
+                if (error) throw error;
+                if (data && data.data) {
+                    setFlowConfig(JSON.stringify(data.data, null, 4));
+                } else {
+                    // Fallback para o valor estático se não houver no banco
+                    setFlowConfig(JSON.stringify(window.MINUTA_PREPARO_FLUXO || {}, null, 4));
+                }
+            } catch (err) {
+                console.error("Erro ao carregar fluxo de preparo:", err);
+            }
+        };
+
+        fetchFlow();
+
         // Inscrição em tempo real para mudanças nas configurações
         const channel = window._supabaseClient
             .channel('config_changes')
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'configuracoes', filter: 'id=eq.minutas' }, (payload) => {
-                if (payload.new && payload.new.data && payload.new.data.tipos) {
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'configuracoes' }, (payload) => {
+                if (payload.new && payload.new.id === 'minutas' && payload.new.data && payload.new.data.tipos) {
                     const customTypes = payload.new.data.tipos.filter(t => t.id !== 'exemplo_didatico');
                     setTiposMinuta([...baseTiposMinuta, ...customTypes]);
+                }
+                if (payload.new && payload.new.id === 'minuta_preparo_fluxo' && payload.new.data) {
+                    setFlowConfig(JSON.stringify(payload.new.data, null, 4));
                 }
             })
             .subscribe();
@@ -135,6 +163,37 @@ const MinutasAdminPage = () => {
             console.error("Erro ao buscar minutas:", error);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleSaveFlow = async () => {
+        try {
+            setSaving('flow');
+            let parsed;
+            try {
+                parsed = JSON.parse(flowConfig);
+            } catch (e) {
+                alert("JSON Inválido! Verifique a sintaxe antes de salvar.");
+                setSaving(false);
+                return;
+            }
+
+            const { error } = await window._supabaseClient
+                .from('configuracoes')
+                .upsert({
+                    id: 'minuta_preparo_fluxo',
+                    data: parsed,
+                    updated_at: new Date().toISOString()
+                });
+
+            if (error) throw error;
+            
+            alert("Fluxo de Preparo salvo com sucesso!");
+        } catch (error) {
+            console.error("Erro ao salvar fluxo:", error);
+            alert("Erro ao salvar fluxo.");
+        } finally {
+            setSaving(false);
         }
     };
 
@@ -285,8 +344,8 @@ const MinutasAdminPage = () => {
     if (loading && setores.length === 0) {
         return (
             <div className="flex flex-col items-center justify-center py-24 animate-pulse">
-                <div className="w-16 h-16 rounded-full border-4 border-white/5 border-t-indigo-500 animate-spin mb-4"></div>
-                <p className="text-slate-500 font-black uppercase tracking-widest text-xs">Acessando Modelos de Minutas...</p>
+                <div className="w-16 h-16 rounded-full border-4 tjpr-border-main border-t-primary animate-spin mb-4"></div>
+                <p className="tjpr-text-dim font-black uppercase tracking-widest text-xs">Acessando Modelos de Minutas...</p>
             </div>
         );
     }
@@ -296,32 +355,32 @@ const MinutasAdminPage = () => {
     return (
         <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
             {/* Header / Selector */}
-            <div className="bg-slate-900/60 border border-white/5 rounded-[2.5rem] p-6 sm:p-10 flex flex-col xl:flex-row xl:items-center justify-between gap-8 backdrop-blur-2xl relative overflow-hidden shadow-2xl">
-                <div className="absolute top-0 right-0 w-80 h-80 bg-indigo-600/10 blur-[120px] rounded-full -mr-40 -mt-40 pointer-events-none"></div>
+            <div className="tjpr-bg-main border tjpr-border-main rounded-[2.5rem] p-6 sm:p-10 flex flex-col xl:flex-row xl:items-center justify-between gap-8 backdrop-blur-2xl relative overflow-hidden shadow-xl dark:shadow-2xl">
+                <div className="absolute top-0 right-0 w-80 h-80 bg-primary/10 blur-[120px] rounded-full -mr-40 -mt-40 pointer-events-none"></div>
                 
                 <div className="relative z-10">
                     <div className="flex items-center gap-4 mb-2">
-                        <div className="w-10 h-1 bg-indigo-500 rounded-full shrink-0"></div>
-                        <h1 className="text-2xl sm:text-3xl font-black text-white uppercase tracking-tight whitespace-nowrap">Modelos de Minutas</h1>
+                        <div className="w-10 h-1 bg-primary rounded-full shrink-0"></div>
+                        <h1 className="text-2xl sm:text-3xl font-black tjpr-text-main uppercase tracking-tight whitespace-nowrap">Modelos de Minutas</h1>
                     </div>
-                    <p className="text-slate-500 font-bold text-[10px] sm:text-[11px] uppercase tracking-[0.2em] ml-0 sm:ml-14">Personalização e automação de documentos por unidade judiciária.</p>
+                    <p className="tjpr-text-dim font-bold text-[10px] sm:text-[11px] uppercase tracking-[0.2em] ml-0 sm:ml-14">Personalização e automação de documentos por unidade judiciária.</p>
                 </div>
 
-                <div className="relative z-10 flex items-center gap-5 bg-slate-950/60 p-3 pl-6 sm:pl-8 rounded-[1.5rem] border border-white/10 shadow-inner w-full xl:w-auto">
+                <div className="relative z-10 flex items-center gap-5 tjpr-bg-alt p-3 pl-6 sm:pl-8 rounded-[1.5rem] border tjpr-border-main shadow-inner w-full xl:w-auto">
                     <div className="flex flex-col flex-1 sm:flex-initial">
-                        <span className="text-[9px] font-black text-slate-600 uppercase tracking-widest leading-none mb-1">Setor em Edição</span>
+                        <span className="text-[9px] font-black tjpr-text-dim uppercase tracking-widest leading-none mb-1">Setor em Edição</span>
                         <select 
                             value={selectedSetor?.id || ''} 
                             onChange={(e) => setSelectedSetor(setores.find(s => s.id === e.target.value))}
                             disabled={userData?.role === 'setor_admin'}
-                            className="bg-transparent border-none focus:ring-0 text-sm font-black text-white uppercase tracking-widest cursor-pointer appearance-none p-0 pr-8 w-full"
+                            className="bg-transparent border-none focus:ring-0 text-sm font-black tjpr-text-main uppercase tracking-widest cursor-pointer appearance-none p-0 pr-8 w-full"
                         >
                             {setores.map(s => (
-                                <option key={s.id} value={s.id} className="bg-[#020617]">{s.nome}</option>
+                                <option key={s.id} value={s.id} className="tjpr-bg-main tjpr-text-main">{s.nome}</option>
                             ))}
                         </select>
                     </div>
-                    <span className="material-icons text-slate-500 pointer-events-none">expand_more</span>
+                    <span className="material-icons tjpr-text-dim pointer-events-none">expand_more</span>
                 </div>
             </div>
 
@@ -330,26 +389,52 @@ const MinutasAdminPage = () => {
                 {tiposMinuta.map(tipo => (
                     <button
                         key={tipo.id}
-                        onClick={() => setActiveTipoId(tipo.id)}
+                        onClick={() => {
+                            setActiveTipoId(tipo.id);
+                            setIsEditingFlow(false);
+                        }}
                         className={`flex items-center gap-3 px-6 py-4 rounded-[1.5rem] border transition-all duration-500 relative overflow-hidden group ${
-                            activeTipoId === tipo.id 
-                            ? 'bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-600/30' 
-                            : 'bg-slate-900/40 border-white/5 text-slate-400 hover:bg-slate-900/60 hover:text-slate-200'
+                            activeTipoId === tipo.id && !isEditingFlow
+                            ? 'tjpr-bg-primary tjpr-border-primary text-white shadow-lg tjpr-shadow-primary' 
+                            : 'tjpr-bg-main tjpr-border-main tjpr-text-dim tjpr-bg-hover tjpr-text-main hover:tjpr-text-primary'
                         }`}
                     >
-                        <span className={`material-icons text-xl ${activeTipoId === tipo.id ? 'text-white' : 'text-indigo-400'}`}>
+                        <span className={`material-icons text-xl ${activeTipoId === tipo.id && !isEditingFlow ? 'text-white' : 'text-primary'}`}>
                             {tipo.icon}
                         </span>
                         <span className="font-black uppercase tracking-widest text-[10px] sm:text-xs">{tipo.nome}</span>
-                        {activeTipoId === tipo.id && (
+                        {activeTipoId === tipo.id && !isEditingFlow && (
                             <div className="absolute inset-0 bg-gradient-to-r from-white/10 to-transparent pointer-events-none animate-pulse"></div>
                         )}
                     </button>
                 ))}
+
+                {/* Aba do Fluxo de Preparo (Admin Only) */}
+                {userData?.role === 'admin' && (
+                    <button
+                        onClick={() => {
+                            setIsEditingFlow(true);
+                            setActiveTipoId(null);
+                        }}
+                        className={`flex items-center gap-3 px-6 py-4 rounded-[1.5rem] border transition-all duration-500 relative overflow-hidden group ${
+                            isEditingFlow
+                            ? 'tjpr-bg-secondary tjpr-border-secondary text-white shadow-lg tjpr-shadow-secondary' 
+                            : 'tjpr-bg-main tjpr-border-main tjpr-text-dim tjpr-bg-hover tjpr-text-main hover:tjpr-text-secondary'
+                        }`}
+                    >
+                        <span className={`material-icons text-xl ${isEditingFlow ? 'text-white' : 'tjpr-text-secondary'}`}>
+                            account_tree
+                        </span>
+                        <span className="font-black uppercase tracking-widest text-[10px] sm:text-xs">Fluxo de Preparo</span>
+                        {isEditingFlow && (
+                            <div className="absolute inset-0 bg-gradient-to-r from-white/10 to-transparent pointer-events-none animate-pulse"></div>
+                        )}
+                    </button>
+                )}
                 
                 <button
                     onClick={handleCreateNewMinuta}
-                    className="flex items-center gap-3 px-6 py-4 rounded-[1.5rem] border border-dashed border-indigo-500/30 text-indigo-400 bg-indigo-500/5 hover:bg-indigo-500/10 hover:border-indigo-500/50 transition-all duration-300"
+                    className="flex items-center gap-3 px-6 py-4 rounded-[1.5rem] border border-dashed border-primary/30 text-primary bg-primary/5 hover:bg-primary/10 hover:border-primary/50 transition-all duration-300"
                 >
                     <span className="material-icons text-xl">add_circle</span>
                     <span className="font-black uppercase tracking-widest text-[10px] sm:text-xs">Nova Minuta</span>
@@ -358,17 +443,21 @@ const MinutasAdminPage = () => {
 
             {/* Editor de Minuta Único */}
             <div className="animate-in fade-in zoom-in-95 duration-500">
-                {activeTipo && (
-                    <div key={activeTipo.id} className="tjpr-card group/card hover:bg-slate-900/40 transition-all duration-500 border-t-2 border-t-indigo-500/50">
-                        <div className="px-8 py-6 border-b border-white/5 bg-slate-950/20 flex flex-col sm:flex-row justify-between items-center gap-4">
+                {isEditingFlow ? (
+                    // Editor Visual do Fluxo de Preparo
+                    <MinutaPreparoAdminPage />
+                ) : activeTipo ? (
+                    // Editor de Minuta Padrão
+                    <div key={activeTipo.id} className="tjpr-card group/card tjpr-bg-hover transition-all duration-500 border-t-2 border-t-primary/50 overflow-hidden">
+                        <div className="px-8 py-6 border-b tjpr-border-main tjpr-bg-alt flex flex-col sm:flex-row justify-between items-center gap-4">
                             <div className="flex items-center gap-4">
-                                <div className="w-12 h-12 rounded-2xl bg-indigo-500/10 flex items-center justify-center">
-                                    <span className="material-icons text-indigo-400 text-2xl">{activeTipo.icon}</span>
+                                <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center">
+                                    <span className="material-icons text-primary text-2xl">{activeTipo.icon}</span>
                                 </div>
                                 <div>
-                                    <h3 className="font-black text-xl text-white uppercase tracking-widest">{activeTipo.nome}</h3>
-                                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2">
-                                        <span className="w-1.5 h-1.5 rounded-full bg-indigo-500"></span>
+                                    <h3 className="font-black text-xl tjpr-text-main uppercase tracking-widest">{activeTipo.nome}</h3>
+                                    <p className="text-[10px] font-bold tjpr-text-dim uppercase tracking-widest flex items-center gap-2">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-primary"></span>
                                         Editando Modelo para {selectedSetor?.nome}
                                     </p>
                                 </div>
@@ -378,7 +467,7 @@ const MinutasAdminPage = () => {
                                 {activeTipo.id.startsWith('custom_') && (
                                     <button 
                                         onClick={() => handleDeleteMinuta(activeTipo.id)}
-                                        className="px-4 py-2 text-rose-400 hover:text-rose-300 transition-colors flex items-center gap-2 font-black uppercase tracking-widest text-[10px]"
+                                        className="px-4 py-2 tjpr-text-error hover:opacity-80 transition-opacity flex items-center gap-2 font-black uppercase tracking-widest text-[10px]"
                                     >
                                         <span className="material-icons text-sm">delete</span>
                                         Excluir Modelo
@@ -397,14 +486,14 @@ const MinutasAdminPage = () => {
                         </div>
 
                         {/* Controles de Estilo (Fonte) */}
-                        <div className="px-8 py-4 bg-slate-900/20 border-b border-white/5 flex flex-wrap gap-6 items-center">
+                        <div className="px-8 py-4 tjpr-bg-alt border-b tjpr-border-main flex flex-wrap gap-6 items-center">
                             <div className="flex items-center gap-3">
-                                <span className="material-icons text-slate-500 text-sm">font_download</span>
-                                <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Fonte:</span>
+                                <span className="material-icons tjpr-text-dim text-sm">font_download</span>
+                                <span className="text-[10px] font-black tjpr-text-dim uppercase tracking-widest">Fonte:</span>
                                 <select 
                                     value={minutaStyles[activeTipo.id]?.font_family || 'Arial'}
                                     onChange={(e) => handleStyleChange(activeTipo.id, 'font_family', e.target.value)}
-                                    className="bg-slate-950 border border-white/10 rounded-lg text-xs font-bold text-white px-3 py-1 focus:ring-1 focus:ring-indigo-500"
+                                    className="tjpr-bg-main border tjpr-border-main rounded-lg text-xs font-bold tjpr-text-main px-3 py-1 focus:ring-1 focus:ring-primary"
                                 >
                                     <option value="Arial">Arial</option>
                                     <option value="Times New Roman">Times New Roman</option>
@@ -415,12 +504,12 @@ const MinutasAdminPage = () => {
                             </div>
 
                             <div className="flex items-center gap-3">
-                                <span className="material-icons text-slate-500 text-sm">format_size</span>
-                                <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Tamanho:</span>
+                                <span className="material-icons tjpr-text-dim text-sm">format_size</span>
+                                <span className="text-[10px] font-black tjpr-text-dim uppercase tracking-widest">Tamanho:</span>
                                 <select 
                                     value={minutaStyles[activeTipo.id]?.font_size || '16pt'}
                                     onChange={(e) => handleStyleChange(activeTipo.id, 'font_size', e.target.value)}
-                                    className="bg-slate-950 border border-white/10 rounded-lg text-xs font-bold text-white px-3 py-1 focus:ring-1 focus:ring-indigo-500"
+                                    className="tjpr-bg-main border tjpr-border-main rounded-lg text-xs font-bold tjpr-text-main px-3 py-1 focus:ring-1 focus:ring-primary"
                                 >
                                     <option value="12pt">12pt</option>
                                     <option value="14pt">14pt</option>
@@ -430,30 +519,30 @@ const MinutasAdminPage = () => {
                                 </select>
                             </div>
                             
-                            <div className="ml-auto text-[9px] font-bold text-slate-600 uppercase tracking-[0.2em] italic">
+                            <div className="ml-auto text-[9px] font-bold tjpr-text-dim uppercase tracking-[0.2em] italic">
                                 * As fontes serão aplicadas na geração do arquivo .doc
                             </div>
                         </div>
                         
                         <div className="p-8">
                             <div className="relative group/editor">
-                                <div className="absolute -inset-0.5 bg-gradient-to-r from-indigo-500/20 to-purple-500/20 rounded-3xl blur opacity-0 group-focus-within/editor:opacity-100 transition duration-1000"></div>
+                                <div className="absolute -inset-0.5 bg-gradient-to-r from-primary/20 to-purple-500/20 rounded-3xl blur opacity-0 group-focus-within/editor:opacity-100 transition duration-1000"></div>
                                 <textarea
                                     value={minutas[activeTipo.id] || ''}
                                     onChange={(e) => handleChange(activeTipo.id, e.target.value)}
-                                    className="relative w-full h-[500px] p-8 rounded-3xl bg-slate-950 border border-white/5 focus:border-indigo-500/50 focus:ring-0 font-mono text-xs leading-relaxed text-slate-300 resize-none transition-all custom-scrollbar shadow-2xl"
+                                    className="relative w-full h-[500px] p-8 rounded-3xl tjpr-bg-alt border tjpr-border-main focus:border-primary/50 focus:ring-0 font-mono text-xs leading-relaxed tjpr-text-main resize-none transition-all custom-scrollbar shadow-2xl"
                                     placeholder="Escreva aqui o conteúdo HTML da minuta..."
                                 />
                             </div>
                             
-                            <div className="mt-8 grid grid-cols-1 md:grid-cols-4 gap-4 p-6 bg-slate-950/40 rounded-3xl border border-white/5 relative overflow-hidden">
+                            <div className="mt-8 grid grid-cols-1 md:grid-cols-4 gap-4 p-6 tjpr-bg-alt rounded-3xl border tjpr-border-main relative overflow-hidden">
                                 <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-indigo-500/20 via-transparent to-transparent"></div>
                                 <div className="md:col-span-1 flex flex-col justify-center">
                                     <div className="flex items-center gap-2 mb-1">
-                                        <span className="material-icons text-indigo-400 text-sm">auto_fix_high</span>
-                                        <p className="text-[10px] font-black text-white uppercase tracking-widest">Variáveis de Texto:</p>
+                                        <span className="material-icons text-primary text-sm">auto_fix_high</span>
+                                        <p className="text-[10px] font-black tjpr-text-main uppercase tracking-widest">Variáveis de Texto:</p>
                                     </div>
-                                    <p className="text-[9px] font-bold text-slate-500 uppercase tracking-tighter">Clique para copiar as tags automáticas</p>
+                                    <p className="text-[9px] font-bold tjpr-text-dim uppercase tracking-tighter">Clique para copiar as tags automáticas</p>
                                 </div>
                                 <div className="md:col-span-3 flex flex-wrap gap-2">
                                     {['{{numeroProcesso}}', '{{dataPublicacao}}', '{{prazoExtenso}}', '{{setorNome}}'].map(tag => (
@@ -462,7 +551,7 @@ const MinutasAdminPage = () => {
                                             onClick={() => {
                                                 navigator.clipboard.writeText(tag);
                                             }}
-                                            className="px-4 py-2 rounded-xl bg-white/5 border border-white/5 text-[9px] font-black text-indigo-300 uppercase tracking-tighter hover:bg-indigo-500/20 hover:border-indigo-500/30 transition-all active:scale-95"
+                                            className="px-4 py-2 rounded-xl tjpr-bg-main border tjpr-border-main text-[9px] font-black text-primary uppercase tracking-tighter tjpr-bg-hover tjpr-border-hover transition-all active:scale-95"
                                         >
                                             {tag}
                                         </button>
@@ -471,7 +560,8 @@ const MinutasAdminPage = () => {
                             </div>
                         </div>
                     </div>
-                )}
+                ) : null}
+
             </div>
 
             {/* Modal de Criação de Minuta */}
@@ -483,7 +573,7 @@ const MinutasAdminPage = () => {
                 maxWidth="md"
             >
                 <div className="space-y-6">
-                    <p className="text-slate-400 text-xs font-bold uppercase tracking-widest leading-relaxed">
+                    <p className="tjpr-text-dim text-xs font-bold uppercase tracking-widest leading-relaxed">
                         Defina um nome claro para o novo modelo. Ele ficará disponível para todos os setores configurarem seus textos.
                     </p>
                     
@@ -526,13 +616,13 @@ const MinutasAdminPage = () => {
                 maxWidth="sm"
             >
                 <div className="space-y-6 text-center">
-                    <div className="w-20 h-20 rounded-full bg-rose-500/10 flex items-center justify-center mx-auto mb-2">
-                        <span className="material-icons text-rose-500 text-4xl">delete_forever</span>
+                    <div className="w-20 h-20 rounded-full bg-error/10 flex items-center justify-center mx-auto mb-2" style={{boxShadow: '0 0 40px -10px var(--tjpr-error-glow)'}}>
+                        <span className="material-icons tjpr-text-error text-4xl">delete_forever</span>
                     </div>
                     
                     <div>
-                        <h4 className="text-white font-black uppercase tracking-tight text-lg">Você tem certeza?</h4>
-                        <p className="text-slate-500 text-[11px] font-bold uppercase tracking-widest mt-2 leading-relaxed">
+                        <h4 className="tjpr-text-main font-black uppercase tracking-tight text-lg">Você tem certeza?</h4>
+                        <p className="tjpr-text-dim text-[11px] font-bold uppercase tracking-widest mt-2 leading-relaxed">
                             Esta ação é irreversível e removerá este modelo de todos os setores permanentemente.
                         </p>
                     </div>
