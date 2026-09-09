@@ -179,23 +179,65 @@ const AuthProvider = ({ children }) => {
     const [loading, setLoading] = useState(true);
     const [currentArea, setCurrentArea] = useState('Calculadora');
 
-    const updateUserAndAdminStatus = async (firebaseUser) => {
+    const updateUserAndAdminStatus = async (firebaseUser, isBackground = false) => {
         if (firebaseUser) {
-            setUser(firebaseUser);
+            if (!isBackground) {
+                setLoading(true);
+            }
+            let userDoc = null;
             try {
-                const userDoc = await db.collection('users').doc(firebaseUser.uid).get();
-                if (userDoc.exists) {
-                    setUserData(userDoc.data());
-                } else {
-                    // Se o documento não existe, desloga por segurança.
-                    console.warn("Documento do usuário não encontrado no Firestore. Deslogando.");
-                    auth.signOut();
+                userDoc = await db.collection('users').doc(firebaseUser.uid).get();
+            } catch (fetchErr) {
+                console.warn("Erro ao buscar dados do usuário, tentando renovar credenciais...", fetchErr);
+                try {
+                    // Força renovação de token caso tenha sido revogado por troca de senha
+                    await firebaseUser.getIdToken(true);
+                    userDoc = await db.collection('users').doc(firebaseUser.uid).get();
+                } catch (retryErr) {
+                    console.error("Falha ao recuperar dados do usuário após renovação de token:", retryErr);
+                }
+            }
+
+            if (userDoc && userDoc.exists) {
+                const data = userDoc.data();
+                setUser(firebaseUser);
+                setUserData(data);
+                try { sessionStorage.removeItem('loginErrorMessage'); } catch (e) {}
+            } else if (userDoc && !userDoc.exists) {
+                // Auto-recuperação (Self-healing): cria o perfil básico do usuário no Firestore caso não exista
+                console.warn("Documento do usuário não encontrado no Firestore. Criando perfil padrão (self-healing)...");
+                try {
+                    const email = firebaseUser.email || '';
+                    const defaultName = firebaseUser.displayName || (email ? email.split('@')[0] : 'Usuário');
+                    const newUserData = {
+                        email: email,
+                        role: 'basic',
+                        displayName: defaultName,
+                        setorId: '',
+                        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                    };
+                    await db.collection('users').doc(firebaseUser.uid).set(newUserData);
+                    setUser(firebaseUser);
+                    setUserData(newUserData);
+                    try { sessionStorage.removeItem('loginErrorMessage'); } catch (e) {}
+                } catch (createErr) {
+                    console.error("Não foi possível criar perfil automático no Firestore:", createErr);
+                    try { sessionStorage.setItem('loginErrorMessage', 'Conta de usuário sem permissão no banco de dados. Contate o suporte.'); } catch (e) {}
+                    await auth.signOut();
+                    setUser(null);
                     setUserData(null);
                 }
-            } catch (error) {
-                console.error("Erro ao buscar dados do usuário:", error);
-                auth.signOut();
-                setUserData(null);
+            } else {
+                // Erro na busca do documento (ex: rede ou indisponibilidade temporária)
+                if (!isBackground) {
+                    console.warn("Não foi possível carregar dados do usuário do Firestore no momento.");
+                    try { sessionStorage.setItem('loginErrorMessage', 'Erro de conexão ao carregar perfil de usuário. Tente novamente.'); } catch (e) {}
+                    await auth.signOut();
+                    setUser(null);
+                    setUserData(null);
+                } else {
+                    console.warn("Falha temporária ao sincronizar em segundo plano. Mantendo sessão ativa.");
+                }
             }
         } else {
             setUser(null);
@@ -209,15 +251,15 @@ const AuthProvider = ({ children }) => {
             setLoading(false);
             return;
         }
-        const unsubscribe = auth.onAuthStateChanged(updateUserAndAdminStatus);
+        const unsubscribe = auth.onAuthStateChanged((firebaseUser) => updateUserAndAdminStatus(firebaseUser));
         return () => unsubscribe();
     }, []);
 
     useEffect(() => {
         const handleVisibilityChange = () => {
             if (document.visibilityState === 'visible' && auth.currentUser) {
-                // Força a atualização dos dados do usuário quando a aba se torna visível
-                updateUserAndAdminStatus(auth.currentUser);
+                // Força a atualização dos dados do usuário quando a aba se torna visível em modo background
+                updateUserAndAdminStatus(auth.currentUser, true);
             }
         };
 

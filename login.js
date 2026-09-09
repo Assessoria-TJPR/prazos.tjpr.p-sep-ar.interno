@@ -21,6 +21,17 @@ const TJPRLoginPage = () => {
     const [showForgotPasswordModal, setShowForgotPasswordModal] = React.useState(false);
     const [resetEmail, setResetEmail] = React.useState('');
 
+    // Recupera eventuais mensagens de erro salvas na sessão (ex: falhas de sync ou banco)
+    React.useEffect(() => {
+        try {
+            const storedError = sessionStorage.getItem('loginErrorMessage');
+            if (storedError) {
+                setError(storedError);
+                sessionStorage.removeItem('loginErrorMessage');
+            }
+        } catch (e) {}
+    }, []);
+
     // Busca os setores do Firestore quando o modo de registro é ativado
     React.useEffect(() => {
         if (!isLogin && window.db) {
@@ -48,7 +59,8 @@ const TJPRLoginPage = () => {
         setMessage('');
         setLoading(true);
 
-        const fullEmail = username.includes('@') ? username : `${username}@tjpr.jus.br`;
+        const cleanUsername = username.trim();
+        const fullEmail = cleanUsername.includes('@') ? cleanUsername : `${cleanUsername}@tjpr.jus.br`;
 
         try {
             if (isLogin) {
@@ -133,8 +145,9 @@ const TJPRLoginPage = () => {
     };
 
     const openForgotPasswordModal = () => {
-        const initialEmail = username
-            ? (username.includes('@') ? username : `${username}@tjpr.jus.br`)
+        const cleanUsername = username.trim();
+        const initialEmail = cleanUsername
+            ? (cleanUsername.includes('@') ? cleanUsername : `${cleanUsername}@tjpr.jus.br`)
             : '';
         setResetEmail(initialEmail);
         setError('');
